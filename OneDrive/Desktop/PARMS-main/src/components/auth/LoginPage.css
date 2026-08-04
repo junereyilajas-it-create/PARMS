@@ -1,0 +1,14 @@
+.login-root{display:flex;min-height:80vh;margin:40px;border-radius:8px;overflow:hidden;background:#fff;box-shadow:0 8px 24px rgba(12,30,26,0.06)}
+.login-left{flex:1;background-image:url('../../assets/hero.png');background-size:cover;background-position:center;min-height:480px}
+.login-right{width:480px;padding:48px}
+.login-right h1{margin:0 0 8px;font-size:28px}
+.login-right p{color:#556b66;margin:0 0 20px}
+.login-form{display:flex;flex-direction:column;gap:12px}
+.login-form label{font-size:13px;color:#334a44}
+.login-form input{padding:12px;border-radius:6px;border:1px solid #e6efee;background:#f6fbfa}
+.login-form .forgot{float:right;font-size:13px;color:#0b513d}
+.remember{display:flex;align-items:center;gap:8px;font-size:13px}
+.login-btn{background:#0b513d;color:#fff;padding:12px;border-radius:8px;border:none;margin-top:8px;cursor:pointer}
+.login-footer{margin-top:18px;color:#9aaea8;font-size:13px}
+
+@media(max-width:900px){.login-root{flex-direction:column}.login-right{width:100%}}
