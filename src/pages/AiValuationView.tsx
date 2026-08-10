@@ -1,7 +1,7 @@
 import { Building2, ClipboardCheck, Sparkles, MapPin } from 'lucide-react'
-import { properties } from '../../data/properties'
-import { PropertyTable } from '../common/PropertyTable'
-import type { EstimateInput } from '../../types/property'
+import { properties } from '../data/properties'
+import { PropertyTable } from '../components/common/PropertyTable'
+import type { EstimateInput } from '../types/property'
 const peso = (value: number) => `₱${new Intl.NumberFormat('en-PH').format(value)}`
 export function AiValuationView({ value, onChange }: { value: EstimateInput; onChange: (value: EstimateInput) => void }) {
   const estimate = Math.round((Number(value.lot) * 1250 + Number(value.building) * 18500) * Math.max(.65, 1 - Number(value.age) * .008)); const confidence = Math.min(94, 78 + (Number(value.building) > 0 ? 8 : 0))

@@ -1,6 +1,6 @@
 import { ArrowRight, Building2, Landmark, Map, ScanSearch } from 'lucide-react'
-import '../../styles/LandingPage.css'
-import './LandingOverride.css'
+import '../styles/LandingPage.css'
+import '../styles/LandingOverride.css'
 
 export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const cards = [

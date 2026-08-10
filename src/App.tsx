@@ -10,12 +10,10 @@ import './styles/ReferenceHeader.css'
 import './styles/ProfilePolish.css'
 import './styles/DashboardHeaderColor.css'
 import { properties } from './data/properties'
-import { DashboardView } from './components/dashboard/DashboardView'
-import { PropertyMapView } from './components/maps/PropertyMapView'
+import { AiPropertyValuation, BuildingDirectory, DashboardView, LandingPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
-import { LandingPage, PropertyLotManagement, PropertyOwnershipTransfer, AiPropertyValuation, BuildingDirectory, OperationalIntelligenceReports } from './components'
 
 function App() {
   const [activePage, setActivePage] = useState('Landing')

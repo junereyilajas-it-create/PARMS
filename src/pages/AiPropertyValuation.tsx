@@ -1,7 +1,7 @@
 import React from 'react';
 import { Download, CheckCircle2 } from 'lucide-react';
-import { BarChartComponent } from '../charts/BarChartComponent';
-import { DataTable } from '../common/DataTable';
+import { BarChartComponent } from '../components/charts/BarChartComponent';
+import { DataTable } from '../components/common/DataTable';
 
 export const AiPropertyValuation: React.FC = () => {
   // Mock data for price index chart

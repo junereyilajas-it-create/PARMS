@@ -1,8 +1,8 @@
 import { Bot, Building2, MapPin, Plus, Sparkles, Users } from 'lucide-react'
-import { Metric } from '../common/Metric'
-import { PropertyTable } from '../common/PropertyTable'
-import { SearchBox } from '../common/SearchBox'
-import type { Property } from '../../types/property'
+import { Metric } from '../components/common/Metric'
+import { PropertyTable } from '../components/common/PropertyTable'
+import { SearchBox } from '../components/common/SearchBox'
+import type { Property } from '../types/property'
 
 function Activity({ initials, color, text, name }: { initials: string; color: string; text: string; name: string }) { return <div className="activity-row"><div className={`person ${color}`}>{initials}</div><div><strong>{text}</strong><span>{name}</span></div></div> }
 export function DashboardView({ active, query, onQueryChange, rows, onNavigate, onRegister }: { active: string; query: string; onQueryChange: (value: string) => void; rows: Property[]; onNavigate: (page: string) => void; onRegister: () => void }) {

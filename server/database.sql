@@ -2,11 +2,6 @@ CREATE DATABASE IF NOT EXISTS property_management_db
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE property_management_db;
 
-CREATE TABLE roles (
-  role_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  role_name VARCHAR(50) NOT NULL UNIQUE
-) ENGINE=InnoDB;
-
 CREATE TABLE users (
   user_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   first_name VARCHAR(80) NOT NULL,
@@ -14,9 +9,8 @@ CREATE TABLE users (
   username VARCHAR(60) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   email VARCHAR(120) NOT NULL UNIQUE,
-  role_id INT UNSIGNED NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_users_role FOREIGN KEY (role_id) REFERENCES roles(role_id)
+  role ENUM('admin', 'assessor', 'staff') NOT NULL DEFAULT 'staff',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
 CREATE TABLE property_owners (
@@ -219,7 +213,6 @@ CREATE TABLE activity_logs (
   CONSTRAINT fk_logs_user FOREIGN KEY (user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
-INSERT INTO roles (role_name) VALUES ('Administrator'), ('Assessor'), ('Staff');
 INSERT INTO property_types (property_type_name) VALUES ('Residential'), ('Commercial'), ('Agricultural'), ('Industrial');
 INSERT INTO property_classifications (classification_name) VALUES ('Residential Lot'), ('Commercial Lot'), ('Agricultural Land'), ('Industrial Lot');
 INSERT INTO assessment_levels (classification_id, assessment_percentage) VALUES (1, 20.00), (2, 50.00), (3, 40.00), (4, 50.00);

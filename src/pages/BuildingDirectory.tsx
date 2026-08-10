@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Plus, Filter } from 'lucide-react';
-import { BarChartComponent } from '../charts/BarChartComponent';
-import { MetricCard } from '../common/MetricCard';
-import { DataTable } from '../common/DataTable';
-import { CrudModal, type CrudField } from '../common/CrudModal';
+import { BarChartComponent } from '../components/charts/BarChartComponent';
+import { MetricCard } from '../components/common/MetricCard';
+import { DataTable } from '../components/common/DataTable';
+import { CrudModal, type CrudField } from '../components/common/CrudModal';
+import { BuildingRegistrationModal } from '../components/common/BuildingRegistrationModal';
 
 export const BuildingDirectory: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
@@ -167,7 +168,8 @@ export const BuildingDirectory: React.FC = () => {
         onDelete={(record) => { if (confirm(`Delete ${record.id}?`)) setBuildingData(items => items.filter(item => item.id !== record.id)); }}
         showActions={true}
       />
-      {modal && <CrudModal title={`${modal.mode === 'create' ? 'Add' : modal.mode === 'edit' ? 'Edit' : 'Building'} Structure`} fields={fields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={save} />}
+      {modal?.mode === 'create' && <BuildingRegistrationModal close={() => setModal(null)} onSave={building => save({ ...building, lastAssessment: '0', status: 'PENDING' })}/>} 
+      {modal && modal.mode !== 'create' && <CrudModal title={`${modal.mode === 'edit' ? 'Edit' : 'Building'} Structure`} fields={fields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={save} />}
 
       {/* Construction Trends Chart */}
       <div className="grid grid-cols-3 gap-6">

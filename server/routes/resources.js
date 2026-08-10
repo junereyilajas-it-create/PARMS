@@ -9,7 +9,7 @@ const config = {
   buildings: { table: 'property_buildings', idColumn: 'building_id', columns: ['property_id','building_name','building_type','floor_area','floor_count','construction_type','year_constructed','market_value','assessed_value','building_status'] },
   assessments: { table: 'property_assessments', idColumn: 'assessment_id', columns: ['property_id','assessor_user_id','assessment_level_id','market_value','assessed_value','assessment_date','remarks'] },
   declarations: { table: 'tax_declarations', idColumn: 'tax_declaration_id', columns: ['property_id','assessment_id','declaration_number','tax_year','issue_date'] },
-  users: { table: 'users', idColumn: 'user_id', columns: ['first_name','last_name','username','password_hash','email','role_id'] },
+  users: { table: 'users', idColumn: 'user_id', columns: ['first_name','last_name','username','password_hash','email','role'] },
 }
 for (const [path, { table, columns, idColumn }] of Object.entries(config)) {
   router.get(`/${path}`, authenticate, async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} ORDER BY ${idColumn} DESC`); res.json(rows) } catch (e) { next(e) } })

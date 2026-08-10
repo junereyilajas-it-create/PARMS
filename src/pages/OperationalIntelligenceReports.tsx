@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { FileText, Download as DownloadIcon, Plus } from 'lucide-react';
-import { BarChartComponent } from '../charts/BarChartComponent';
-import { DonutChartComponent } from '../charts/DonutChartComponent';
-import { DataTable } from '../common/DataTable';
-import { CrudModal, type CrudField } from '../common/CrudModal';
+import { BarChartComponent } from '../components/charts/BarChartComponent';
+import { DonutChartComponent } from '../components/charts/DonutChartComponent';
+import { DataTable } from '../components/common/DataTable';
+import { CrudModal, type CrudField } from '../components/common/CrudModal';
 
 export const OperationalIntelligenceReports: React.FC = () => {
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
