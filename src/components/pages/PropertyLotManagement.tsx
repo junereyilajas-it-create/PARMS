@@ -1,0 +1,24 @@
+import { useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
+import { DataTable } from '../common/DataTable'
+import { FilterBar } from '../common/FilterBar'
+import { CrudModal, type CrudField } from '../common/CrudModal'
+
+type Lot = { id: string; lotId: string; location: string; area: number; classification: string; owner: string; status: string }
+const initialLots: Lot[] = [
+  { id: '1', lotId: 'LOT-2024-0891', location: 'San Lorenzo, Block 11, Phase 4', area: 450, classification: 'RESIDENTIAL', owner: 'Juan Dela Cruz', status: 'Active' },
+  { id: '2', lotId: 'LOT-2024-0902', location: 'Bel-Air, Mabini Ave Core', area: 1250.5, classification: 'COMMERCIAL', owner: 'Maria Pineda', status: 'Active' },
+  { id: '3', lotId: 'LOT-2023-1104', location: 'Poblacion, Riverside Area', area: 320.15, classification: 'RESIDENTIAL', owner: 'Ricardo Santos', status: 'Under Review' },
+]
+const fields: CrudField[] = [{ key: 'lotId', label: 'Lot ID' }, { key: 'location', label: 'Location' }, { key: 'area', label: 'Area (sqm)', type: 'number' }, { key: 'classification', label: 'Classification', type: 'select', options: ['RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'INSTITUTIONAL'] }, { key: 'owner', label: 'Owner' }, { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Under Review', 'Pending Transfer'] }]
+
+export function PropertyLotManagement() {
+  const [lots, setLots] = useState(initialLots); const [filters, setFilters] = useState({ district: '', classification: '', status: '' }); const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: Lot } | null>(null)
+  const displayedLots = useMemo(() => lots.filter(lot => (!filters.district || lot.location.toLowerCase().includes(filters.district.replace('-', ' '))) && (!filters.classification || lot.classification.toLowerCase() === filters.classification) && (!filters.status || lot.status.toLowerCase().includes(filters.status))), [lots, filters])
+  const save = (values: Record<string, string>) => { if (modal?.mode === 'create') setLots(items => [...items, { ...values, id: crypto.randomUUID(), area: Number(values.area) } as Lot]); else if (modal?.record) setLots(items => items.map(item => item.id === modal.record?.id ? { ...item, ...values, area: Number(values.area) } as Lot : item)); setModal(null) }
+  const badge = (status: string) => <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">{status}</span>
+  return <div className="space-y-6"><div className="flex items-center justify-between"><div><h1 className="text-3xl font-bold text-gray-900">Property Lot Management</h1><p className="mt-1 text-gray-600">Create, update, and manage municipal land assets.</p></div><button onClick={() => setModal({ mode: 'create' })} className="flex items-center gap-2 rounded-lg bg-green-800 px-4 py-2 text-white"><Plus size={20}/>Register New Lot</button></div>
+    <FilterBar filters={[{ label: 'Barangay District', value: filters.district, options: [{ label: 'All Barangays', value: '' }, { label: 'San Lorenzo', value: 'san-lorenzo' }, { label: 'Bel-Air', value: 'bel-air' }, { label: 'Poblacion', value: 'poblacion' }] }, { label: 'Classification', value: filters.classification, options: [{ label: 'All Classifications', value: '' }, ...['residential', 'commercial', 'industrial', 'institutional'].map(value => ({ label: value, value }))] }, { label: 'Status', value: filters.status, options: [{ label: 'All Status', value: '' }, { label: 'Active', value: 'active' }, { label: 'Under Review', value: 'under review' }] }]} onFilterChange={(name, value) => setFilters(current => ({ ...current, [name === 'Barangay District' ? 'district' : name === 'Classification' ? 'classification' : 'status']: value }))} onReset={() => setFilters({ district: '', classification: '', status: '' })}/>
+    <p className="text-gray-600">Displaying {displayedLots.length} registered lots</p><DataTable columns={[{ key: 'lotId', label: 'LOT ID' }, { key: 'location', label: 'LOCATION' }, { key: 'area', label: 'AREA (SQM)', render: (value: number) => value.toFixed(2) }, { key: 'classification', label: 'CLASSIFICATION' }, { key: 'owner', label: 'OWNER' }, { key: 'status', label: 'STATUS', render: badge }]} data={displayedLots} onView={record => setModal({ mode: 'view', record })} onEdit={record => setModal({ mode: 'edit', record })} onDelete={record => { if (confirm(`Delete ${record.lotId}?`)) setLots(items => items.filter(item => item.id !== record.id)) }}/>
+    {modal && <CrudModal title={`${modal.mode === 'create' ? 'Register' : modal.mode === 'edit' ? 'Edit' : 'Lot'} Record`} fields={fields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={save}/>}</div>
+}

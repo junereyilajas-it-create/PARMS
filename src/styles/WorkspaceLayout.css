@@ -1,0 +1,2 @@
+/* Use the full workspace width rather than centering pages in a narrow container. */
+.sidebar{width:200px}.app-shell main{margin-left:200px}.content{max-width:none;width:100%;margin:0;padding:18px 20px}.topbar{padding-left:20px;padding-right:20px}@media(max-width:760px){.sidebar{width:64px}.app-shell main{margin-left:64px}.content{padding:14px 10px}}

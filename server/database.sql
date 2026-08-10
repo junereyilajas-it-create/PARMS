@@ -53,42 +53,51 @@ CREATE TABLE property_classifications (
   classification_name VARCHAR(100) NOT NULL UNIQUE
 ) ENGINE=InnoDB;
 
-CREATE TABLE property_lots (
-  lot_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE properties (
+  property_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   owner_id INT UNSIGNED NOT NULL,
   address_id INT UNSIGNED NOT NULL,
   property_type_id INT UNSIGNED NOT NULL,
   classification_id INT UNSIGNED NOT NULL,
+  property_status ENUM('active','inactive','pending') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_properties_owner FOREIGN KEY (owner_id) REFERENCES property_owners(owner_id),
+  CONSTRAINT fk_properties_address FOREIGN KEY (address_id) REFERENCES addresses(address_id),
+  CONSTRAINT fk_properties_type FOREIGN KEY (property_type_id) REFERENCES property_types(property_type_id),
+  CONSTRAINT fk_properties_classification FOREIGN KEY (classification_id) REFERENCES property_classifications(classification_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE property_lots (
+  lot_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  property_id INT UNSIGNED NOT NULL,
   lot_number VARCHAR(80) NOT NULL UNIQUE,
   title_number VARCHAR(80) UNIQUE,
   location VARCHAR(255) NOT NULL,
   lot_area DECIMAL(12,2),
   latitude DECIMAL(10,7),
   longitude DECIMAL(10,7),
-  property_status ENUM('active','inactive','pending') NOT NULL DEFAULT 'active',
+  lot_status ENUM('active','inactive','pending') NOT NULL DEFAULT 'active',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_lots_owner FOREIGN KEY (owner_id) REFERENCES property_owners(owner_id),
-  CONSTRAINT fk_lots_address FOREIGN KEY (address_id) REFERENCES addresses(address_id),
-  CONSTRAINT fk_lots_type FOREIGN KEY (property_type_id) REFERENCES property_types(property_type_id),
-  CONSTRAINT fk_lots_classification FOREIGN KEY (classification_id) REFERENCES property_classifications(classification_id)
+  CONSTRAINT fk_lots_property FOREIGN KEY (property_id) REFERENCES properties(property_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE property_buildings (
   building_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  lot_id INT UNSIGNED NOT NULL,
-  property_name VARCHAR(255),
+  property_id INT UNSIGNED NOT NULL,
+  building_name VARCHAR(255),
   building_type VARCHAR(120),
-  building_area DECIMAL(12,2),
-  number_of_floors TINYINT UNSIGNED,
+  floor_area DECIMAL(12,2),
+  floor_count TINYINT UNSIGNED,
   construction_type VARCHAR(120),
   year_constructed YEAR,
   market_value DECIMAL(15,2),
   assessed_value DECIMAL(15,2),
-  property_status ENUM('active','inactive','pending') NOT NULL DEFAULT 'active',
+  building_status ENUM('active','inactive','pending') NOT NULL DEFAULT 'active',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_buildings_lot FOREIGN KEY (lot_id) REFERENCES property_lots(lot_id)
+  CONSTRAINT fk_buildings_property FOREIGN KEY (property_id) REFERENCES properties(property_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE lot_history (
@@ -148,7 +157,7 @@ CREATE TABLE building_assessment_history (
   assessment_level_id INT UNSIGNED NOT NULL,
   market_value DECIMAL(15,2) NOT NULL,
   assessed_value DECIMAL(15,2) NOT NULL,
-  assessment_date DATE NOT NULL,y_lots(lot
+  assessment_date DATE NOT NULL,
   assessment_reason TEXT,
   remarks TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -172,7 +181,7 @@ CREATE TABLE property_assessments (
   assessment_level_id INT UNSIGNED NOT NULL, market_value DECIMAL(15,2) NOT NULL,
   assessed_value DECIMAL(15,2) NOT NULL, assessment_date DATE NOT NULL,
   remarks TEXT,
-  CONSTRAINT fk_assessments_property FOREIGN KEY (property_id) REFERENCES property_lots(lot_id),
+  CONSTRAINT fk_assessments_property FOREIGN KEY (property_id) REFERENCES properties(property_id),
   CONSTRAINT fk_assessments_user FOREIGN KEY (assessor_user_id) REFERENCES users(user_id),
   CONSTRAINT fk_assessments_level FOREIGN KEY (assessment_level_id) REFERENCES assessment_levels(assessment_level_id)
 ) ENGINE=InnoDB;
@@ -181,7 +190,7 @@ CREATE TABLE tax_declarations (
   tax_declaration_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   property_id INT UNSIGNED NOT NULL, assessment_id INT UNSIGNED NOT NULL,
   declaration_number VARCHAR(80) NOT NULL UNIQUE, tax_year YEAR NOT NULL, issue_date DATE NOT NULL,
-  CONSTRAINT fk_declarations_property FOREIGN KEY (property_id) REFERENCES property_lots(lot_id),
+  CONSTRAINT fk_declarations_property FOREIGN KEY (property_id) REFERENCES properties(property_id),
   CONSTRAINT fk_declarations_assessment FOREIGN KEY (assessment_id) REFERENCES property_assessments(assessment_id)
 ) ENGINE=InnoDB;
 
@@ -191,7 +200,7 @@ CREATE TABLE ai_predictions (
   predicted_assessed_value DECIMAL(15,2) NOT NULL, confidence_score DECIMAL(5,2) NOT NULL,
   prediction_reason TEXT, prediction_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   approved_by_user_id INT UNSIGNED, prediction_status ENUM('pending','approved','edited','rejected') NOT NULL DEFAULT 'pending',
-  CONSTRAINT fk_predictions_property FOREIGN KEY (property_id) REFERENCES property_lots(lot_id),
+  CONSTRAINT fk_predictions_property FOREIGN KEY (property_id) REFERENCES properties(property_id),
   CONSTRAINT fk_predictions_approver FOREIGN KEY (approved_by_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
@@ -200,7 +209,7 @@ CREATE TABLE gis_locations (
   property_id INT UNSIGNED NOT NULL UNIQUE, latitude DECIMAL(10,7) NOT NULL,
   longitude DECIMAL(10,7) NOT NULL, gps_accuracy DECIMAL(8,2),
   last_updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_gis_property FOREIGN KEY (property_id) REFERENCES property_lots(lot_id)
+  CONSTRAINT fk_gis_property FOREIGN KEY (property_id) REFERENCES properties(property_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE activity_logs (
@@ -222,7 +231,7 @@ CREATE TABLE ownership_transfers (
   transfer_reason ENUM('sale','donation','inheritance','court_order','other') NOT NULL,
   transfer_date DATE NOT NULL, reference_number VARCHAR(100), remarks TEXT,
   processed_by_user_id INT UNSIGNED, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (property_id) REFERENCES property_lots(lot_id),
+  FOREIGN KEY (property_id) REFERENCES properties(property_id),
   FOREIGN KEY (previous_owner_id) REFERENCES property_owners(owner_id),
   FOREIGN KEY (new_owner_id) REFERENCES property_owners(owner_id),
   FOREIGN KEY (processed_by_user_id) REFERENCES users(user_id)
@@ -233,7 +242,7 @@ CREATE TABLE property_inspections (
   inspector_user_id INT UNSIGNED, scheduled_at DATETIME NOT NULL, completed_at DATETIME,
   inspection_status ENUM('scheduled','completed','cancelled','for_report') DEFAULT 'scheduled',
   property_condition VARCHAR(100), remarks TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (property_id) REFERENCES property_lots(lot_id), FOREIGN KEY (inspector_user_id) REFERENCES users(user_id)
+  FOREIGN KEY (property_id) REFERENCES properties(property_id), FOREIGN KEY (inspector_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE inspection_photos (
@@ -247,7 +256,7 @@ CREATE TABLE assessment_appeals (
   assessment_id INT UNSIGNED, appellant_owner_id INT UNSIGNED NOT NULL, appeal_reason TEXT NOT NULL,
   assigned_assessor_id INT UNSIGNED, appeal_status ENUM('submitted','under_review','approved','rejected','resolved') DEFAULT 'submitted',
   resolution TEXT, submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, resolved_at TIMESTAMP NULL,
-  FOREIGN KEY (property_id) REFERENCES property_lots(lot_id), FOREIGN KEY (assessment_id) REFERENCES property_assessments(assessment_id),
+  FOREIGN KEY (property_id) REFERENCES properties(property_id), FOREIGN KEY (assessment_id) REFERENCES property_assessments(assessment_id),
   FOREIGN KEY (appellant_owner_id) REFERENCES property_owners(owner_id), FOREIGN KEY (assigned_assessor_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
@@ -256,7 +265,7 @@ CREATE TABLE certified_copy_issuances (
   certification_number VARCHAR(100) NOT NULL UNIQUE, document_type ENUM('tax_declaration','property_record','assessment_record') NOT NULL,
   requestor_name VARCHAR(200) NOT NULL, issued_by_user_id INT UNSIGNED NOT NULL,
   issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, purpose VARCHAR(255),
-  FOREIGN KEY (property_id) REFERENCES property_lots(lot_id), FOREIGN KEY (issued_by_user_id) REFERENCES users(user_id)
+  FOREIGN KEY (property_id) REFERENCES properties(property_id), FOREIGN KEY (issued_by_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE database_backups (
