@@ -10,7 +10,7 @@ import './styles/ReferenceHeader.css'
 import './styles/ProfilePolish.css'
 import './styles/DashboardHeaderColor.css'
 import { properties } from './data/properties'
-import { AiPropertyValuation, BuildingDirectory, DashboardView, LandingPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer } from './pages'
+import { AiPropertyValuation, BuildingDirectory, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
@@ -24,6 +24,8 @@ function App() {
   const filteredProperties = useMemo(() => propertyRecords.filter(property => `${property.id} ${property.owner} ${property.location}`.toLowerCase().includes(query.toLowerCase())), [query, propertyRecords])
 
   if (activePage === 'Landing') return <LandingPage onNavigate={setActivePage} />
+  if (activePage === 'Login') return <LoginPage onNavigate={setActivePage} />
+  if (activePage === 'Register') return <RegisterPage onNavigate={setActivePage} />
 
   const sharedDashboardProps = { active: activePage, query, onQueryChange: setQuery, rows: filteredProperties, onNavigate: setActivePage, onRegister: () => setShowRegisterModal(true) }
   const page = (() => {

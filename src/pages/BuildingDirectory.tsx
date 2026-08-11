@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Plus, Filter } from 'lucide-react';
 import { BarChartComponent } from '../components/charts/BarChartComponent';
 import { MetricCard } from '../components/common/MetricCard';
 import { DataTable } from '../components/common/DataTable';
 import { CrudModal, type CrudField } from '../components/common/CrudModal';
-import { BuildingRegistrationModal } from '../components/common/BuildingRegistrationModal';
+import api, { ensureSession } from '../lib/api';
 
 export const BuildingDirectory: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
@@ -20,51 +20,12 @@ export const BuildingDirectory: React.FC = () => {
     { year: '2024 (Pro)', structures: 2800 },
   ];
 
-  const initialBuildings = [
-    {
-      id: 'BLDG-10294-A',
-      type: 'Residential',
-      lotPin: 'LOT-01-010-012',
-      yearBuilt: 1988,
-      lastAssessment: 425000,
-      status: 'APPROVED',
-    },
-    {
-      id: 'BLDG-98219-C',
-      type: 'Commercial',
-      lotPin: 'LOT-04-210-015',
-      yearBuilt: 2012,
-      lastAssessment: 1850000,
-      status: 'APPROVED',
-    },
-    {
-      id: 'BLDG-30642-B',
-      type: 'Residential',
-      lotPin: 'LOT-22-812-011',
-      yearBuilt: 1965,
-      lastAssessment: 780200,
-      status: 'ARCHIVED',
-    },
-    {
-      id: 'BLDG-99291-F',
-      type: 'Industrial',
-      lotPin: 'LOT-28-308-013',
-      yearBuilt: 2023,
-      lastAssessment: 3120000,
-      status: 'PENDING',
-    },
-    {
-      id: 'BLDG-44192-X',
-      type: 'Mixed Use',
-      lotPin: 'LOT-04-110-008',
-      yearBuilt: 2005,
-      lastAssessment: 920000,
-      status: 'APPROVED',
-    },
-  ];
-  const [buildingData, setBuildingData] = useState(initialBuildings);
-  const fields: CrudField[] = [{ key: 'id', label: 'Building ID' }, { key: 'type', label: 'Type', type: 'select', options: ['Residential', 'Commercial', 'Industrial', 'Mixed Use'] }, { key: 'lotPin', label: 'Lot PIN' }, { key: 'yearBuilt', label: 'Year Built', type: 'number' }, { key: 'lastAssessment', label: 'Last Assessment', type: 'number' }, { key: 'status', label: 'Status', type: 'select', options: ['APPROVED', 'PENDING', 'ARCHIVED'] }];
-  const save = (values: Record<string, string>) => { const record = { ...values, yearBuilt: Number(values.yearBuilt), lastAssessment: Number(values.lastAssessment) } as typeof initialBuildings[number]; if (modal?.mode === 'create') setBuildingData(items => [...items, record]); else if (modal?.record) setBuildingData(items => items.map(item => item.id === modal.record.id ? record : item)); setModal(null); };
+  const [buildingData, setBuildingData] = useState<any[]>([]);
+  const [error, setError] = useState('');
+  const fields: CrudField[] = [{ key: 'property_id', label: 'Property ID', type: 'number' }, { key: 'building_name', label: 'Building name' }, { key: 'building_type', label: 'Type' }, { key: 'floor_area', label: 'Floor area', type: 'number' }, { key: 'floor_count', label: 'Floors', type: 'number' }, { key: 'construction_type', label: 'Construction type' }, { key: 'year_constructed', label: 'Year built', type: 'number' }, { key: 'market_value', label: 'Market value', type: 'number' }, { key: 'assessed_value', label: 'Assessed value', type: 'number' }, { key: 'building_status', label: 'Status', type: 'select', options: ['active', 'inactive', 'pending'] }];
+  const load = async () => { try { await ensureSession(); const { data } = await api.get('/buildings'); setBuildingData(data); } catch { setError('Unable to load building records from the database.') } };
+  useEffect(() => { load() }, []);
+  const save = async (values: Record<string, string>) => { try { await ensureSession(); if (modal?.mode === 'create') await api.post('/buildings', values); else if (modal?.record) await api.put(`/buildings/${modal.record.building_id}`, values); setModal(null); await load(); } catch { setError('Unable to save the building. Check required property IDs and values.') } };
 
   const getStatusBadge = (status: string) => {
     const statusStyles: Record<string, string> = {
@@ -80,12 +41,12 @@ export const BuildingDirectory: React.FC = () => {
   };
 
   const columns = [
-    { key: 'id', label: 'Building ID' },
-    { key: 'type', label: 'Type' },
-    { key: 'lotPin', label: 'Lot PIN' },
-    { key: 'yearBuilt', label: 'Year Built' },
-    { key: 'lastAssessment', label: 'Last Assessment', render: (v: number) => `$${v.toLocaleString()}` },
-    { key: 'status', label: 'Status', render: getStatusBadge },
+    { key: 'building_id', label: 'Building ID' },
+    { key: 'building_type', label: 'Type' },
+    { key: 'property_id', label: 'Property ID' },
+    { key: 'year_constructed', label: 'Year Built' },
+    { key: 'assessed_value', label: 'Last Assessment', render: (v: number) => `₱${Number(v).toLocaleString()}` },
+    { key: 'building_status', label: 'Status', render: getStatusBadge },
   ];
 
   return (
@@ -157,7 +118,7 @@ export const BuildingDirectory: React.FC = () => {
       </div>
 
       {/* Data Table */}
-      <DataTable
+      {error && <p className="text-red-700">{error}</p>}<DataTable
         columns={columns}
         data={buildingData}
         currentPage={currentPage}
@@ -165,11 +126,10 @@ export const BuildingDirectory: React.FC = () => {
         onPageChange={setCurrentPage}
         onView={(record) => setModal({ mode: 'view', record })}
         onEdit={(record) => setModal({ mode: 'edit', record })}
-        onDelete={(record) => { if (confirm(`Delete ${record.id}?`)) setBuildingData(items => items.filter(item => item.id !== record.id)); }}
+        onDelete={async (record) => { if (!confirm(`Delete building ${record.building_id}?`)) return; try { await ensureSession(); await api.delete(`/buildings/${record.building_id}`); await load(); } catch { setError('This building cannot be deleted while it has related records.'); } }}
         showActions={true}
       />
-      {modal?.mode === 'create' && <BuildingRegistrationModal close={() => setModal(null)} onSave={building => save({ ...building, lastAssessment: '0', status: 'PENDING' })}/>} 
-      {modal && modal.mode !== 'create' && <CrudModal title={`${modal.mode === 'edit' ? 'Edit' : 'Building'} Structure`} fields={fields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={save} />}
+      {modal && <CrudModal title={`${modal.mode === 'create' ? 'Add' : modal.mode === 'edit' ? 'Edit' : 'Building'} Structure`} fields={fields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={save} />}
 
       {/* Construction Trends Chart */}
       <div className="grid grid-cols-3 gap-6">

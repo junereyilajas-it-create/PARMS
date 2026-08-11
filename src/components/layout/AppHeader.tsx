@@ -5,7 +5,7 @@ export function AppHeader({ active, searchValue, onSearchChange }: { active: str
       <div className="header-left">
         <button className="mobile-menu" aria-label="Open menu"><Menu /></button>
         <div>
-          <div className="header-brand">Assessor Pro AI</div>
+          <div className="header-brand">Accessor Office</div>
           <div className="header-subtitle">{active === 'Dashboard' ? 'Dashboard' : active}</div>
         </div>
       </div>

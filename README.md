@@ -1,5 +1,13 @@
 # React + TypeScript + Vite
 
+## Database-backed CRUD
+
+Import [server/database.sql](server/database.sql) into MySQL, copy `.env.example` to `.env`, and start both applications with `npm run dev:all`.
+
+The import creates linked sample data for every table (at least three records per table) and a development account: `admin` / `password`. The frontend automatically uses that local development account; override it with `VITE_DEMO_USERNAME` and `VITE_DEMO_PASSWORD` if needed.
+
+All tables have authenticated REST CRUD endpoints under `/api`. For example: `/api/owners`, `/api/properties`, `/api/lots`, `/api/buildings`, `/api/assessments`, `/api/inspections`, and `/api/backups`. The Property Lot Management and Building Directory pages read and write those endpoints directly.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:
