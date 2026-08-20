@@ -7,7 +7,7 @@ This document describes the modular component architecture for the Assessor Pro 
 ## Component Structure
 
 ```
-src/components/
+frontend/src/components/
 ├── charts/
 │   ├── BarChartComponent.tsx      # Recharts bar chart wrapper
 │   ├── DonutChartComponent.tsx    # Recharts donut/pie chart wrapper
@@ -216,8 +216,8 @@ import {
 
 ### Adding a New Page
 
-1. Create component in `src/components/pages/YourPage.tsx`
-2. Export from `src/components/index.ts`
+1. Create component in `frontend/src/components/pages/YourPage.tsx`
+2. Export from `frontend/src/components/index.ts`
 3. Add navigation option in `AppSidebar.tsx`
 4. Add conditional render in `App.tsx`
 

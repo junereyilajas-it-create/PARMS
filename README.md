@@ -2,7 +2,7 @@
 
 ## Database-backed CRUD
 
-Import [server/database.sql](server/database.sql) into MySQL, copy `.env.example` to `.env`, and start both applications with `npm run dev:all`.
+Import [backend/database.sql](backend/database.sql) into MySQL, copy `backend/.env.example` to `backend/.env`, and start both applications with `npm run dev:all`.
 
 The import creates linked sample data for every table (at least three records per table) and a development account: `admin` / `password`. The frontend automatically uses that local development account; override it with `VITE_DEMO_USERNAME` and `VITE_DEMO_PASSWORD` if needed.
 
