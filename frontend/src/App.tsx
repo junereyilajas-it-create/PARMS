@@ -9,7 +9,7 @@ import './styles/HeaderSidebarRefinement.css'
 import './styles/ReferenceHeader.css'
 import './styles/ProfilePolish.css'
 import './styles/DashboardHeaderColor.css'
-import { AiPropertyValuation, BuildingDirectory, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications } from './pages'
+import { AiPropertyValuation, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
@@ -86,13 +86,12 @@ function App() {
   const sharedDashboardProps = { active: activePage, query, onQueryChange: setQuery, rows: filteredProperties, onNavigate: setActivePage, onRegister: () => setShowRegisterModal(true), onDelete: deleteProperty }
   const page = (() => {
     switch (activePage) {
-      case 'Lot Management': return <PropertyLotManagement query={query} />
-      case 'Ownership Transfer': return <PropertyOwnershipTransfer />
-      case 'Property Valuation': return <AiPropertyValuation />
-      case 'Building Directory': return <BuildingDirectory query={query} />
+      case 'Properties': return <PropertyLotManagement query={query} />
+      case 'Owners': return <PropertyOwnershipTransfer />
+      case 'Assessments': return <AiPropertyValuation />
       case 'GIS Map': return selectedProperty && <PropertyMapView query={query} onQueryChange={setQuery} rows={filteredProperties} selected={selectedProperty} onSelect={setSelectedProperty}/>
       case 'Reports': return <OperationalIntelligenceReports />
-      case 'Certifications': return <Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} />
+      case 'Documents': return <Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} />
       default: return <DashboardView {...sharedDashboardProps}/>
     }
   })()

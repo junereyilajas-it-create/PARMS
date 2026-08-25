@@ -85,9 +85,14 @@ export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect
                       }}
                     >
                       <Popup>
-                        <strong>{p.id}</strong><br/>
-                        {p.owner}<br/>
-                        {p.type} - {p.status}
+                        <div style={{fontSize: '12px', lineHeight: '1.4'}}>
+                          <strong>Lot No. {p.id.replace('PROPERTY-', '')}</strong><br/>
+                          Owner: {p.owner}<br/>
+                          Property Type: {p.type}<br/>
+                          Area: 500 sqm<br/>
+                          Assessment: {p.assessed}<br/>
+                          <button style={{marginTop: '8px', width: '100%'}} className="btn-edit" onClick={() => onSelect(p)}>View Details</button>
+                        </div>
                       </Popup>
                     </Marker>
                   )
@@ -115,21 +120,20 @@ function PropertyDetails({ property }: { property: Property }) {
   if (!property) return null;
   return (
     <aside className="card map-detail">
-      <p className="eyebrow">SELECTED PROPERTY</p>
-      <h2>{property.id}</h2>
-      <p className="owner">{property.owner}</p>
+      <p className="eyebrow">PROPERTY DETAILS</p>
+      <h2>Lot No. {property.id.replace('PROPERTY-', '')}</h2>
+      <p className="owner">Owner:<br/><strong>{property.owner}</strong></p>
       <div className="detail-row">
         <MapPin/>
         <span>{property.location}</span>
       </div>
       <div className="detail-grid">
-        <div><span>Property type</span><strong>{property.type}</strong></div>
-        <div><span>GPS coordinates</span><strong>{property.latitude ? `${property.latitude.toFixed(4)}, ${property.longitude?.toFixed(4)}` : 'Unmapped'}</strong></div>
-        <div><span>Market value</span><strong>{property.market}</strong></div>
-        <div><span>Assessed value</span><strong>{property.assessed}</strong></div>
+        <div><span>Property Type</span><strong>{property.type}</strong></div>
+        <div><span>Area</span><strong>500 sqm</strong></div>
+        <div><span>Assessment</span><strong>{property.assessed}</strong></div>
+        <div><span>Status</span><strong className={`badge-${property.status.toLowerCase()}`}>{property.status}</strong></div>
       </div>
-      <button type="button" onClick={() => window.alert('Complete record view is in development.')} className="primary full">View complete record</button>
-      <button type="button" onClick={() => window.alert('Routing is in development.')} className="outline">Get directions</button>
+      <button type="button" onClick={() => window.alert('Complete record view is in development.')} className="btn-edit full" style={{marginTop: '16px'}}>View Details</button>
     </aside>
   )
 }

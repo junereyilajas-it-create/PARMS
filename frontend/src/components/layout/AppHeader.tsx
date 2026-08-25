@@ -38,7 +38,7 @@ export function AppHeader({ active, searchValue, onSearchChange, onNavigate }: {
         <button className="icon-btn" aria-label="Notifications"><Bell size={18} /></button>
         <div className="relative" ref={profileRef}>
           <div className="profile-pill cursor-pointer hover:bg-gray-100 transition" onClick={() => setIsProfileOpen(!isProfileOpen)}>
-            <img src="/logo.png" alt="Logo" className="w-8 h-8 rounded-full object-cover border border-gray-300" style={{ width: '32px', height: '32px' }} />
+            <div className="w-8 h-8 rounded-full border border-gray-300" style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#e2e8f0', color: '#475569', fontWeight: 'bold' }}>A</div>
             <div>
               <strong>Assessor Admin</strong>
               <span>Chief Official</span>
