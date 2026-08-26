@@ -174,7 +174,7 @@ const config = {
 }
 for (const [path, { table, columns, idColumn }] of Object.entries(config)) {
   router.get(`/${path}`, authenticate, async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} ORDER BY ${idColumn} DESC`); res.json(rows) } catch (e) { next(e) } })
-  router.get(`/${path}/:id`, authenticate, async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [req.params.id]); rows[0] ? res.json(rows[0]) : res.status(404).json({ message: 'Record not found' }) } catch (e) { next(e) } })
+  router.get(`/${path}/:id`, authenticate, async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [req.params.id]); if (rows[0]) res.json(rows[0]); else res.status(404).json({ message: 'Record not found' }) } catch (e) { next(e) } })
   router.post(`/${path}`, authenticate, allowRoles('admin','staff'), async (req, res, next) => { try {
     const values = columns.map(c => req.body[c] === '' ? null : req.body[c])
     const [result] = await pool.query(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`, values)

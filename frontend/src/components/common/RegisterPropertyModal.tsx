@@ -37,7 +37,11 @@ export function RegisterPropertyModal({ close, onSave }: { close: () => void; on
       return;
     }
     setError('');
-    step === steps.length - 1 ? void submit() : setStep(value => value + 1)
+    if (step === steps.length - 1) {
+      void submit()
+    } else {
+      setStep(value => value + 1)
+    }
   }
 
   return <div className="workflow-backdrop" onMouseDown={close}><section className="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="register-property-title" onMouseDown={event => event.stopPropagation()}>

@@ -13,7 +13,11 @@ export function PropertyTable({ rows, onView, onMap, onDelete }: Props) {
 
   useEffect(() => { const close = (event: MouseEvent) => { if (!tableRef.current?.contains(event.target as Node)) setOpenId(null) }; document.addEventListener('mousedown', close); return () => document.removeEventListener('mousedown', close) }, [])
 
-  const view = (property: Property) => { setOpenId(null); onView ? onView(property) : setSelected(property) }
+  const view = (property: Property) => {
+    setOpenId(null)
+    if (onView) onView(property)
+    else setSelected(property)
+  }
   const map = (property: Property) => { setOpenId(null); if (onMap) onMap(property); else window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(property.location)}`, '_blank', 'noopener,noreferrer') }
   const printCert = (property: Property) => { setOpenId(null); setPrintCertFor(property) }
 

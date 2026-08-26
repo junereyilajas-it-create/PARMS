@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import './styles/App.css'
-import './styles/WorkspaceTheme.css'
-import './styles/WorkspaceFilters.css'
-import './styles/SidebarSizing.css'
-import './styles/WorkspaceLayout.css'
-import './styles/WorkspacePolish.css'
-import './styles/HeaderSidebarRefinement.css'
-import './styles/ReferenceHeader.css'
-import './styles/ProfilePolish.css'
-import './styles/DashboardHeaderColor.css'
+// import './styles/WorkspaceTheme.css'
+// import './styles/WorkspaceFilters.css'
+// import './styles/SidebarSizing.css'
+// import './styles/WorkspaceLayout.css'
+// import './styles/WorkspacePolish.css'
+// import './styles/HeaderSidebarRefinement.css'
+// import './styles/ReferenceHeader.css'
+// import './styles/ProfilePolish.css'
+// import './styles/DashboardHeaderColor.css'
+// import './styles/DesignSystem.css'
 import { AiPropertyValuation, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
@@ -37,7 +38,16 @@ function toProperty(row: Record<string, unknown>, index: number): Property {
 
 function App() {
   const [activePage, setActivePage] = useState(() => localStorage.getItem('active_page') || 'Landing')
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('accessor_theme') === 'dark' ? 'dark' : 'light')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('accessor_sidebar_collapsed') === 'true')
   useEffect(() => { localStorage.setItem('active_page', activePage) }, [activePage])
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    localStorage.setItem('accessor_theme', theme)
+  }, [theme])
+  useEffect(() => { localStorage.setItem('accessor_sidebar_collapsed', String(sidebarCollapsed)) }, [sidebarCollapsed])
   const [query, setQuery] = useState('')
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [messageModal, setMessageModal] = useState<{title: string, message: string, type: 'success' | 'error' | 'confirm', onConfirm?: () => void} | null>(null)
@@ -103,6 +113,43 @@ function App() {
     setMessageModal({ title: 'Registration Successful', message: `Property #${data.id} was successfully added to the database.`, type: 'success' })
   }
 
-  return <div className="app-shell"><AppSidebar active={activePage} onNavigate={setActivePage}/><main><AppHeader active={activePage} searchValue={query} onSearchChange={setQuery} onNavigate={setActivePage} /><section className="content">{page}</section></main>{showRegisterModal && <RegisterPropertyModal close={() => setShowRegisterModal(false)} onSave={registerProperty}/>}{messageModal && <MessageModal {...messageModal} onClose={() => setMessageModal(null)} />}</div>
+  const navigate = (page: string) => { setActivePage(page); setSidebarOpen(false) }
+  return (
+    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-950 font-sans text-gray-900 dark:text-gray-100 transition-colors overflow-hidden">
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity" 
+          aria-label="Close navigation" 
+          onClick={() => setSidebarOpen(false)} 
+        />
+      )}
+      
+      <AppSidebar 
+        active={activePage} 
+        onNavigate={navigate} 
+        isOpen={sidebarOpen} 
+        collapsed={sidebarCollapsed} 
+        onCollapse={() => setSidebarCollapsed(value => !value)} 
+      />
+      
+      <main className={`flex-1 flex flex-col min-w-0 transition-all duration-300 h-screen overflow-y-auto ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
+        <AppHeader 
+          active={activePage} 
+          searchValue={query} 
+          onSearchChange={setQuery} 
+          onNavigate={navigate} 
+          theme={theme} 
+          onThemeToggle={() => setTheme(value => value === 'light' ? 'dark' : 'light')} 
+          onMenu={() => setSidebarOpen(true)} 
+        />
+        <section className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-7xl mx-auto">
+          {page}
+        </section>
+      </main>
+
+      {showRegisterModal && <RegisterPropertyModal close={() => setShowRegisterModal(false)} onSave={registerProperty} />}
+      {messageModal && <MessageModal {...messageModal} onClose={() => setMessageModal(null)} />}
+    </div>
+  )
 }
 export default App
