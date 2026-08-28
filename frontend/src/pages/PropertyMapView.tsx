@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { MapPin, Plus, Layers } from 'lucide-react'
 import type { Property } from '../types/property'
 import { SearchBox } from '../components/common/SearchBox'
+import { CrudModal, type CrudField } from '../components/common/CrudModal'
+import api, { ensureSession } from '../lib/api'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
@@ -16,9 +18,25 @@ L.Icon.Default.mergeOptions({
 
 export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect }: { query: string; onQueryChange: (value: string) => void; rows: Property[]; selected: Property; onSelect: (property: Property) => void }) {
   const [mapMode, setMapMode] = useState<'street' | 'satellite'>('satellite')
-
+  const [modal, setModal] = useState<{ mode: 'create' | 'edit'; record?: any } | null>(null)
+  
   // Center around Lagonglong, Misamis Oriental
   const defaultCenter: [number, number] = [8.834, 124.786]
+
+  const saveLocation = async (values: Record<string, string>) => {
+    try {
+      await ensureSession()
+      if (modal?.mode === 'create') {
+        await api.post('/locations', values)
+      } else if (modal?.record) {
+        await api.put(`/locations/${modal.record.location_id}`, values)
+      }
+      setModal(null)
+      alert('Location updated! Please reload properties to see changes on map.')
+    } catch {
+      alert('Failed to update location. Please ensure property_id is correct.')
+    }
+  }
 
   return (
     <>
@@ -28,7 +46,7 @@ export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect
           <h1>Property Map</h1>
           <p className="subhead">Locate, filter, and review registered properties across Lagonglong, Misamis Oriental.</p>
         </div>
-        <button type="button" onClick={() => window.alert('Location update is in development.')} className="primary"><Plus size={18}/> Update location</button>
+        <button type="button" onClick={() => setModal({ mode: 'create' })} className="primary"><Plus size={18}/> Update location</button>
       </div>
 
       <div className="map-layout">
@@ -112,6 +130,7 @@ export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect
 
         <PropertyDetails property={selected}/>
       </div>
+      {modal && <CrudModal title="Update Location" fields={[{ key: 'property_id', label: 'Property ID', type: 'number' }, { key: 'latitude', label: 'Latitude', type: 'number' }, { key: 'longitude', label: 'Longitude', type: 'number' }, { key: 'gps_accuracy', label: 'GPS Accuracy (m)', type: 'number' }]} record={modal.record} onClose={() => setModal(null)} onSave={saveLocation} />}
     </>
   )
 }

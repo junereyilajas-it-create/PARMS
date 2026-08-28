@@ -12,6 +12,7 @@ const navGroups = [
     title: 'Management',
     items: [
       { label: 'Properties', icon: Building2 },
+      { label: 'Buildings', icon: Building2 },
       { label: 'Owners', icon: Users },
       { label: 'Assessments', icon: Bot },
       { label: 'Documents', icon: Printer },
@@ -68,6 +69,7 @@ export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse }
             <button 
               className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white ${collapsed ? 'justify-center' : ''}`}
               title="Settings"
+              onClick={() => onNavigate('Settings')}
             >
               <Settings size={18} className="shrink-0" />
               {!collapsed && <span className="text-sm font-medium truncate">Settings</span>}

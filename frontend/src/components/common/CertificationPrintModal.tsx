@@ -7,7 +7,19 @@ interface CertificationPrintModalProps {
 }
 
 export function CertificationPrintModal({ property, close }: CertificationPrintModalProps) {
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    try {
+      await import('../../lib/api').then(m => m.default.post('/certifiedCopies', {
+        property_id: property.id.replace('PROPERTY-', ''),
+        certification_number: `CERT-${Date.now()}`,
+        document_type: 'Certification',
+        requestor_name: property.owner,
+        issued_by_user_id: 1, // fallback user id
+        purpose: 'For any legal purpose it may serve.'
+      }))
+    } catch (e) {
+      console.error('Failed to log certification issuance', e)
+    }
     window.print();
   };
 

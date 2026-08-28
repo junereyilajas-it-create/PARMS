@@ -10,11 +10,12 @@ import './styles/App.css'
 // import './styles/ProfilePolish.css'
 // import './styles/DashboardHeaderColor.css'
 // import './styles/DesignSystem.css'
-import { AiPropertyValuation, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications } from './pages'
+import { AiPropertyValuation, BuildingDirectory, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications, SystemSettings } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
 import { MessageModal } from './components/common/MessageModal'
+import { CrudModal, type CrudField } from './components/common/CrudModal'
 import api, { ensureSession } from './lib/api'
 import type { Property } from './types/property'
 
@@ -51,6 +52,7 @@ function App() {
   const [query, setQuery] = useState('')
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [messageModal, setMessageModal] = useState<{title: string, message: string, type: 'success' | 'error' | 'confirm', onConfirm?: () => void} | null>(null)
+  const [editModal, setEditModal] = useState<{ mode: 'edit'; record: any } | null>(null)
   const [propertyRecords, setPropertyRecords] = useState<Property[]>([])
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
   const filteredProperties = useMemo(() => propertyRecords.filter(property => `${property.id} ${property.owner} ${property.location}`.toLowerCase().includes(query.toLowerCase())), [query, propertyRecords])
@@ -93,15 +95,42 @@ function App() {
     })
   }
 
-  const sharedDashboardProps = { active: activePage, query, onQueryChange: setQuery, rows: filteredProperties, onNavigate: setActivePage, onRegister: () => setShowRegisterModal(true), onDelete: deleteProperty }
+  const editProperty = async (property: Property) => {
+    try {
+      await ensureSession()
+      const numericId = property.id.replace('PROPERTY-', '')
+      const { data } = await api.get(`/properties/${numericId}`)
+      setEditModal({ mode: 'edit', record: data })
+    } catch (e: any) {
+      setMessageModal({ title: 'Error', message: 'Could not load property details.', type: 'error' })
+    }
+  }
+
+  const saveProperty = async (values: Record<string, string>) => {
+    try {
+      await ensureSession()
+      if (editModal?.record) {
+        await api.put(`/properties/${editModal.record.property_id}`, values)
+        await loadPropertyRecords()
+        setEditModal(null)
+        setMessageModal({ title: 'Success', message: 'Property updated successfully.', type: 'success' })
+      }
+    } catch (e: any) {
+      setMessageModal({ title: 'Error', message: 'Could not update property.', type: 'error' })
+    }
+  }
+
+  const sharedDashboardProps = { active: activePage, query, onQueryChange: setQuery, rows: filteredProperties, onNavigate: setActivePage, onRegister: () => setShowRegisterModal(true), onEdit: editProperty, onDelete: deleteProperty }
   const page = (() => {
     switch (activePage) {
       case 'Properties': return <PropertyLotManagement query={query} />
+      case 'Buildings': return <BuildingDirectory query={query} />
       case 'Owners': return <PropertyOwnershipTransfer />
       case 'Assessments': return <AiPropertyValuation />
       case 'GIS Map': return selectedProperty && <PropertyMapView query={query} onQueryChange={setQuery} rows={filteredProperties} selected={selectedProperty} onSelect={setSelectedProperty}/>
       case 'Reports': return <OperationalIntelligenceReports />
       case 'Documents': return <Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} />
+      case 'Settings': return <SystemSettings />
       default: return <DashboardView {...sharedDashboardProps}/>
     }
   })()
@@ -148,6 +177,13 @@ function App() {
       </main>
 
       {showRegisterModal && <RegisterPropertyModal close={() => setShowRegisterModal(false)} onSave={registerProperty} />}
+      {editModal && <CrudModal title="Edit Property" fields={[
+        { key: 'owner_id', label: 'Owner ID', type: 'number' },
+        { key: 'address_id', label: 'Address ID', type: 'number' },
+        { key: 'property_type_id', label: 'Property Type ID', type: 'number' },
+        { key: 'classification_id', label: 'Classification ID', type: 'number' },
+        { key: 'property_status', label: 'Status', type: 'select', options: ['active', 'inactive', 'pending'] }
+      ]} record={editModal.record} onClose={() => setEditModal(null)} onSave={saveProperty} />}
       {messageModal && <MessageModal {...messageModal} onClose={() => setMessageModal(null)} />}
     </div>
   )
