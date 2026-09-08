@@ -16,3 +16,23 @@ export type TaxDeclaration = {
 }
 
 export type EstimateInput = { type: string; lot: string; building: string; age: string }
+
+export type CertificateRequest = {
+  request_id: number;
+  user_id: number;
+  property_id?: number | null;
+  certificate_type: string;
+  purpose: string;
+  remarks?: string | null;
+  status: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'READY_FOR_CLAIMING' | 'COMPLETED' | 'CANCELLED';
+  rejection_reason?: string | null;
+  requested_at: string;
+  reviewed_at?: string | null;
+  reviewed_by?: number | null;
+  completed_at?: string | null;
+  location?: string;
+  property_type_id?: number;
+  client_name?: string;
+  owner_name?: string;
+  reviewer_name?: string;
+}

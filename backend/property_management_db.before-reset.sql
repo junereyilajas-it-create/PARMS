@@ -81,68 +81,8 @@ LOCK TABLES `addresses` WRITE;
 UNLOCK TABLES;
 
 --
--- Table structure for table `ai_predictions`
---
 
-DROP TABLE IF EXISTS `ai_predictions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ai_predictions` (
-  `prediction_id` int unsigned NOT NULL AUTO_INCREMENT,
-  `property_id` int unsigned NOT NULL,
-  `predicted_market_value` decimal(15,2) NOT NULL,
-  `predicted_assessed_value` decimal(15,2) NOT NULL,
-  `confidence_score` decimal(5,2) NOT NULL,
-  `prediction_reason` text COLLATE utf8mb4_unicode_ci,
-  `prediction_date` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `approved_by_user_id` int unsigned DEFAULT NULL,
-  `prediction_status` enum('pending','approved','edited','rejected') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
-  PRIMARY KEY (`prediction_id`),
-  KEY `fk_predictions_property` (`property_id`),
-  KEY `fk_predictions_approver` (`approved_by_user_id`),
-  CONSTRAINT `fk_predictions_approver` FOREIGN KEY (`approved_by_user_id`) REFERENCES `users` (`user_id`),
-  CONSTRAINT `fk_predictions_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`property_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Dumping data for table `ai_predictions`
---
-
-LOCK TABLES `ai_predictions` WRITE;
-/*!40000 ALTER TABLE `ai_predictions` DISABLE KEYS */;
-/*!40000 ALTER TABLE `ai_predictions` ENABLE KEYS */;
-UNLOCK TABLES;
-
---
--- Table structure for table `assessment_levels`
---
-
-DROP TABLE IF EXISTS `assessment_levels`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `assessment_levels` (
-  `assessment_level_id` int unsigned NOT NULL AUTO_INCREMENT,
-  `classification_id` int unsigned NOT NULL,
-  `assessment_percentage` decimal(5,2) NOT NULL,
-  PRIMARY KEY (`assessment_level_id`),
-  UNIQUE KEY `uq_assessment_classification` (`classification_id`),
-  CONSTRAINT `fk_levels_classification` FOREIGN KEY (`classification_id`) REFERENCES `property_classifications` (`classification_id`),
-  CONSTRAINT `chk_assessment_percentage` CHECK ((`assessment_percentage` between 0 and 100))
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Dumping data for table `assessment_levels`
---
-
-LOCK TABLES `assessment_levels` WRITE;
-/*!40000 ALTER TABLE `assessment_levels` DISABLE KEYS */;
-INSERT INTO `assessment_levels` VALUES (1,1,20.00),(2,2,50.00),(3,3,40.00),(4,4,50.00);
-/*!40000 ALTER TABLE `assessment_levels` ENABLE KEYS */;
-UNLOCK TABLES;
-
---
 -- Table structure for table `gis_locations`
 --
 
@@ -255,7 +195,7 @@ CREATE TABLE `property_assessments` (
   `assessment_id` int unsigned NOT NULL AUTO_INCREMENT,
   `property_id` int unsigned NOT NULL,
   `assessor_user_id` int unsigned NOT NULL,
-  `assessment_level_id` int unsigned NOT NULL,
+  `assessor_level` decimal(5,2) NOT NULL,
   `market_value` decimal(15,2) NOT NULL,
   `assessed_value` decimal(15,2) NOT NULL,
   `assessment_date` date NOT NULL,
@@ -263,8 +203,6 @@ CREATE TABLE `property_assessments` (
   PRIMARY KEY (`assessment_id`),
   KEY `fk_assessments_property` (`property_id`),
   KEY `fk_assessments_user` (`assessor_user_id`),
-  KEY `fk_assessments_level` (`assessment_level_id`),
-  CONSTRAINT `fk_assessments_level` FOREIGN KEY (`assessment_level_id`) REFERENCES `assessment_levels` (`assessment_level_id`),
   CONSTRAINT `fk_assessments_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`property_id`),
   CONSTRAINT `fk_assessments_user` FOREIGN KEY (`assessor_user_id`) REFERENCES `users` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

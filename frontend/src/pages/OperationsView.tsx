@@ -9,7 +9,6 @@ const definitions: Record<string, Omit<Item, keyof typeof defaults>> = {
   Lots: { eyebrow: 'LOT REGISTRY', title: 'Lot and Parcel Records', description: 'Review lot inventories, ownership, and parcel identifiers.', action: 'Add lot', icon: ClipboardCheck },
   Buildings: { eyebrow: 'BUILDING DATABASE', title: 'Building Records', description: 'Track building details, conditions, and assessments.', action: 'Register building', icon: ClipboardCheck },
   Assessments: { eyebrow: 'VALUATION WORKSPACE', title: 'Property Assessments', description: 'Review, update, and approve lot and building assessments.', action: 'New assessment', icon: ClipboardCheck },
-  'AI Valuation': { eyebrow: 'AI ESTIMATES', title: 'AI Valuation', description: 'Run machine learning-driven estimates for property market value.', action: 'Generate estimate', icon: Search },
   'GIS Map': { eyebrow: 'MAP PORTAL', title: 'GIS Map', description: 'Visualize property locations and geographic insights on the map.', action: 'Open map', icon: MapPin },
   Reports: { eyebrow: 'ANALYTICS & EXPORTS', title: 'Reports Center', description: 'Create official property, assessment, GIS, and activity reports.', action: 'Create report', icon: FileText },
   Settings: { eyebrow: 'SYSTEM SETTINGS', title: 'Configure application settings', description: 'Manage system preferences, roles, and support options.', action: 'Open settings', icon: ShieldCheck },

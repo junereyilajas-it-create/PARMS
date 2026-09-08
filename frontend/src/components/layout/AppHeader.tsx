@@ -19,6 +19,7 @@ export function AppHeader({ active, searchValue, onSearchChange, onNavigate, the
 
   const handleLogout = () => {
     localStorage.removeItem('accessor_token');
+    localStorage.removeItem('accessor_role');
     localStorage.removeItem('active_page');
     if (onNavigate) onNavigate('Login');
   };

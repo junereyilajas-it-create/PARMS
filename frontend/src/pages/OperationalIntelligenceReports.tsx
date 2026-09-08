@@ -7,15 +7,15 @@ import { CrudModal, type CrudField } from '../components/common/CrudModal';
 
 export const OperationalIntelligenceReports: React.FC = () => {
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
-  // Mock data for AI Prediction Accuracy
-  const predictionAccuracyData = [
-    { month: 'Jan', accuracy: 88 },
-    { month: 'Feb', accuracy: 89 },
-    { month: 'Mar', accuracy: 87 },
-    { month: 'Apr', accuracy: 91 },
-    { month: 'May', accuracy: 94 },
-    { month: 'Jun', accuracy: 96 },
-    { month: 'Jul', accuracy: 95 },
+  // Mock data for Assessment Completion
+  const assessmentCompletionData = [
+    { month: 'Jan', completed: 88 },
+    { month: 'Feb', completed: 89 },
+    { month: 'Mar', completed: 87 },
+    { month: 'Apr', completed: 91 },
+    { month: 'May', completed: 94 },
+    { month: 'Jun', completed: 96 },
+    { month: 'Jul', completed: 95 },
   ];
 
   // Mock data for Property Inventory
@@ -126,7 +126,7 @@ export const OperationalIntelligenceReports: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Operational Intelligence Reports</h1>
           <p className="text-gray-600 mt-1">
-            Aggregate and analyze city-wide parcel data, tax distributions, and AI valuation performance
+            Aggregate and analyze city-wide parcel data and tax distributions
             for the 2024 fiscal year.
           </p>
         </div>
@@ -145,12 +145,12 @@ export const OperationalIntelligenceReports: React.FC = () => {
 
       {/* Charts Grid */}
       <div className="grid grid-cols-2 gap-6">
-        {/* AI Prediction Accuracy Chart */}
+        {/* Assessment Completion Chart */}
         <BarChartComponent
-          data={predictionAccuracyData}
-          title="AI Prediction Accuracy"
+          data={assessmentCompletionData}
+          title="Assessment Completion Rate"
           xAxisKey="month"
-          bars={[{ key: 'accuracy', fill: '#16a34a', name: 'Accuracy %' }]}
+          bars={[{ key: 'completed', fill: '#16a34a', name: 'Completion %' }]}
           height={300}
         />
 

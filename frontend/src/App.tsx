@@ -1,21 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Routes, Route, useNavigate, useLocation, Navigate, Outlet } from 'react-router-dom'
 import './styles/App.css'
-// import './styles/WorkspaceTheme.css'
-// import './styles/WorkspaceFilters.css'
-// import './styles/SidebarSizing.css'
-// import './styles/WorkspaceLayout.css'
-// import './styles/WorkspacePolish.css'
-// import './styles/HeaderSidebarRefinement.css'
-// import './styles/ReferenceHeader.css'
-// import './styles/ProfilePolish.css'
-// import './styles/DashboardHeaderColor.css'
-// import './styles/DesignSystem.css'
-import { AiPropertyValuation, BuildingDirectory, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications, SystemSettings } from './pages'
+import { PropertyAssessments, BuildingDirectory, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, ClientProfile } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
 import { MessageModal } from './components/common/MessageModal'
-import { CrudModal, type CrudField } from './components/common/CrudModal'
+import { CrudModal } from './components/common/CrudModal'
 import api, { ensureSession } from './lib/api'
 import type { Property } from './types/property'
 
@@ -38,17 +29,26 @@ function toProperty(row: Record<string, unknown>, index: number): Property {
 }
 
 function App() {
-  const [activePage, setActivePage] = useState(() => localStorage.getItem('active_page') || 'Landing')
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('accessor_role') || '')
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Re-read role when navigating to handle login
+  useEffect(() => {
+    setUserRole(localStorage.getItem('accessor_role') || '')
+  }, [location.pathname])
+
   const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('accessor_theme') === 'dark' ? 'dark' : 'light')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('accessor_sidebar_collapsed') === 'true')
-  useEffect(() => { localStorage.setItem('active_page', activePage) }, [activePage])
+  
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     document.documentElement.classList.toggle('dark', theme === 'dark')
     localStorage.setItem('accessor_theme', theme)
   }, [theme])
   useEffect(() => { localStorage.setItem('accessor_sidebar_collapsed', String(sidebarCollapsed)) }, [sidebarCollapsed])
+  
   const [query, setQuery] = useState('')
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [messageModal, setMessageModal] = useState<{title: string, message: string, type: 'success' | 'error' | 'confirm', onConfirm?: () => void} | null>(null)
@@ -66,14 +66,11 @@ function App() {
   }
 
   useEffect(() => {
-    if (!['Landing', 'Login', 'Register'].includes(activePage) && localStorage.getItem('accessor_token')) {
+    const isPublicRoute = ['/', '/login', '/register'].includes(location.pathname)
+    if (!isPublicRoute && localStorage.getItem('accessor_token')) {
       loadPropertyRecords().catch(() => setPropertyRecords([]))
     }
-  }, [activePage])
-
-  if (activePage === 'Landing') return <LandingPage onNavigate={setActivePage} />
-  if (activePage === 'Login') return <LoginPage onNavigate={setActivePage} />
-  if (activePage === 'Register') return <RegisterPage onNavigate={setActivePage} />
+  }, [location.pathname])
 
   const deleteProperty = async (property: Property) => {
     setMessageModal({
@@ -120,21 +117,6 @@ function App() {
     }
   }
 
-  const sharedDashboardProps = { active: activePage, query, onQueryChange: setQuery, rows: filteredProperties, onNavigate: setActivePage, onRegister: () => setShowRegisterModal(true), onEdit: editProperty, onDelete: deleteProperty }
-  const page = (() => {
-    switch (activePage) {
-      case 'Properties': return <PropertyLotManagement query={query} />
-      case 'Buildings': return <BuildingDirectory query={query} />
-      case 'Owners': return <PropertyOwnershipTransfer />
-      case 'Assessments': return <AiPropertyValuation />
-      case 'GIS Map': return selectedProperty && <PropertyMapView query={query} onQueryChange={setQuery} rows={filteredProperties} selected={selectedProperty} onSelect={setSelectedProperty}/>
-      case 'Reports': return <OperationalIntelligenceReports />
-      case 'Documents': return <Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} />
-      case 'Settings': return <SystemSettings />
-      default: return <DashboardView {...sharedDashboardProps}/>
-    }
-  })()
-
   const registerProperty = async (form: { owner: string; street: string; barangay: string; type: string; lot: string; market: string; coordinates: string; document: string; lotNumber: string; titleNumber: string }) => {
     await ensureSession()
     const { data } = await api.post('/properties/register', { owner: form.owner, street: form.street, barangay: form.barangay, type: form.type, lot_area: form.lot, market_value: form.market, coordinates: form.coordinates, document: form.document, lot_number: form.lotNumber, title_number: form.titleNumber })
@@ -142,8 +124,63 @@ function App() {
     setMessageModal({ title: 'Registration Successful', message: `Property #${data.id} was successfully added to the database.`, type: 'success' })
   }
 
-  const navigate = (page: string) => { setActivePage(page); setSidebarOpen(false) }
-  return (
+  const handleNavigate = (page: string) => {
+    setSidebarOpen(false)
+    switch(page) {
+      case 'Landing': navigate('/'); break;
+      case 'Login': navigate('/login'); break;
+      case 'Register': navigate('/register'); break;
+      case 'Dashboard': navigate('/dashboard'); break;
+      case 'Properties':
+      case 'Lot Management': navigate('/properties'); break;
+      case 'Buildings': navigate('/buildings'); break;
+      case 'Owners':
+      case 'Ownership Transfer': navigate('/owners'); break;
+      case 'Assessments': navigate('/assessments'); break;
+      case 'GIS Map': navigate('/gis'); break;
+      case 'Reports': navigate('/reports'); break;
+      case 'Documents': navigate('/documents'); break;
+      case 'Certificate Requests': navigate(userRole === 'client' ? '/client/certificate-requests' : '/admin/certificate-requests'); break;
+      case 'Settings': navigate('/settings'); break;
+      case 'My Properties': navigate('/client/my-properties'); break;
+      case 'My Property Map': navigate('/client/gis-map'); break;
+      case 'My Requests':
+      case 'Request Certificate': navigate('/client/certificate-requests'); break;
+      case 'My Profile': navigate('/client/profile'); break;
+      default: navigate('/dashboard'); break;
+    }
+  }
+
+  // Determine active page name for header/sidebar based on path
+  const getActivePageName = () => {
+    const path = location.pathname
+    if (path.includes('/dashboard')) return 'Dashboard'
+    if (path.includes('/properties')) return 'Properties'
+    if (path.includes('/buildings')) return 'Buildings'
+    if (path.includes('/owners')) return 'Owners'
+    if (path.includes('/assessments')) return 'Assessments'
+    if (path.includes('/gis')) return 'GIS Map'
+    if (path.includes('/reports')) return 'Reports'
+    if (path.includes('/documents')) return 'Documents'
+    if (path.includes('/admin/certificate-requests')) return 'Certificate Requests'
+    if (path.includes('/client/my-properties')) return 'My Properties'
+    if (path.includes('/client/gis-map')) return 'My Property Map'
+    if (path.includes('/client/certificate-requests')) return 'My Requests'
+    if (path.includes('/client/profile')) return 'My Profile'
+    if (path.includes('/settings')) return 'Settings'
+    return 'Dashboard'
+  }
+  const activePageName = getActivePageName()
+
+  const sharedDashboardProps = { active: activePageName, query, onQueryChange: setQuery, rows: filteredProperties, onNavigate: handleNavigate, onRegister: () => setShowRegisterModal(true), onEdit: editProperty, onDelete: deleteProperty }
+
+  const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+    const token = localStorage.getItem('accessor_token')
+    if (!token) return <Navigate to="/login" replace />
+    return <>{children}</>
+  }
+
+  const Layout = () => (
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-950 font-sans text-gray-900 dark:text-gray-100 transition-colors overflow-hidden">
       {sidebarOpen && (
         <div 
@@ -154,25 +191,26 @@ function App() {
       )}
       
       <AppSidebar 
-        active={activePage} 
-        onNavigate={navigate} 
+        active={activePageName} 
+        onNavigate={handleNavigate} 
         isOpen={sidebarOpen} 
         collapsed={sidebarCollapsed} 
         onCollapse={() => setSidebarCollapsed(value => !value)} 
+        userRole={userRole}
       />
       
       <main className={`flex-1 flex flex-col min-w-0 transition-all duration-300 h-screen overflow-y-auto ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
         <AppHeader 
-          active={activePage} 
+          active={activePageName} 
           searchValue={query} 
           onSearchChange={setQuery} 
-          onNavigate={navigate} 
+          onNavigate={handleNavigate} 
           theme={theme} 
           onThemeToggle={() => setTheme(value => value === 'light' ? 'dark' : 'light')} 
           onMenu={() => setSidebarOpen(true)} 
         />
         <section className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-7xl mx-auto">
-          {page}
+          <Outlet />
         </section>
       </main>
 
@@ -187,5 +225,33 @@ function App() {
       {messageModal && <MessageModal {...messageModal} onClose={() => setMessageModal(null)} />}
     </div>
   )
+
+  return (
+    <Routes>
+      <Route path="/" element={<LandingPage onNavigate={handleNavigate} />} />
+      <Route path="/login" element={<LoginPage onNavigate={handleNavigate} />} />
+      <Route path="/register" element={<RegisterPage onNavigate={handleNavigate} />} />
+      
+      <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+        <Route path="/dashboard" element={userRole === 'client' ? <ClientDashboard onNavigate={handleNavigate} /> : <DashboardView {...sharedDashboardProps}/>} />
+        <Route path="/properties" element={<PropertyLotManagement query={query} />} />
+        <Route path="/buildings" element={<BuildingDirectory query={query} />} />
+        <Route path="/owners" element={<PropertyOwnershipTransfer />} />
+        <Route path="/assessments" element={<PropertyAssessments />} />
+        <Route path="/gis" element={selectedProperty ? <PropertyMapView query={query} onQueryChange={setQuery} rows={filteredProperties} selected={selectedProperty} onSelect={setSelectedProperty}/> : <div>Select a property to view on map.</div>} />
+        <Route path="/reports" element={<OperationalIntelligenceReports />} />
+        <Route path="/documents" element={<Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} />} />
+        <Route path="/admin/certificate-requests" element={<AdminCertificateRequests />} />
+        <Route path="/client/my-properties" element={<ClientProperties />} />
+        <Route path="/client/gis-map" element={<ClientGISMap />} />
+        <Route path="/client/certificate-requests" element={<ClientCertificateRequests />} />
+        <Route path="/client/profile" element={<ClientProfile />} />
+        <Route path="/settings" element={<SystemSettings />} />
+      </Route>
+      
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
 }
+
 export default App

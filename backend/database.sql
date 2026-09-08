@@ -6,13 +6,15 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 CREATE TABLE users (
   user_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  owner_id INT UNSIGNED NULL,
   first_name VARCHAR(80) NOT NULL,
   last_name VARCHAR(80) NOT NULL,
   username VARCHAR(60) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   email VARCHAR(120) NOT NULL UNIQUE,
-  role ENUM('admin', 'assessor', 'staff') NOT NULL DEFAULT 'staff',
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  role ENUM('admin', 'assessor', 'staff', 'client') NOT NULL DEFAULT 'staff',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_users_owner FOREIGN KEY (owner_id) REFERENCES property_owners(owner_id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE property_owners (
@@ -131,28 +133,21 @@ CREATE TABLE lot_history (
   CONSTRAINT fk_lot_history_registrar FOREIGN KEY (registered_by_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE assessment_levels (
-  assessment_level_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  classification_id INT UNSIGNED NOT NULL,
-  assessment_percentage DECIMAL(5,2) NOT NULL,
-  UNIQUE KEY uq_assessment_classification (classification_id),
-  CONSTRAINT chk_assessment_percentage CHECK (assessment_percentage BETWEEN 0 AND 100),
-  CONSTRAINT fk_levels_classification FOREIGN KEY (classification_id) REFERENCES property_classifications(classification_id)
-) ENGINE=InnoDB;
+
 
 CREATE TABLE lot_assessment_history (
   lot_assessment_history_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   lot_id INT UNSIGNED NOT NULL,
   assessor_user_id INT UNSIGNED NOT NULL,
-  assessment_level_id INT UNSIGNED NOT NULL,
+  assessor_level DECIMAL(5,2) NOT NULL,
   market_value DECIMAL(15,2) NOT NULL,
+  assessed_value DECIMAL(15,2) NOT NULL,
   assessment_date DATE NOT NULL,
   assessment_reason TEXT,
   remarks TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_lot_assessment_history_lot FOREIGN KEY (lot_id) REFERENCES property_lots(lot_id),
-  CONSTRAINT fk_lot_assessment_history_assessor FOREIGN KEY (assessor_user_id) REFERENCES users(user_id),
-  CONSTRAINT fk_lot_assessment_history_level FOREIGN KEY (assessment_level_id) REFERENCES assessment_levels(assessment_level_id)
+  CONSTRAINT fk_lot_assessment_history_assessor FOREIGN KEY (assessor_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE building_history (
@@ -175,26 +170,26 @@ CREATE TABLE building_assessment_history (
   building_assessment_history_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   building_id INT UNSIGNED NOT NULL,
   assessor_user_id INT UNSIGNED NOT NULL,
-  assessment_level_id INT UNSIGNED NOT NULL,
+  assessor_level DECIMAL(5,2) NOT NULL,
   market_value DECIMAL(15,2) NOT NULL,
+  assessed_value DECIMAL(15,2) NOT NULL,
   assessment_date DATE NOT NULL,
   assessment_reason TEXT,
   remarks TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_building_assessment_history_building FOREIGN KEY (building_id) REFERENCES property_buildings(building_id),
-  CONSTRAINT fk_building_assessment_history_assessor FOREIGN KEY (assessor_user_id) REFERENCES users(user_id),
-  CONSTRAINT fk_building_assessment_history_level FOREIGN KEY (assessment_level_id) REFERENCES assessment_levels(assessment_level_id)
+  CONSTRAINT fk_building_assessment_history_assessor FOREIGN KEY (assessor_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE property_assessments (
   assessment_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   property_id INT UNSIGNED NOT NULL, assessor_user_id INT UNSIGNED NOT NULL,
-  assessment_level_id INT UNSIGNED NOT NULL, market_value DECIMAL(15,2) NOT NULL,
+  assessor_level DECIMAL(5,2) NOT NULL, market_value DECIMAL(15,2) NOT NULL,
+  assessed_value DECIMAL(15,2) NOT NULL,
   assessment_date DATE NOT NULL,
   remarks TEXT,
   CONSTRAINT fk_assessments_property FOREIGN KEY (property_id) REFERENCES properties(property_id),
-  CONSTRAINT fk_assessments_user FOREIGN KEY (assessor_user_id) REFERENCES users(user_id),
-  CONSTRAINT fk_assessments_level FOREIGN KEY (assessment_level_id) REFERENCES assessment_levels(assessment_level_id)
+  CONSTRAINT fk_assessments_user FOREIGN KEY (assessor_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE tax_declarations (
@@ -205,15 +200,6 @@ CREATE TABLE tax_declarations (
   CONSTRAINT fk_declarations_assessment FOREIGN KEY (assessment_id) REFERENCES property_assessments(assessment_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE ai_predictions (
-  prediction_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  property_id INT UNSIGNED NOT NULL, predicted_market_value DECIMAL(15,2) NOT NULL,
-  confidence_score DECIMAL(5,2) NOT NULL,
-  prediction_reason TEXT, prediction_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  approved_by_user_id INT UNSIGNED, prediction_status ENUM('pending','approved','edited','rejected') NOT NULL DEFAULT 'pending',
-  CONSTRAINT fk_predictions_property FOREIGN KEY (property_id) REFERENCES properties(property_id),
-  CONSTRAINT fk_predictions_approver FOREIGN KEY (approved_by_user_id) REFERENCES users(user_id)
-) ENGINE=InnoDB;
 
 CREATE TABLE gis_locations (
   location_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -230,9 +216,27 @@ CREATE TABLE activity_logs (
   CONSTRAINT fk_logs_user FOREIGN KEY (user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE certificate_requests (
+  request_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  property_id INT UNSIGNED,
+  certificate_type VARCHAR(100) NOT NULL,
+  purpose VARCHAR(255) NOT NULL,
+  remarks TEXT,
+  status ENUM('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'READY_FOR_CLAIMING', 'COMPLETED', 'CANCELLED') DEFAULT 'PENDING',
+  rejection_reason TEXT,
+  requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_at TIMESTAMP NULL,
+  reviewed_by INT UNSIGNED,
+  completed_at TIMESTAMP NULL,
+  CONSTRAINT fk_cert_req_user FOREIGN KEY (user_id) REFERENCES users(user_id),
+  CONSTRAINT fk_cert_req_property FOREIGN KEY (property_id) REFERENCES properties(property_id),
+  CONSTRAINT fk_cert_req_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(user_id)
+) ENGINE=InnoDB;
+
 INSERT INTO property_types (property_type_name) VALUES ('Residential'), ('Commercial'), ('Agricultural'), ('Industrial');
 INSERT INTO property_classifications (classification_name) VALUES ('Residential Lot'), ('Commercial Lot'), ('Agricultural Land'), ('Industrial Lot');
-INSERT INTO assessment_levels (classification_id, assessment_percentage) VALUES (1, 20.00), (2, 50.00), (3, 40.00), (4, 50.00);
+
 
 CREATE TABLE ownership_transfers (
   transfer_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, property_id INT UNSIGNED NOT NULL,
@@ -284,12 +288,15 @@ CREATE TABLE database_backups (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (created_by_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
-INSERT INTO users (user_id, first_name, last_name, username, password_hash, email, role) VALUES
-  (1,'System','Administrator','admin','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','admin@example.test','admin'),
-  (2,'Ana','Reyes','areyes','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','ana.reyes@example.test','assessor'),
-  (3,'Marco','Lopez','mlopez','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','marco.lopez@example.test','staff');
+INSERT INTO users (user_id, owner_id, first_name, last_name, username, password_hash, email, role) VALUES
+  (1,NULL,'System','Administrator','admin','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','admin@example.test','admin'),
+  (2,NULL,'Ana','Reyes','areyes','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','ana.reyes@example.test','assessor'),
+  (3,NULL,'Marco','Lopez','mlopez','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','marco.lopez@example.test','staff'),
+  (4,1,'Maria','Santos','msantos','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','maria.santos@example.test','client'),
+  (5,2,'Jose','Dela Cruz','jdelacruz','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','jose.delacruz@example.test','client'),
+  (6,4,'Junerey','Client','junerey','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','junerey@example.test','client');
 INSERT INTO property_owners (owner_id,first_name,middle_name,last_name,contact_number,email) VALUES
-  (1,'Maria','Lopez','Santos','09171234567','maria.santos@example.test'),(2,'Jose','Rivera','Dela Cruz','09181234567','jose.delacruz@example.test'),(3,'Ana','Perez','Reyes','09191234567','ana.owner@example.test');
+  (1,'Maria','Lopez','Santos','09171234567','maria.santos@example.test'),(2,'Jose','Rivera','Dela Cruz','09181234567','jose.delacruz@example.test'),(3,'Ana','Perez','Reyes','09191234567','ana.owner@example.test'),(4,'Junerey','M','Client','09201234567','junerey@example.test');
 
 INSERT INTO provinces (province_id, province_name) VALUES (1, 'Misamis Oriental');
 INSERT INTO municipalities (municipality_id, province_id, municipality_name) VALUES (1, 1, 'Lagonglong');
@@ -299,24 +306,24 @@ INSERT INTO barangays (barangay_id, municipality_id, barangay_name) VALUES
 (9, 1, 'Tabok'), (10, 1, 'Umagos');
 
 INSERT INTO addresses (address_id,house_number,street,barangay_id,postal_code) VALUES
-  (1,'18','National Highway',8,'9006'),(2,'42','Purok 2',7,'9006'),(3,'7','Barangay Road',10,'9006');
-INSERT INTO owner_addresses (owner_address_id,owner_id,address_id) VALUES (1,1,1),(2,2,2),(3,3,3);
+  (1,'18','National Highway',8,'9006'),(2,'42','Purok 2',7,'9006'),(3,'7','Barangay Road',10,'9006'),(4,'101','Junerey St',1,'9006');
+INSERT INTO owner_addresses (owner_address_id,owner_id,address_id) VALUES (1,1,1),(2,2,2),(3,3,3),(4,4,4);
 INSERT INTO properties (property_id,owner_id,address_id,property_type_id,classification_id,property_status) VALUES
-  (1,1,1,1,1,'active'),(2,2,2,2,2,'active'),(3,3,3,3,3,'pending');
+  (1,1,1,1,1,'active'),(2,2,2,2,2,'active'),(3,3,3,3,3,'pending'),(4,4,4,1,1,'active');
 INSERT INTO property_lots (lot_id,property_id,lot_number,title_number,lot_area,lot_status) VALUES
   (1,1,'LOT-LGL-2024-001','TCT-LGL-10001',450.00,'active'),
   (2,2,'LOT-LGL-2024-002','TCT-LGL-10002',1250.50,'active'),
-  (3,3,'LOT-LGL-2024-003','TCT-LGL-10003',320.15,'pending');
+  (3,3,'LOT-LGL-2024-003','TCT-LGL-10003',320.15,'pending'),
+  (4,4,'LOT-LGL-2024-004','TCT-LGL-10004',500.00,'active');
 INSERT INTO property_buildings (building_id,property_id,building_name,building_type,floor_area,floor_count,construction_type,year_constructed,building_status) VALUES
-  (1,1,'Poblacion Family Residence','Residential',180,2,'Concrete',2010,'active'),(2,2,'Manaol Trading Center','Commercial',750,3,'Concrete',2016,'active'),(3,3,'Umagos Farm House','Agricultural',95,1,'Wood',1998,'pending');
+  (1,1,'Poblacion Family Residence','Residential',180,2,'Concrete',2010,'active'),(2,2,'Manaol Trading Center','Commercial',750,3,'Concrete',2016,'active'),(3,3,'Umagos Farm House','Agricultural',95,1,'Wood',1998,'pending'),(4,4,'Junerey Residence','Residential',200,2,'Concrete',2020,'active');
 INSERT INTO lot_history (lot_id,owner_id,ownership_type,transfer_reason,transfer_date,registered_by_user_id,remarks) VALUES (1,1,'Individual','Initial registration','2024-01-10',3,'Current owner'),(2,2,'Individual','Sale','2024-02-12',3,'Current owner'),(3,3,'Individual','Inheritance','2024-03-15',3,'Current owner');
-INSERT INTO lot_assessment_history (lot_id,assessor_user_id,assessment_level_id,market_value,assessment_date,assessment_reason,remarks) VALUES (1,2,1,6225000,'2024-01-15','Initial assessment','Verified'),(2,2,2,7700000,'2024-02-20','Initial assessment','Verified'),(3,2,3,1062500,'2024-03-20','Initial assessment','Pending review');
+INSERT INTO lot_assessment_history (lot_id,assessor_user_id,assessor_level,market_value,assessed_value,assessment_date,assessment_reason,remarks) VALUES (1,2,20.00,6225000,1245000.00,'2024-01-15','Initial assessment','Verified'),(2,2,50.00,7700000,3850000.00,'2024-02-20','Initial assessment','Verified'),(3,2,40.00,1062500,425000.00,'2024-03-20','Initial assessment','Pending review');
 INSERT INTO building_history (building_id,owner_id,ownership_type,transfer_reason,transfer_date,registered_by_user_id,remarks) VALUES (1,1,'Individual','Initial registration','2024-01-10',3,'Current owner'),(2,2,'Individual','Sale','2024-02-12',3,'Current owner'),(3,3,'Individual','Inheritance','2024-03-15',3,'Current owner');
-INSERT INTO building_assessment_history (building_id,assessor_user_id,assessment_level_id,market_value,assessment_date,assessment_reason,remarks) VALUES (1,2,1,6225000,'2024-01-15','Initial assessment','Verified'),(2,2,2,7700000,'2024-02-20','Initial assessment','Verified'),(3,2,3,1062500,'2024-03-20','Initial assessment','Pending review');
-INSERT INTO property_assessments (assessment_id,property_id,assessor_user_id,assessment_level_id,market_value,assessment_date,remarks) VALUES (1,1,2,1,6225000,'2024-01-15','Initial assessment'),(2,2,2,2,7700000,'2024-02-20','Initial assessment'),(3,3,2,3,1062500,'2024-03-20','Initial assessment');
+INSERT INTO building_assessment_history (building_id,assessor_user_id,assessor_level,market_value,assessed_value,assessment_date,assessment_reason,remarks) VALUES (1,2,20.00,6225000,1245000.00,'2024-01-15','Initial assessment','Verified'),(2,2,50.00,7700000,3850000.00,'2024-02-20','Initial assessment','Verified'),(3,2,40.00,1062500,425000.00,'2024-03-20','Initial assessment','Pending review');
+INSERT INTO property_assessments (assessment_id,property_id,assessor_user_id,assessor_level,market_value,assessed_value,assessment_date,remarks) VALUES (1,1,2,20.00,6225000,1245000.00,'2024-01-15','Initial assessment'),(2,2,2,50.00,7700000,3850000.00,'2024-02-20','Initial assessment'),(3,3,2,40.00,1062500,425000.00,'2024-03-20','Initial assessment');
 INSERT INTO tax_declarations (tax_declaration_id,property_id,assessment_id,declaration_number,tax_year,issue_date) VALUES (1,1,1,'TD-2024-01842',2024,'2024-01-20'),(2,2,2,'TD-2024-01841',2024,'2024-02-25'),(3,3,3,'TD-2024-01840',2024,'2024-03-25');
-INSERT INTO ai_predictions (property_id,predicted_market_value,confidence_score,prediction_reason,approved_by_user_id,prediction_status) VALUES (1,6300000,94.5,'Comparable residential lots',1,'approved'),(2,7800000,91.2,'Commercial location trend',1,'approved'),(3,1100000,88.0,'Agricultural land comparables',NULL,'pending');
-INSERT INTO gis_locations (property_id,latitude,longitude,gps_accuracy) VALUES (1,14.8295000,120.9950000,4.5),(2,14.8305000,120.9960000,5.2),(3,14.8285000,120.9940000,6.1);
+INSERT INTO gis_locations (property_id,latitude,longitude,gps_accuracy) VALUES (1,14.8295000,120.9950000,4.5),(2,14.8305000,120.9960000,5.2),(3,14.8285000,120.9940000,6.1),(4,14.8296000,120.9955000,5.0);
 INSERT INTO activity_logs (user_id,module_name,activity,ip_address) VALUES (1,'Properties','Registered Poblacion property record','127.0.0.1'),(2,'Assessments','Assessed Manaol property record','127.0.0.1'),(3,'Lots','Updated Umagos lot record','127.0.0.1');
 INSERT INTO ownership_transfers (property_id,previous_owner_id,new_owner_id,transfer_reason,transfer_date,reference_number,remarks,processed_by_user_id) VALUES (1,1,2,'sale','2023-01-10','TR-001','Historical transfer',1),(2,2,3,'donation','2023-02-10','TR-002','Historical transfer',1),(3,3,1,'inheritance','2023-03-10','TR-003','Historical transfer',1);
 INSERT INTO property_inspections (inspection_id,property_id,inspector_user_id,scheduled_at,completed_at,inspection_status,property_condition,remarks) VALUES (1,1,2,'2024-04-01 09:00:00','2024-04-01 10:00:00','completed','Good','No issues'),(2,2,2,'2024-04-02 09:00:00',NULL,'scheduled','Good','Upcoming'),(3,3,2,'2024-04-03 09:00:00',NULL,'for_report','Fair','Report required');
@@ -324,4 +331,10 @@ INSERT INTO inspection_photos (inspection_id,file_path,caption) VALUES (1,'/uplo
 INSERT INTO assessment_appeals (property_id,assessment_id,appellant_owner_id,appeal_reason,assigned_assessor_id,appeal_status,resolution,resolved_at) VALUES (1,1,1,'Request market-value review',2,'under_review',NULL,NULL),(2,2,2,'Classification clarification',2,'resolved','Assessment confirmed','2024-05-10'),(3,3,3,'Area correction request',2,'submitted',NULL,NULL);
 INSERT INTO certified_copy_issuances (property_id,certification_number,document_type,requestor_name,issued_by_user_id,purpose) VALUES (1,'CERT-001','tax_declaration','Maria Santos',3,'Bank loan'),(2,'CERT-002','property_record','Jose Dela Cruz',3,'Business permit'),(3,'CERT-003','assessment_record','Ana Reyes',3,'Personal record');
 INSERT INTO database_backups (file_name,file_path,file_size_bytes,checksum,backup_status,created_by_user_id) VALUES ('backup-001.sql','/backups/backup-001.sql',102400,'sha256-001','verified',1),('backup-002.sql','/backups/backup-002.sql',102500,'sha256-002','verified',1),('backup-003.sql','/backups/backup-003.sql',102600,'sha256-003','created',1);
+
+INSERT INTO certificate_requests (user_id, property_id, certificate_type, purpose, status) VALUES
+  (4, 1, 'Certificate of Property Ownership', 'Bank loan requirement', 'PENDING'),
+  (4, 1, 'Certificate of Assessment', 'Personal record', 'APPROVED'),
+  (6, 4, 'Certificate of Property Ownership', 'Building permit', 'PENDING');
+
 SET FOREIGN_KEY_CHECKS = 1;

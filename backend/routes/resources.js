@@ -4,12 +4,12 @@ import { authenticate, allowRoles } from '../middleware/auth.js'
 const router = Router()
 // Read models keep relationship data useful to the UI while the individual
 // resources above remain available for normal table-level CRUD.
-router.get('/property-records', authenticate, async (_, res, next) => { try {
+router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 'staff'), async (_, res, next) => { try {
   const [rows] = await pool.query(`SELECT p.property_id, p.property_status, l.lot_id, l.lot_number, l.title_number, 
     CONCAT_WS(', ', NULLIF(ad.street, ''), br.barangay_name, mu.municipality_name, pr.province_name) AS location, 
     l.lot_area, g.latitude, g.longitude, l.lot_status,
     CONCAT(o.first_name, ' ', o.last_name) AS owner, t.property_type_name AS property_type, c.classification_name,
-    COALESCE(a.market_value, 0) AS market_value, COALESCE((a.market_value * al.assessment_percentage / 100), 0) AS assessed_value
+    COALESCE(a.market_value, 0) AS market_value, COALESCE(a.assessed_value, 0) AS assessed_value
     FROM properties p 
     JOIN property_owners o ON o.owner_id = p.owner_id 
     JOIN property_types t ON t.property_type_id = p.property_type_id
@@ -21,7 +21,6 @@ router.get('/property-records', authenticate, async (_, res, next) => { try {
     LEFT JOIN property_lots l ON l.property_id = p.property_id
     LEFT JOIN gis_locations g ON g.property_id = p.property_id
     LEFT JOIN property_assessments a ON a.assessment_id = (SELECT pa.assessment_id FROM property_assessments pa WHERE pa.property_id = p.property_id ORDER BY pa.assessment_date DESC, pa.assessment_id DESC LIMIT 1)
-    LEFT JOIN assessment_levels al ON al.assessment_level_id = a.assessment_level_id
     ORDER BY p.property_id DESC`)
   res.json(rows)
 } catch (e) { next(e) } })
@@ -71,7 +70,7 @@ router.post('/properties/register', authenticate, allowRoles('admin', 'staff'), 
     ])
     if (Number.isFinite(latitude) && Number.isFinite(longitude)) await connection.query('INSERT INTO gis_locations (property_id, latitude, longitude) VALUES (?, ?, ?)', [propertyResult.insertId, latitude, longitude])
     const value = Number(String(market_value || '').replace(/[^0-9.-]/g, ''))
-    if (Number.isFinite(value) && market_value !== '') await connection.query('INSERT INTO property_assessments (property_id, assessor_user_id, assessment_level_id, market_value, assessment_date, remarks) VALUES (?, ?, ?, ?, CURDATE(), ?)', [propertyResult.insertId, req.user.id, 1, value, document || null])
+    if (Number.isFinite(value) && market_value !== '') await connection.query('INSERT INTO property_assessments (property_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date, remarks) VALUES (?, ?, ?, ?, ?, CURDATE(), ?)', [propertyResult.insertId, req.user.id, 20.00, value, value * 0.20, document || null])
     await connection.commit()
     res.status(201).json({ id: propertyResult.insertId, owner, address, type: type.trim(), lot_area: lot_area || null, message: 'Property registered.' })
   } catch (e) {
@@ -151,17 +150,17 @@ const config = {
   ownerAddresses: { table: 'owner_addresses', idColumn: 'owner_address_id', columns: ['owner_id','address_id'] },
   propertyTypes: { table: 'property_types', idColumn: 'property_type_id', columns: ['property_type_name'] },
   classifications: { table: 'property_classifications', idColumn: 'classification_id', columns: ['classification_name'] },
-  assessmentLevels: { table: 'assessment_levels', idColumn: 'assessment_level_id', columns: ['classification_id','assessment_percentage'] },
+
   properties: { table: 'properties', idColumn: 'property_id', columns: ['owner_id','address_id','property_type_id','classification_id','property_status'] },
   lots: { table: 'property_lots', idColumn: 'lot_id', columns: ['property_id','lot_number','title_number','lot_area','lot_status'] },
   buildings: { table: 'property_buildings', idColumn: 'building_id', columns: ['property_id','building_name','building_type','floor_area','floor_count','construction_type','year_constructed','building_status'] },
   lotHistory: { table: 'lot_history', idColumn: 'lot_history_id', columns: ['lot_id','owner_id','ownership_type','transfer_reason','transfer_date','end_date','registered_by_user_id','remarks'] },
-  lotAssessmentHistory: { table: 'lot_assessment_history', idColumn: 'lot_assessment_history_id', columns: ['lot_id','assessor_user_id','assessment_level_id','market_value','assessment_date','assessment_reason','remarks'] },
+  lotAssessmentHistory: { table: 'lot_assessment_history', idColumn: 'lot_assessment_history_id', columns: ['lot_id','assessor_user_id','assessor_level','market_value','assessed_value','assessment_date','assessment_reason','remarks'] },
   buildingHistory: { table: 'building_history', idColumn: 'building_history_id', columns: ['building_id','owner_id','ownership_type','transfer_reason','transfer_date','end_date','registered_by_user_id','remarks'] },
-  buildingAssessmentHistory: { table: 'building_assessment_history', idColumn: 'building_assessment_history_id', columns: ['building_id','assessor_user_id','assessment_level_id','market_value','assessment_date','assessment_reason','remarks'] },
-  assessments: { table: 'property_assessments', idColumn: 'assessment_id', columns: ['property_id','assessor_user_id','assessment_level_id','market_value','assessment_date','remarks'] },
+  buildingAssessmentHistory: { table: 'building_assessment_history', idColumn: 'building_assessment_history_id', columns: ['building_id','assessor_user_id','assessor_level','market_value','assessed_value','assessment_date','assessment_reason','remarks'] },
+  assessments: { table: 'property_assessments', idColumn: 'assessment_id', columns: ['property_id','assessor_user_id','assessor_level','market_value','assessed_value','assessment_date','remarks'] },
   declarations: { table: 'tax_declarations', idColumn: 'tax_declaration_id', columns: ['property_id','assessment_id','declaration_number','tax_year','issue_date'] },
-  predictions: { table: 'ai_predictions', idColumn: 'prediction_id', columns: ['property_id','predicted_market_value','confidence_score','prediction_reason','approved_by_user_id','prediction_status'] },
+
   locations: { table: 'gis_locations', idColumn: 'location_id', columns: ['property_id','latitude','longitude','gps_accuracy'] },
   activityLogs: { table: 'activity_logs', idColumn: 'log_id', columns: ['user_id','module_name','activity','ip_address'] },
   users: { table: 'users', idColumn: 'user_id', columns: ['first_name','last_name','username','password_hash','email','role'] },
@@ -173,8 +172,8 @@ const config = {
   backups: { table: 'database_backups', idColumn: 'backup_id', columns: ['file_name','file_path','file_size_bytes','checksum','backup_status','created_by_user_id'] },
 }
 for (const [path, { table, columns, idColumn }] of Object.entries(config)) {
-  router.get(`/${path}`, authenticate, async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} ORDER BY ${idColumn} DESC`); res.json(rows) } catch (e) { next(e) } })
-  router.get(`/${path}/:id`, authenticate, async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [req.params.id]); if (rows[0]) res.json(rows[0]); else res.status(404).json({ message: 'Record not found' }) } catch (e) { next(e) } })
+  router.get(`/${path}`, authenticate, allowRoles('admin', 'assessor', 'staff'), async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} ORDER BY ${idColumn} DESC`); res.json(rows) } catch (e) { next(e) } })
+  router.get(`/${path}/:id`, authenticate, allowRoles('admin', 'assessor', 'staff'), async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [req.params.id]); if (rows[0]) res.json(rows[0]); else res.status(404).json({ message: 'Record not found' }) } catch (e) { next(e) } })
   router.post(`/${path}`, authenticate, allowRoles('admin','staff'), async (req, res, next) => { try {
     const values = columns.map(c => req.body[c] === '' ? null : req.body[c])
     const [result] = await pool.query(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`, values)

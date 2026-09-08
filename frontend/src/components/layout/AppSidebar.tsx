@@ -1,6 +1,6 @@
-import { Bot, Building2, FileText, Home, LayoutDashboard, Map, PanelLeftClose, Settings, Users, Printer } from 'lucide-react'
+import { ClipboardCheck, Building2, FileText, Home, LayoutDashboard, Map, PanelLeftClose, Settings, Users, Printer } from 'lucide-react'
 
-const navGroups = [
+const adminNavGroups = [
   {
     title: 'Main',
     items: [
@@ -14,14 +14,35 @@ const navGroups = [
       { label: 'Properties', icon: Building2 },
       { label: 'Buildings', icon: Building2 },
       { label: 'Owners', icon: Users },
-      { label: 'Assessments', icon: Bot },
+      { label: 'Assessments', icon: ClipboardCheck },
       { label: 'Documents', icon: Printer },
+      { label: 'Certificate Requests', icon: FileText },
       { label: 'Reports', icon: FileText }
     ]
   }
 ];
 
-export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse }: { active: string; onNavigate: (page: string) => void; isOpen: boolean; collapsed: boolean; onCollapse: () => void }) {
+const clientNavGroups = [
+  {
+    title: 'Main',
+    items: [
+      { label: 'Dashboard', icon: LayoutDashboard },
+      { label: 'My Properties', icon: Building2 },
+      { label: 'My Property Map', icon: Map }
+    ]
+  },
+  {
+    title: 'Services',
+    items: [
+      { label: 'Request Certificate', icon: FileText },
+      { label: 'My Requests', icon: ClipboardCheck },
+      { label: 'My Profile', icon: Users }
+    ]
+  }
+];
+
+export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, userRole }: { active: string; onNavigate: (page: string) => void; isOpen: boolean; collapsed: boolean; onCollapse: () => void; userRole?: string }) {
+  const navGroups = userRole === 'client' ? clientNavGroups : adminNavGroups;
   return (
     <aside className={`fixed inset-y-0 left-0 z-40 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transition-all duration-300 flex flex-col ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${collapsed ? 'w-20' : 'w-64'}`}>
       <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-800 shrink-0">

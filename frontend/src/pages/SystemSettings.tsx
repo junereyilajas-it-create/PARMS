@@ -4,7 +4,7 @@ import { DataTable } from '../components/common/DataTable';
 import { CrudModal, type CrudField } from '../components/common/CrudModal';
 import api, { ensureSession } from '../lib/api';
 
-type TabId = 'users' | 'propertyTypes' | 'classifications' | 'assessmentLevels';
+type TabId = 'users' | 'propertyTypes' | 'classifications';
 
 const config: Record<TabId, { title: string; endpoint: string; idField: string; fields: CrudField[]; columns: { key: string; label: string }[] }> = {
   users: {
@@ -27,11 +27,6 @@ const config: Record<TabId, { title: string; endpoint: string; idField: string; 
     fields: [{ key: 'classification_name', label: 'Classification Name' }],
     columns: [{ key: 'classification_id', label: 'ID' }, { key: 'classification_name', label: 'Name' }]
   },
-  assessmentLevels: {
-    title: 'Assessment Levels', endpoint: '/assessmentLevels', idField: 'assessment_level_id',
-    fields: [{ key: 'classification_id', label: 'Classification ID', type: 'number' }, { key: 'assessment_percentage', label: 'Percentage (%)', type: 'number' }],
-    columns: [{ key: 'assessment_level_id', label: 'ID' }, { key: 'classification_id', label: 'Class ID' }, { key: 'assessment_percentage', label: 'Percentage' }]
-  }
 };
 
 export const SystemSettings: React.FC = () => {

@@ -20,7 +20,7 @@ frontend/src/components/
     ├── LandingPage.tsx            # Marketing landing page
     ├── PropertyLotManagement.tsx  # Lot registry with filters
     ├── PropertyOwnershipTransfer.tsx # Workflow-based transfer form
-    ├── AiPropertyValuation.tsx    # AI valuation dossier with charts
+    ├── PropertyAssessments.tsx    # Property assessments workspace
     ├── BuildingDirectory.tsx      # Building registry with trends
     └── OperationalIntelligenceReports.tsx # Dashboard with analytics
 ```
@@ -152,25 +152,19 @@ Marketing homepage with features, stats, and call-to-action sections.
 - Current ownership information display
 - Transfer details form
 - File upload for supporting documents
-- AI policy compliance check
 - Workflow guidelines
 
-### AiPropertyValuation
-- Estimated market value display with confidence score
-- Price index comparison chart
-- GIS parcel view map
-- Market trends, infrastructure, asset quality insights
-- AI market pulse indicator
-- Comparable properties table
+### PropertyAssessments
+- Property assessment CRUD
+- Market value and assessed value management
+- Remarks and date tracking
 
 ### BuildingDirectory
 - 12,482+ structure registry
 - Key metrics (residential units, commercial lots, pending valuations)
 - Construction trends chart by district
-- AI insights with risk report generation
 
 ### OperationalIntelligenceReports
-- AI prediction accuracy chart
 - Property inventory donut chart
 - Tax collection estimates
 - User activity logs
@@ -207,7 +201,7 @@ import {
   DataTable,
   PropertyLotManagement,
   PropertyOwnershipTransfer,
-  AiPropertyValuation,
+  PropertyAssessments,
   BuildingDirectory,
   OperationalIntelligenceReports,
   LandingPage,

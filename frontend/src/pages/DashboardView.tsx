@@ -1,4 +1,4 @@
-import { Building2, MapPin, Plus, Sparkles, Users } from 'lucide-react'
+import { Building2, MapPin, Plus, ClipboardCheck, Users } from 'lucide-react'
 import { Metric } from '../components/common/Metric'
 import { PropertyTable } from '../components/common/PropertyTable'
 import { SearchBox } from '../components/common/SearchBox'
@@ -15,7 +15,7 @@ export function DashboardView({ active, query, onQueryChange, rows, onNavigate, 
     <Metric icon={<Building2/>} title="Total Properties" value={propertyCount.toLocaleString()} detail="Registered property records" color="green"/>
     <Metric icon={<MapPin/>} title="Total Lots" value={rows.length.toLocaleString()} detail="Lots linked to properties" color="blue"/>
     <Metric icon={<Users/>} title="Pending Records" value={pendingCount.toLocaleString()} detail="Require review or assessment" color="orange"/>
-    <Metric icon={<Sparkles/>} title="Assessed Properties" value={assessedCount.toLocaleString()} detail="Records with market value" color="violet"/>
+    <Metric icon={<ClipboardCheck/>} title="Assessed Properties" value={assessedCount.toLocaleString()} detail="Records with market value" color="violet"/>
   </div>
-  <div className="dashboard-grid"><section className="card records"><div className="card-head"><div><h2>Assessment Summary</h2><p>Overview of recent property records</p></div><button className="btn-edit" onClick={() => onNavigate('Properties')}>View all properties</button></div><SearchBox value={query} onChange={onQueryChange}/><PropertyTable rows={rows} onEdit={onEdit} onDelete={onDelete}/></section><aside className="side-column"><section className="card activity"><div className="card-head"><div><h2>Recent Activities</h2><p>Latest system updates</p></div></div><Activity initials="AI" color="violet" text="AI estimate generated" name="TD-2024-01842 · 12 minutes ago"/><Activity initials="JD" color="blue" text="Assessment updated" name="Jose R. Dela Cruz · 1 hour ago"/><Activity initials="AR" color="purple" text="Tax declaration generated" name="Ana P. Reyes · 3 hours ago"/><button className="btn-edit outline" onClick={() => onNavigate('Reports')}>View logs</button></section></aside></div></>
+  <div className="dashboard-grid"><section className="card records"><div className="card-head"><div><h2>Assessment Summary</h2><p>Overview of recent property records</p></div><button className="btn-edit" onClick={() => onNavigate('Properties')}>View all properties</button></div><SearchBox value={query} onChange={onQueryChange}/><PropertyTable rows={rows} onEdit={onEdit} onDelete={onDelete}/></section><aside className="side-column"><section className="card activity"><div className="card-head"><div><h2>Recent Activities</h2><p>Latest system updates</p></div></div><Activity initials="JD" color="blue" text="Assessment updated" name="Jose R. Dela Cruz · 1 hour ago"/><Activity initials="AR" color="purple" text="Tax declaration generated" name="Ana P. Reyes · 3 hours ago"/><button className="btn-edit outline" onClick={() => onNavigate('Reports')}>View logs</button></section></aside></div></>
 }

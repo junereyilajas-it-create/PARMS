@@ -4,18 +4,19 @@ import { DataTable } from '../components/common/DataTable';
 import { CrudModal, type CrudField } from '../components/common/CrudModal';
 import api, { ensureSession } from '../lib/api';
 
-type Assessment = { assessment_id: number; property_id: number; assessor_user_id: number; assessment_level_id: number; market_value: number; assessment_date: string; remarks: string };
+type Assessment = { assessment_id: number; property_id: number; assessor_user_id: number; assessor_level: number; market_value: number; assessed_value: number; assessment_date: string; remarks: string };
 
 const fields: CrudField[] = [
   { key: 'property_id', label: 'Property ID', type: 'number' },
   { key: 'assessor_user_id', label: 'Assessor User ID', type: 'number' },
-  { key: 'assessment_level_id', label: 'Assessment Level ID', type: 'number' },
+  { key: 'assessor_level', label: 'Assessor Level (%)', type: 'number' },
   { key: 'market_value', label: 'Market Value', type: 'number' },
+  { key: 'assessed_value', label: 'Assessed Value', type: 'number' },
   { key: 'assessment_date', label: 'Assessment Date' },
   { key: 'remarks', label: 'Remarks' }
 ];
 
-export const AiPropertyValuation: React.FC = () => {
+export const PropertyAssessments: React.FC = () => {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -70,7 +71,9 @@ export const AiPropertyValuation: React.FC = () => {
   const columns = [
     { key: 'assessment_id', label: 'Assessment ID' },
     { key: 'property_id', label: 'Property ID' },
+    { key: 'assessor_level', label: 'Level', render: (val: number) => `${Number(val)}%` },
     { key: 'market_value', label: 'Market Value', render: (val: number) => `₱${Number(val).toLocaleString()}` },
+    { key: 'assessed_value', label: 'Assessed Value', render: (val: number) => `₱${Number(val).toLocaleString()}` },
     { key: 'assessment_date', label: 'Date', render: (val: string) => new Date(val).toLocaleDateString() },
     { key: 'remarks', label: 'Remarks' }
   ];
