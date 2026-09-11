@@ -176,12 +176,40 @@ for (const [path, { table, columns, idColumn }] of Object.entries(config)) {
   router.get(`/${path}/:id`, authenticate, allowRoles('admin', 'assessor', 'staff'), async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [req.params.id]); if (rows[0]) res.json(rows[0]); else res.status(404).json({ message: 'Record not found' }) } catch (e) { next(e) } })
   router.post(`/${path}`, authenticate, allowRoles('admin','staff'), async (req, res, next) => { try {
     const values = columns.map(c => req.body[c] === '' ? null : req.body[c])
+    
+    // Explicit Validation
+    if (columns.includes('property_id') && req.body.property_id) {
+      const [propCheck] = await pool.query('SELECT 1 FROM properties WHERE property_id = ?', [req.body.property_id])
+      if (!propCheck.length) return res.status(400).json({ message: 'The linked Property ID does not exist.' })
+    }
+    
+    // Check missing required fields (preventing DB errors)
+    const requiredFields = ['owner_id', 'address_id', 'property_id', 'lot_number', 'building_name']
+    for (let i = 0; i < columns.length; i++) {
+      if (requiredFields.includes(columns[i]) && (values[i] === null || values[i] === undefined)) {
+        return res.status(400).json({ message: `Missing required field: ${columns[i].replace('_', ' ')}` })
+      }
+    }
+
     const [result] = await pool.query(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`, values)
     const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [result.insertId])
     res.status(201).json({ record: rows[0], message: 'Record created' })
   } catch (e) { next(e) } })
   router.put(`/${path}/:id`, authenticate, allowRoles('admin','staff'), async (req, res, next) => { try {
     const values = [...columns.map(c => req.body[c] === '' ? null : req.body[c]), req.params.id]
+    
+    if (columns.includes('property_id') && req.body.property_id) {
+      const [propCheck] = await pool.query('SELECT 1 FROM properties WHERE property_id = ?', [req.body.property_id])
+      if (!propCheck.length) return res.status(400).json({ message: 'The linked Property ID does not exist.' })
+    }
+
+    const requiredFields = ['owner_id', 'address_id', 'property_id', 'lot_number', 'building_name']
+    for (let i = 0; i < columns.length; i++) {
+      if (requiredFields.includes(columns[i]) && (values[i] === null || values[i] === undefined)) {
+        return res.status(400).json({ message: `Missing required field: ${columns[i].replace('_', ' ')}` })
+      }
+    }
+
     const [result] = await pool.query(`UPDATE ${table} SET ${columns.map(c => `${c} = ?`).join(', ')} WHERE ${idColumn} = ?`, values)
     if (!result.affectedRows) return res.status(404).json({ message: 'Record not found' })
     const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [req.params.id])

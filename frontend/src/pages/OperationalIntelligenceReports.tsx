@@ -4,8 +4,10 @@ import { BarChartComponent } from '../components/charts/BarChartComponent';
 import { DonutChartComponent } from '../components/charts/DonutChartComponent';
 import { DataTable } from '../components/common/DataTable';
 import { CrudModal, type CrudField } from '../components/common/CrudModal';
+import { useModal } from '../contexts/ModalContext';
 
 export const OperationalIntelligenceReports: React.FC = () => {
+  const { showInfo, showConfirm } = useModal();
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
   // Mock data for Assessment Completion
   const assessmentCompletionData = [
@@ -132,11 +134,11 @@ export const OperationalIntelligenceReports: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button onClick={() => setModal({ mode: 'create' })} className="flex items-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 transition"><Plus size={18}/>New Report</button>
-          <button type="button" onClick={() => window.alert('Export to PDF is in development.')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
+          <button type="button" onClick={() => showInfo('Export to PDF is in development.')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
             <FileText size={18} />
             Generate PDF
           </button>
-          <button type="button" onClick={() => window.alert('Scheduling reports is in development.')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
+          <button type="button" onClick={() => showInfo('Scheduling reports is in development.')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
             <DownloadIcon size={18} />
             Export Excel
           </button>
@@ -272,7 +274,7 @@ export const OperationalIntelligenceReports: React.FC = () => {
           data={detailedReports}
           onView={(record) => setModal({ mode: 'view', record })}
           onEdit={(record) => setModal({ mode: 'edit', record })}
-          onDelete={(record) => { if (confirm(`Delete ${record.name}?`)) setDetailedReports(items => items.filter(item => item.id !== record.id)); }}
+          onDelete={(record) => { showConfirm(`Are you sure you want to delete ${record.name}?`, () => setDetailedReports(items => items.filter(item => item.id !== record.id))); }}
           showActions={true}
         />
         {modal && <CrudModal title={`${modal.mode === 'create' ? 'Create' : modal.mode === 'edit' ? 'Edit' : 'View'} Report`} fields={reportFields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={saveReport} />}

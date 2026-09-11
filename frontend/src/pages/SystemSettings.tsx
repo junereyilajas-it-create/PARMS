@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { DataTable } from '../components/common/DataTable';
 import { CrudModal, type CrudField } from '../components/common/CrudModal';
+import { useModal } from '../contexts/ModalContext';
 import api, { ensureSession } from '../lib/api';
 
 type TabId = 'users' | 'propertyTypes' | 'classifications';
@@ -30,10 +31,9 @@ const config: Record<TabId, { title: string; endpoint: string; idField: string; 
 };
 
 export const SystemSettings: React.FC = () => {
+  const { showSuccess, showError, showConfirm } = useModal();
   const [activeTab, setActiveTab] = useState<TabId>('users');
   const [data, setData] = useState<any[]>([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
 
   const current = config[activeTab];
@@ -44,7 +44,7 @@ export const SystemSettings: React.FC = () => {
       const res = await api.get(current.endpoint);
       setData(res.data);
     } catch {
-      setError(`Unable to load ${current.title} from the database.`);
+      showError(`Unable to load ${current.title} from the database.`);
     }
   };
 
@@ -53,32 +53,31 @@ export const SystemSettings: React.FC = () => {
   const save = async (values: Record<string, string>) => {
     try {
       await ensureSession();
-      setError(''); setSuccess('');
       if (modal?.mode === 'create') {
         await api.post(current.endpoint, values);
-        setSuccess(`${current.title} record was successfully added.`);
+        showSuccess(`${current.title} record was successfully added.`);
       } else if (modal?.record) {
         await api.put(`${current.endpoint}/${modal.record[current.idField]}`, values);
-        setSuccess(`${current.title} record was successfully updated.`);
+        showSuccess(`${current.title} record was successfully updated.`);
       }
       setModal(null);
       await load();
     } catch {
-      setError('Unable to save. Check required fields or unique constraints.');
+      showError('Unable to save. Check required fields or unique constraints.');
     }
   };
 
   const remove = async (record: any) => {
-    if (!confirm(`Delete this ${current.title} record?`)) return;
-    try {
-      setError(''); setSuccess('');
-      await ensureSession();
-      await api.delete(`${current.endpoint}/${record[current.idField]}`);
-      await load();
-      setSuccess('Record was successfully deleted.');
-    } catch {
-      setError('This record cannot be deleted because it is referenced elsewhere.');
-    }
+    showConfirm(`Are you sure you want to delete this ${current.title} record?`, async () => {
+      try {
+        await ensureSession();
+        await api.delete(`${current.endpoint}/${record[current.idField]}`);
+        await load();
+        showSuccess('Record was successfully deleted.');
+      } catch {
+        showError('This record cannot be deleted because it is referenced elsewhere.');
+      }
+    });
   };
 
   return (
@@ -94,20 +93,17 @@ export const SystemSettings: React.FC = () => {
         </button>
       </div>
 
-      <div className="flex gap-4 border-b border-gray-200">
+      <div className="flex gap-4 border-b border-gray-200 mb-6">
         {(Object.keys(config) as TabId[]).map(tab => (
           <button
             key={tab}
-            onClick={() => { setActiveTab(tab); setError(''); setSuccess(''); }}
+            onClick={() => setActiveTab(tab)}
             className={`py-2 px-4 font-medium transition-colors ${activeTab === tab ? 'text-green-700 border-b-2 border-green-700' : 'text-gray-500 hover:text-gray-900'}`}
           >
             {config[tab].title}
           </button>
         ))}
       </div>
-
-      {error && <p className="text-red-700">{error}</p>}
-      {success && <p className="rounded-md bg-green-50 px-4 py-3 text-green-800">{success}</p>}
 
       <DataTable
         columns={current.columns}

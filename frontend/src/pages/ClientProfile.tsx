@@ -1,12 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { User, Mail, Phone, Shield } from 'lucide-react'
+import { useModal } from '../contexts/ModalContext'
 import api from '../lib/api'
 
 export function ClientProfile() {
+  const { showSuccess, showError } = useModal()
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState('')
-  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', contact_number: '' })
 
@@ -33,15 +33,13 @@ export function ClientProfile() {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
-    setError('')
-    setMessage('')
     try {
       await api.put('/client/profile', form)
-      setMessage('Profile updated successfully.')
+      showSuccess('Profile updated successfully.')
       const { data } = await api.get('/client/profile')
       setProfile(data)
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to update profile.')
+      showError(err.response?.data?.message || 'Failed to update profile.')
     } finally {
       setBusy(false)
     }
@@ -62,8 +60,6 @@ export function ClientProfile() {
             <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2"><User size={18} className="text-gray-500" /> Personal Information</h3>
           </div>
           <form onSubmit={submit} className="p-6 space-y-4">
-            {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
-            {message && <div className="p-3 bg-green-50 text-green-700 rounded-lg text-sm">{message}</div>}
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>

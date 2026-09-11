@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Plus } from 'lucide-react';
 import { DataTable } from '../components/common/DataTable';
 import { CrudModal, type CrudField } from '../components/common/CrudModal';
+import { useModal } from '../contexts/ModalContext';
 import api, { ensureSession } from '../lib/api';
 
 type Owner = { owner_id: number; first_name: string; middle_name: string; last_name: string; contact_number: string; email: string };
@@ -15,9 +16,8 @@ const fields: CrudField[] = [
 ];
 
 export const PropertyOwnershipTransfer: React.FC = () => {
+  const { showSuccess, showError, showConfirm } = useModal();
   const [owners, setOwners] = useState<Owner[]>([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
   const [query, setQuery] = useState('');
 
@@ -27,7 +27,7 @@ export const PropertyOwnershipTransfer: React.FC = () => {
       const { data } = await api.get('/owners');
       setOwners(data);
     } catch {
-      setError('Unable to load owners from the database.');
+      showError('Unable to load owners from the database.');
     }
   };
 
@@ -38,32 +38,31 @@ export const PropertyOwnershipTransfer: React.FC = () => {
   const save = async (values: Record<string, string>) => {
     try {
       await ensureSession();
-      setError(''); setSuccess('');
       if (modal?.mode === 'create') {
         const { data } = await api.post('/owners', values);
-        setSuccess(`Owner ${data.record.first_name} was successfully added.`);
+        showSuccess(`Owner ${data.record.first_name} was successfully added.`);
       } else if (modal?.record) {
         await api.put(`/owners/${modal.record.owner_id}`, values);
-        setSuccess('Owner was successfully updated.');
+        showSuccess('Owner was successfully updated.');
       }
       setModal(null);
       await load();
     } catch {
-      setError('Unable to save the owner. Check required fields.');
+      showError('Unable to save the owner. Check required fields.');
     }
   };
 
   const remove = async (record: Owner) => {
-    if (!confirm(`Delete owner ${record.first_name} ${record.last_name}?`)) return;
-    try {
-      setError(''); setSuccess('');
-      await ensureSession();
-      await api.delete(`/owners/${record.owner_id}`);
-      await load();
-      setSuccess('Owner was successfully deleted.');
-    } catch {
-      setError('This owner cannot be deleted while they have linked properties.');
-    }
+    showConfirm(`Are you sure you want to delete owner ${record.first_name} ${record.last_name}?`, async () => {
+      try {
+        await ensureSession();
+        await api.delete(`/owners/${record.owner_id}`);
+        await load();
+        showSuccess('Owner was successfully deleted.');
+      } catch {
+        showError('This owner cannot be deleted while they have linked properties.');
+      }
+    });
   };
 
   const columns = [
@@ -86,9 +85,6 @@ export const PropertyOwnershipTransfer: React.FC = () => {
           Register Owner
         </button>
       </div>
-
-      {error && <p className="text-red-700">{error}</p>}
-      {success && <p className="rounded-md bg-green-50 px-4 py-3 text-green-800">{success}</p>}
 
       <div className="bg-white p-4 rounded-lg shadow">
         <input type="text" placeholder="Search owners..." value={query} onChange={e => setQuery(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" />

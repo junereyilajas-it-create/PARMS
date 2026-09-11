@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { FileText, Search, X } from 'lucide-react'
 import api from '../lib/api'
 import type { CertificateRequest } from '../types/property'
+import { useModal } from '../contexts/ModalContext'
 
 export function AdminCertificateRequests() {
+  const { showError, showSuccess } = useModal()
   const [requests, setRequests] = useState<CertificateRequest[]>([])
   const [selected, setSelected] = useState<CertificateRequest | null>(null)
   const [loading, setLoading] = useState(true)
@@ -33,9 +35,10 @@ export function AdminCertificateRequests() {
         rejection_reason: statusInput === 'REJECTED' ? rejectionReason : null
       })
       setSelected(null)
+      showSuccess('Request status updated successfully.')
       load()
     } catch (e: any) {
-      alert(e.response?.data?.message || 'Failed to update request status')
+      showError(e.response?.data?.message || 'Failed to update request status')
     }
   }
 

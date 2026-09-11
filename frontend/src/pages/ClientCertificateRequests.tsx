@@ -3,14 +3,15 @@ import type { FormEvent } from 'react'
 import { Plus, X } from 'lucide-react'
 import api from '../lib/api'
 import type { CertificateRequest } from '../types/property'
+import { useModal } from '../contexts/ModalContext'
 
 export function ClientCertificateRequests() {
+  const { showSuccess, showError } = useModal()
   const [requests, setRequests] = useState<CertificateRequest[]>([])
   const [properties, setProperties] = useState<any[]>([])
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
 
   const [form, setForm] = useState({
     property_id: '',
@@ -40,7 +41,6 @@ export function ClientCertificateRequests() {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
-    setError('')
     try {
       await api.post('/client/certificate-requests', {
         property_id: form.property_id ? parseInt(form.property_id) : null,
@@ -50,8 +50,9 @@ export function ClientCertificateRequests() {
       })
       setIsFormOpen(false)
       setForm({ property_id: '', certificate_type: 'Certificate of Property Ownership', purpose: '', remarks: '' })
+      showSuccess('Certificate request submitted successfully.')
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to submit request')
+      showError(err.response?.data?.message || 'Failed to submit request')
     } finally {
       setBusy(false)
     }
@@ -117,7 +118,6 @@ export function ClientCertificateRequests() {
               <button onClick={() => setIsFormOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"><X size={20} /></button>
             </div>
             <form onSubmit={submit} className="p-6 space-y-4">
-              {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Certificate Type</label>

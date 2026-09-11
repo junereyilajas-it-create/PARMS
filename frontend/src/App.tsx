@@ -5,8 +5,8 @@ import { PropertyAssessments, BuildingDirectory, DashboardView, LandingPage, Log
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
-import { MessageModal } from './components/common/MessageModal'
 import { CrudModal } from './components/common/CrudModal'
+import { useModal } from './contexts/ModalContext'
 import api, { ensureSession } from './lib/api'
 import type { Property } from './types/property'
 
@@ -50,8 +50,8 @@ function App() {
   useEffect(() => { localStorage.setItem('accessor_sidebar_collapsed', String(sidebarCollapsed)) }, [sidebarCollapsed])
   
   const [query, setQuery] = useState('')
+  const { showSuccess, showError, showConfirm } = useModal()
   const [showRegisterModal, setShowRegisterModal] = useState(false)
-  const [messageModal, setMessageModal] = useState<{title: string, message: string, type: 'success' | 'error' | 'confirm', onConfirm?: () => void} | null>(null)
   const [editModal, setEditModal] = useState<{ mode: 'edit'; record: any } | null>(null)
   const [propertyRecords, setPropertyRecords] = useState<Property[]>([])
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
@@ -73,23 +73,21 @@ function App() {
   }, [location.pathname])
 
   const deleteProperty = async (property: Property) => {
-    setMessageModal({
-      title: 'Confirm Deletion',
-      message: `Are you sure you want to delete ${property.id}?`,
-      type: 'confirm',
-      onConfirm: async () => {
-        setMessageModal(null)
+    showConfirm(
+      `Are you sure you want to delete ${property.id}?`,
+      async () => {
         try {
           await ensureSession()
           const numericId = property.id.replace('PROPERTY-', '')
           await api.delete(`/properties/${numericId}`)
           await loadPropertyRecords()
-          setMessageModal({ title: 'Success', message: `${property.id} was successfully deleted.`, type: 'success' })
+          showSuccess(`${property.id} was successfully deleted.`)
         } catch (e: any) {
-          setMessageModal({ title: 'Error', message: e.response?.data?.message || 'Could not delete property. It may be referenced by other records.', type: 'error' })
+          showError(e.response?.data?.message || 'Could not delete property. It may be referenced by other records.')
         }
-      }
-    })
+      },
+      'Confirm Deletion'
+    )
   }
 
   const editProperty = async (property: Property) => {
@@ -99,7 +97,7 @@ function App() {
       const { data } = await api.get(`/properties/${numericId}`)
       setEditModal({ mode: 'edit', record: data })
     } catch (e: any) {
-      setMessageModal({ title: 'Error', message: 'Could not load property details.', type: 'error' })
+      showError('Could not load property details.')
     }
   }
 
@@ -110,10 +108,10 @@ function App() {
         await api.put(`/properties/${editModal.record.property_id}`, values)
         await loadPropertyRecords()
         setEditModal(null)
-        setMessageModal({ title: 'Success', message: 'Property updated successfully.', type: 'success' })
+        showSuccess('Property updated successfully.')
       }
     } catch (e: any) {
-      setMessageModal({ title: 'Error', message: 'Could not update property.', type: 'error' })
+      showError('Could not update property.')
     }
   }
 
@@ -121,7 +119,7 @@ function App() {
     await ensureSession()
     const { data } = await api.post('/properties/register', { owner: form.owner, street: form.street, barangay: form.barangay, type: form.type, lot_area: form.lot, market_value: form.market, coordinates: form.coordinates, document: form.document, lot_number: form.lotNumber, title_number: form.titleNumber })
     await loadPropertyRecords()
-    setMessageModal({ title: 'Registration Successful', message: `Property #${data.id} was successfully added to the database.`, type: 'success' })
+    showSuccess(`Property #${data.id} was successfully added to the database.`, 'Registration Successful')
   }
 
   const handleNavigate = (page: string) => {
@@ -222,7 +220,6 @@ function App() {
         { key: 'classification_id', label: 'Classification ID', type: 'number' },
         { key: 'property_status', label: 'Status', type: 'select', options: ['active', 'inactive', 'pending'] }
       ]} record={editModal.record} onClose={() => setEditModal(null)} onSave={saveProperty} />}
-      {messageModal && <MessageModal {...messageModal} onClose={() => setMessageModal(null)} />}
     </div>
   )
 

@@ -5,6 +5,7 @@ import { MetricCard } from '../components/common/MetricCard';
 import { DataTable } from '../components/common/DataTable';
 import { CrudModal, type CrudField } from '../components/common/CrudModal';
 import { BuildingRegistrationModal, type BuildingRegistration } from '../components/common/BuildingRegistrationModal';
+import { useModal } from '../contexts/ModalContext';
 import api, { ensureSession } from '../lib/api';
 
 export const BuildingDirectory: React.FC<{ query?: string }> = ({ query = '' }) => {
@@ -22,14 +23,14 @@ export const BuildingDirectory: React.FC<{ query?: string }> = ({ query = '' }) 
     { year: '2024 (Pro)', structures: 2800 },
   ];
 
+  const { showSuccess, showError, showConfirm, showInfo } = useModal();
   const [buildingData, setBuildingData] = useState<any[]>([]);
-  const [error, setError] = useState('');
   const fields: CrudField[] = [{ key: 'property_id', label: 'Property ID', type: 'number' }, { key: 'building_name', label: 'Building name' }, { key: 'building_type', label: 'Type' }, { key: 'floor_area', label: 'Floor area', type: 'number' }, { key: 'floor_count', label: 'Floors', type: 'number' }, { key: 'construction_type', label: 'Construction type' }, { key: 'year_constructed', label: 'Year built', type: 'number' }, { key: 'market_value', label: 'Market value', type: 'number' }, { key: 'assessed_value', label: 'Assessed value', type: 'number' }, { key: 'building_status', label: 'Status', type: 'select', options: ['active', 'inactive', 'pending'] }];
-  const load = async () => { try { await ensureSession(); const { data } = await api.get('/buildings'); setBuildingData(data); } catch { setError('Unable to load building records from the database.') } };
+  const load = async () => { try { await ensureSession(); const { data } = await api.get('/buildings'); setBuildingData(data); } catch { showError('Unable to load building records from the database.') } };
   useEffect(() => { load() }, []);
   const displayedBuildings = React.useMemo(() => buildingData.filter(b => !query || `${b.building_id} ${b.building_name} ${b.building_type}`.toLowerCase().includes(query.toLowerCase())), [buildingData, query]);
-  const save = async (values: Record<string, string>) => { try { await ensureSession(); if (modal?.mode === 'create') await api.post('/buildings', values); else if (modal?.record) await api.put(`/buildings/${modal.record.building_id}`, values); setModal(null); await load(); } catch { setError('Unable to save the building. Check required property IDs and values.') } };
-  const createBuilding = async (values: BuildingRegistration) => { try { await ensureSession(); const { data } = await api.post('/buildings', values); setShowAddBuilding(false); await load(); window.alert(`Building #${data.id} was successfully added to the database.`); } catch { setError('Unable to save the building. Check the linked property ID and required values.'); } };
+  const save = async (values: Record<string, string>) => { try { await ensureSession(); if (modal?.mode === 'create') await api.post('/buildings', values); else if (modal?.record) await api.put(`/buildings/${modal.record.building_id}`, values); setModal(null); await load(); showSuccess('Building saved successfully.'); } catch { showError('Unable to save the building. Check required property IDs and values.') } };
+  const createBuilding = async (values: BuildingRegistration) => { try { await ensureSession(); const { data } = await api.post('/buildings', values); setShowAddBuilding(false); await load(); showSuccess(`Building #${data.id} was successfully added to the database.`); } catch { showError('Unable to save the building. Check the linked property ID and required values.'); } };
 
   const getStatusBadge = (status: string) => {
     const statusStyles: Record<string, string> = {
@@ -122,7 +123,7 @@ export const BuildingDirectory: React.FC<{ query?: string }> = ({ query = '' }) 
       </div>
 
       {/* Data Table */}
-      {error && <p className="text-red-700">{error}</p>}<DataTable
+      <DataTable
         columns={columns}
         data={displayedBuildings}
         currentPage={currentPage}
@@ -130,7 +131,7 @@ export const BuildingDirectory: React.FC<{ query?: string }> = ({ query = '' }) 
         onPageChange={setCurrentPage}
         onView={(record) => setModal({ mode: 'view', record })}
         onEdit={(record) => setModal({ mode: 'edit', record })}
-        onDelete={async (record) => { if (!confirm(`Delete building ${record.building_id}?`)) return; try { await ensureSession(); await api.delete(`/buildings/${record.building_id}`); await load(); window.alert(`Building #${record.building_id} was successfully deleted from the database.`); } catch { setError('This building cannot be deleted while it has related records.'); } }}
+        onDelete={(record) => { showConfirm(`Are you sure you want to delete building ${record.building_id}?`, async () => { try { await ensureSession(); await api.delete(`/buildings/${record.building_id}`); await load(); showSuccess(`Building #${record.building_id} was successfully deleted from the database.`); } catch { showError('This building cannot be deleted while it has related records.'); } }) }}
         showActions={true}
       />
       {modal && <CrudModal title={`${modal.mode === 'create' ? 'Add' : modal.mode === 'edit' ? 'Edit' : 'Building'} Structure`} fields={fields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={save} />}
@@ -159,7 +160,7 @@ export const BuildingDirectory: React.FC<{ query?: string }> = ({ query = '' }) 
           </p>
           <button 
             className="w-full px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 transition text-sm font-medium"
-            onClick={() => window.alert('Risk report generation is currently in development.')}
+            onClick={() => showInfo('Risk report generation is currently in development.')}
           >
             Generate Risk Report
           </button>

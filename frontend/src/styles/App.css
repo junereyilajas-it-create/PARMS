@@ -38,6 +38,16 @@ input {
   outline: none;
 }
 
+.input-valid {
+  border-color: #22c55e !important;
+  box-shadow: 0 0 0 1px #22c55e !important;
+}
+
+.input-invalid {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 1px #ef4444 !important;
+}
+
 .app-shell {
   display: flex;
   min-height: 100vh;

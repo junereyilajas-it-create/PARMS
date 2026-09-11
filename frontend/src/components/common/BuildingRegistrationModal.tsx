@@ -1,52 +1,284 @@
 import { Building2, Check, ChevronRight, Home, X } from 'lucide-react'
 import { useState } from 'react'
 import { WorkflowSteps } from './RegisterPropertyModal'
+import { useFormValidation, validateRequired, validateNumber } from '../../lib/validation'
 import '../../styles/MultiStepModal.css'
 
-type BuildingForm = { lotPin: string; id: string; yearBuilt: string; type: string; floorArea: string; stories: string; material: string; foundation: string; roof: string; occupant: string; permit: string; rooms: string; utilities: string[]; remarks: string }
 export type BuildingRegistration = { property_id: string; building_name: string; building_type: string; floor_area: string; floor_count: string; construction_type: string; year_constructed: string; market_value: string; assessed_value: string; building_status: string }
 const steps = ['Basic Info', 'Structural Specs', 'Occupancy & Use']
 
 export function BuildingRegistrationModal({ close, onSave }: { close: () => void; onSave: (building: BuildingRegistration) => void }) {
   const [step, setStep] = useState(0)
-  const [form, setForm] = useState<BuildingForm>({ lotPin: '', id: '', yearBuilt: '', type: 'Residential', floorArea: '', stories: '', material: '', foundation: '', roof: '', occupant: '', permit: '', rooms: '', utilities: [], remarks: '' })
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  const update = (key: keyof BuildingForm, value: string | string[]) => { setForm(current => ({ ...current, [key]: value })); setErrors(current => ({ ...current, [key]: '' })); }
-  const toggleUtility = (utility: string) => update('utilities', form.utilities.includes(utility) ? form.utilities.filter(item => item !== utility) : [...form.utilities, utility])
+
+  const { values, setValue, setFieldTouched, getFieldError, getFieldClass, markAllTouched, isValid } = useFormValidation({
+    lotPin: { initialValue: '', rules: [validateRequired, validateNumber] },
+    id: { initialValue: '', rules: [validateRequired] },
+    yearBuilt: { initialValue: '', rules: [validateNumber] },
+    type: { initialValue: 'Residential', rules: [validateRequired] },
+    floorArea: { initialValue: '', rules: [validateNumber] },
+    stories: { initialValue: '', rules: [validateNumber] },
+    material: { initialValue: '' },
+    foundation: { initialValue: '' },
+    roof: { initialValue: '' },
+    occupant: { initialValue: '', rules: [validateRequired] },
+    permit: { initialValue: '' },
+    rooms: { initialValue: '', rules: [validateNumber] },
+    utilities: { initialValue: [] as string[] },
+    remarks: { initialValue: '' }
+  })
+  
+  const [stepError, setStepError] = useState('')
+
+  const toggleUtility = (utility: string) => setValue('utilities', values.utilities.includes(utility) ? values.utilities.filter(item => item !== utility) : [...values.utilities, utility])
   
   const validateStep = (currentStep: number) => {
-    const newErrors: Record<string, string> = {}
     if (currentStep === 0) {
-      if (!form.lotPin) newErrors.lotPin = 'Linked Property ID is required.'
-      if (!form.id) newErrors.id = 'Building Name/ID is required.'
-      if (form.yearBuilt && isNaN(Number(form.yearBuilt))) newErrors.yearBuilt = 'Year must be a number.'
+      setFieldTouched('lotPin'); setFieldTouched('id'); setFieldTouched('yearBuilt')
+      return !getFieldError('lotPin') && !getFieldError('id') && !getFieldError('yearBuilt')
     } else if (currentStep === 1) {
-      if (form.floorArea && isNaN(Number(form.floorArea))) newErrors.floorArea = 'Area must be a number.'
-      if (form.stories && isNaN(Number(form.stories))) newErrors.stories = 'Storeys must be a number.'
+      setFieldTouched('floorArea'); setFieldTouched('stories')
+      return !getFieldError('floorArea') && !getFieldError('stories')
     } else if (currentStep === 2) {
-      if (!form.occupant) newErrors.occupant = 'Occupant is required.'
-      if (form.rooms && isNaN(Number(form.rooms))) newErrors.rooms = 'Rooms must be a number.'
+      setFieldTouched('occupant'); setFieldTouched('rooms')
+      return !getFieldError('occupant') && !getFieldError('rooms')
     }
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
+    return true
   }
 
   const handleNext = () => {
-    if (validateStep(step)) {
-      if (step === 2) finish()
-      else setStep(value => value + 1)
+    if (step < 2) {
+      if (validateStep(step)) {
+        setStepError('')
+        setStep(value => value + 1)
+      } else {
+        setStepError('Please fix the highlighted fields before proceeding.')
+      }
+      return
     }
+
+    markAllTouched()
+    if (!isValid()) return setStepError('Please fix the highlighted fields before proceeding.')
+    
+    if (!values.lotPin) return
+    onSave({ 
+      property_id: values.lotPin, 
+      building_name: values.id || `BLDG-${Date.now().toString().slice(-5)}`, 
+      building_type: values.type, 
+      floor_area: values.floorArea || '0', 
+      floor_count: values.stories || '1', 
+      construction_type: values.material || 'Not specified', 
+      year_constructed: values.yearBuilt || new Date().getFullYear().toString(), 
+      market_value: '0', 
+      assessed_value: '0', 
+      building_status: 'active' 
+    })
   }
 
-  const finish = () => { if (!form.lotPin) return; onSave({ property_id: form.lotPin, building_name: form.id || `BLDG-${Date.now().toString().slice(-5)}`, building_type: form.type, floor_area: form.floorArea || '0', floor_count: form.stories || '1', construction_type: form.material || 'Not specified', year_constructed: form.yearBuilt || new Date().getFullYear().toString(), market_value: '0', assessed_value: '0', building_status: 'active' }) }
-  return <div className="workflow-backdrop" onMouseDown={close}><section className="workflow-modal building-workflow" role="dialog" aria-modal="true" aria-labelledby="add-building-title" onMouseDown={event => event.stopPropagation()}>
-    <header className="workflow-header"><div><h2 id="add-building-title"><Building2 size={16}/> Add Building Structure</h2><small>Step {step + 1} of 3: {steps[step]}</small></div><button aria-label="Close" onClick={close}><X size={18}/></button></header>
-    <WorkflowSteps current={step} labels={steps}/>
-    <div className="workflow-body">
-      {step === 0 && <><label>Linked Property ID <span className="required">*</span><input type="number" className={errors.lotPin ? 'input-error' : ''} value={form.lotPin} onChange={event => update('lotPin', event.target.value)} placeholder="Existing property ID, e.g. 1"/>{errors.lotPin && <span className="error-message">{errors.lotPin}</span>}<small>Select the property where this structure resides.</small></label><div className="workflow-two-columns"><label>Building Name / ID <span className="required">*</span><input className={errors.id ? 'input-error' : ''} value={form.id} onChange={event => update('id', event.target.value)} placeholder="e.g., Main Residence, Bldg A"/>{errors.id && <span className="error-message">{errors.id}</span>}</label><label>Year Built<input className={errors.yearBuilt ? 'input-error' : ''} value={form.yearBuilt} onChange={event => update('yearBuilt', event.target.value)} placeholder="YYYY"/>{errors.yearBuilt && <span className="error-message">{errors.yearBuilt}</span>}</label></div><fieldset><legend>Building Type Classification <span className="required">*</span></legend><div className="type-options">{[['Residential', Home], ['Commercial', Building2], ['Industrial', Building2], ['Mixed Use', Building2]].map(([type, Icon]) => <button type="button" className={form.type === type ? 'selected' : ''} onClick={() => update('type', type as string)} key={type as string}><Icon size={15}/>{type as string}</button>)}</div></fieldset></>}
-      {step === 1 && <><div className="workflow-two-columns"><label>Total Floor Area (sqm)<input className={errors.floorArea ? 'input-error' : ''} value={form.floorArea} onChange={event => update('floorArea', event.target.value)} placeholder="e.g. 1500"/>{errors.floorArea && <span className="error-message">{errors.floorArea}</span>}</label><label>Number of Storeys<input className={errors.stories ? 'input-error' : ''} value={form.stories} onChange={event => update('stories', event.target.value)} placeholder="e.g. 3"/>{errors.stories && <span className="error-message">{errors.stories}</span>}</label></div><label>Primary Construction Material<select value={form.material} onChange={event => update('material', event.target.value)}><option value="">Select primary material</option><option>Concrete</option><option>Steel</option><option>Wood</option><option>Mixed</option></select></label><div className="workflow-two-columns"><label>Foundation Type<select value={form.foundation} onChange={event => update('foundation', event.target.value)}><option value="">Select foundation</option><option>Slab</option><option>Footing</option><option>Pile</option></select></label><label>Roof Structure<select value={form.roof} onChange={event => update('roof', event.target.value)}><option value="">Select roof type</option><option>Concrete</option><option>Metal</option><option>Tile</option></select></label></div></>}
-      {step === 2 && <><div className="workflow-two-columns"><label>Primary Occupant / Business Name <span className="required">*</span><input className={errors.occupant ? 'input-error' : ''} value={form.occupant} onChange={event => update('occupant', event.target.value)} placeholder="e.g., Acme Corp or John Doe"/>{errors.occupant && <span className="error-message">{errors.occupant}</span>}</label><label>Occupancy Permit Number<input value={form.permit} onChange={event => update('permit', event.target.value)} placeholder="e.g., OCP-2023-441A"/></label></div><label>Number of Units / Rooms<input className={errors.rooms ? 'input-error' : ''} value={form.rooms} onChange={event => update('rooms', event.target.value)} placeholder="0"/>{errors.rooms && <span className="error-message">{errors.rooms}</span>}</label><fieldset><legend>Utilities Connection Status</legend><div className="utility-options">{['Water', 'Electricity', 'Gas'].map(utility => <label key={utility}><input type="checkbox" checked={form.utilities.includes(utility)} onChange={() => toggleUtility(utility)}/>{utility}</label>)}</div></fieldset><label>Additional Remarks<textarea value={form.remarks} onChange={event => update('remarks', event.target.value)} placeholder="Any specific notes regarding occupancy or structural use..."/></label></>}
+  return (
+    <div className="workflow-backdrop" onMouseDown={close}>
+      <section className="workflow-modal building-workflow" role="dialog" aria-modal="true" aria-labelledby="add-building-title" onMouseDown={event => event.stopPropagation()}>
+        <header className="workflow-header">
+          <div>
+            <h2 id="add-building-title"><Building2 size={16}/> Add Building Structure</h2>
+            <small>Step {step + 1} of 3: {steps[step]}</small>
+          </div>
+          <button aria-label="Close" onClick={close}><X size={18}/></button>
+        </header>
+        <WorkflowSteps current={step} labels={steps}/>
+        <div className="workflow-body">
+          {stepError && <p className="error-message" style={{marginBottom: '5px', color: '#de4e4e'}}>{stepError}</p>}
+          
+          {step === 0 && (
+            <>
+              <label>
+                Linked Property ID <span className="required">*</span>
+                <input 
+                  type="number" 
+                  className={getFieldClass('lotPin')} 
+                  value={values.lotPin} 
+                  onChange={event => setValue('lotPin', event.target.value)}
+                  onBlur={() => setFieldTouched('lotPin')}
+                  placeholder="Existing property ID, e.g. 1"
+                />
+                <small>Select the property where this structure resides.</small>
+              </label>
+              <div className="workflow-two-columns">
+                <label>
+                  Building Name / ID <span className="required">*</span>
+                  <input 
+                    className={getFieldClass('id')} 
+                    value={values.id} 
+                    onChange={event => setValue('id', event.target.value)}
+                    onBlur={() => setFieldTouched('id')}
+                    placeholder="e.g., Main Residence, Bldg A"
+                  />
+                </label>
+                <label>
+                  Year Built
+                  <input 
+                    className={getFieldClass('yearBuilt')} 
+                    value={values.yearBuilt} 
+                    onChange={event => setValue('yearBuilt', event.target.value)}
+                    onBlur={() => setFieldTouched('yearBuilt')}
+                    placeholder="YYYY"
+                  />
+                </label>
+              </div>
+              <fieldset>
+                <legend>Building Type Classification <span className="required">*</span></legend>
+                <div className="type-options">
+                  {[['Residential', Home], ['Commercial', Building2], ['Industrial', Building2], ['Mixed Use', Building2]].map(([type, Icon]) => (
+                    <button 
+                      type="button" 
+                      className={values.type === type ? 'selected' : ''} 
+                      onClick={() => setValue('type', type as string)} 
+                      key={type as string}
+                    >
+                      {/* @ts-ignore */}
+                      <Icon size={15}/>{type as string}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </>
+          )}
+          {step === 1 && (
+            <>
+              <div className="workflow-two-columns">
+                <label>
+                  Total Floor Area (sqm)
+                  <input 
+                    className={getFieldClass('floorArea')} 
+                    value={values.floorArea} 
+                    onChange={event => setValue('floorArea', event.target.value)}
+                    onBlur={() => setFieldTouched('floorArea')}
+                    placeholder="e.g. 1500"
+                  />
+                </label>
+                <label>
+                  Number of Storeys
+                  <input 
+                    className={getFieldClass('stories')} 
+                    value={values.stories} 
+                    onChange={event => setValue('stories', event.target.value)}
+                    onBlur={() => setFieldTouched('stories')}
+                    placeholder="e.g. 3"
+                  />
+                </label>
+              </div>
+              <label>
+                Primary Construction Material
+                <select 
+                  value={values.material} 
+                  onChange={event => setValue('material', event.target.value)}
+                  onBlur={() => setFieldTouched('material')}
+                >
+                  <option value="">Select primary material</option>
+                  <option>Concrete</option>
+                  <option>Steel</option>
+                  <option>Wood</option>
+                  <option>Mixed</option>
+                </select>
+              </label>
+              <div className="workflow-two-columns">
+                <label>
+                  Foundation Type
+                  <select 
+                    value={values.foundation} 
+                    onChange={event => setValue('foundation', event.target.value)}
+                    onBlur={() => setFieldTouched('foundation')}
+                  >
+                    <option value="">Select foundation</option>
+                    <option>Slab</option>
+                    <option>Footing</option>
+                    <option>Pile</option>
+                  </select>
+                </label>
+                <label>
+                  Roof Structure
+                  <select 
+                    value={values.roof} 
+                    onChange={event => setValue('roof', event.target.value)}
+                    onBlur={() => setFieldTouched('roof')}
+                  >
+                    <option value="">Select roof type</option>
+                    <option>Concrete</option>
+                    <option>Metal</option>
+                    <option>Tile</option>
+                  </select>
+                </label>
+              </div>
+            </>
+          )}
+          {step === 2 && (
+            <>
+              <div className="workflow-two-columns">
+                <label>
+                  Primary Occupant / Business Name <span className="required">*</span>
+                  <input 
+                    className={getFieldClass('occupant')} 
+                    value={values.occupant} 
+                    onChange={event => setValue('occupant', event.target.value)}
+                    onBlur={() => setFieldTouched('occupant')}
+                    placeholder="e.g., Acme Corp or John Doe"
+                  />
+                </label>
+                <label>
+                  Occupancy Permit Number
+                  <input 
+                    value={values.permit} 
+                    onChange={event => setValue('permit', event.target.value)}
+                    onBlur={() => setFieldTouched('permit')}
+                    placeholder="e.g., OCP-2023-441A"
+                  />
+                </label>
+              </div>
+              <label>
+                Number of Units / Rooms
+                <input 
+                  className={getFieldClass('rooms')} 
+                  value={values.rooms} 
+                  onChange={event => setValue('rooms', event.target.value)}
+                  onBlur={() => setFieldTouched('rooms')}
+                  placeholder="0"
+                />
+              </label>
+              <fieldset>
+                <legend>Utilities Connection Status</legend>
+                <div className="utility-options">
+                  {['Water', 'Electricity', 'Gas'].map(utility => (
+                    <label key={utility}>
+                      <input 
+                        type="checkbox" 
+                        checked={values.utilities.includes(utility)} 
+                        onChange={() => toggleUtility(utility)}
+                      />
+                      {utility}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <label>
+                Additional Remarks
+                <textarea 
+                  value={values.remarks} 
+                  onChange={event => setValue('remarks', event.target.value)}
+                  onBlur={() => setFieldTouched('remarks')}
+                  placeholder="Any specific notes regarding occupancy or structural use..."
+                />
+              </label>
+            </>
+          )}
+        </div>
+        <footer className="workflow-footer">
+          <button className="workflow-cancel" onClick={step ? () => setStep(value => value - 1) : close}>
+            {step ? '← Previous Step' : 'Cancel'}
+          </button>
+          <button className="workflow-next" onClick={handleNext}>
+            {step === 2 ? <><Check size={16}/> Complete Registration</> : <>Next: {steps[step + 1]} <ChevronRight size={16}/></>}
+          </button>
+        </footer>
+      </section>
     </div>
-    <footer className="workflow-footer"><button className="btn-cancel" onClick={step ? () => setStep(value => value - 1) : close}>{step ? '← Previous Step' : 'Cancel'}</button><button className="btn-save" onClick={handleNext}>{step === 2 ? <><Check size={16}/> Complete Registration</> : <>Next: {steps[step + 1]} <ChevronRight size={16}/></>}</button></footer>
-  </section></div>
+  )
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Plus } from 'lucide-react';
 import { DataTable } from '../components/common/DataTable';
 import { CrudModal, type CrudField } from '../components/common/CrudModal';
+import { useModal } from '../contexts/ModalContext';
 import api, { ensureSession } from '../lib/api';
 
 type Assessment = { assessment_id: number; property_id: number; assessor_user_id: number; assessor_level: number; market_value: number; assessed_value: number; assessment_date: string; remarks: string };
@@ -17,9 +18,8 @@ const fields: CrudField[] = [
 ];
 
 export const PropertyAssessments: React.FC = () => {
+  const { showSuccess, showError, showConfirm } = useModal();
   const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
   const [query, setQuery] = useState('');
 
@@ -29,7 +29,7 @@ export const PropertyAssessments: React.FC = () => {
       const { data } = await api.get('/assessments');
       setAssessments(data);
     } catch {
-      setError('Unable to load assessments from the database.');
+      showError('Unable to load assessments from the database.');
     }
   };
 
@@ -40,32 +40,31 @@ export const PropertyAssessments: React.FC = () => {
   const save = async (values: Record<string, string>) => {
     try {
       await ensureSession();
-      setError(''); setSuccess('');
       if (modal?.mode === 'create') {
         const { data } = await api.post('/assessments', values);
-        setSuccess(`Assessment #${data.record.assessment_id} was successfully added.`);
+        showSuccess(`Assessment #${data.record.assessment_id} was successfully added.`);
       } else if (modal?.record) {
         await api.put(`/assessments/${modal.record.assessment_id}`, values);
-        setSuccess('Assessment was successfully updated.');
+        showSuccess('Assessment was successfully updated.');
       }
       setModal(null);
       await load();
     } catch {
-      setError('Unable to save the assessment. Check required IDs (e.g. Property ID).');
+      showError('Unable to save the assessment. Check required IDs (e.g. Property ID).');
     }
   };
 
   const remove = async (record: Assessment) => {
-    if (!confirm(`Delete assessment #${record.assessment_id}?`)) return;
-    try {
-      setError(''); setSuccess('');
-      await ensureSession();
-      await api.delete(`/assessments/${record.assessment_id}`);
-      await load();
-      setSuccess('Assessment was successfully deleted.');
-    } catch {
-      setError('This assessment cannot be deleted due to dependencies.');
-    }
+    showConfirm(`Are you sure you want to delete assessment #${record.assessment_id}?`, async () => {
+      try {
+        await ensureSession();
+        await api.delete(`/assessments/${record.assessment_id}`);
+        await load();
+        showSuccess('Assessment was successfully deleted.');
+      } catch {
+        showError('This assessment cannot be deleted due to dependencies.');
+      }
+    });
   };
 
   const columns = [
@@ -90,9 +89,6 @@ export const PropertyAssessments: React.FC = () => {
           New Assessment
         </button>
       </div>
-
-      {error && <p className="text-red-700">{error}</p>}
-      {success && <p className="rounded-md bg-green-50 px-4 py-3 text-green-800">{success}</p>}
 
       <div className="bg-white p-4 rounded-lg shadow">
         <input type="text" placeholder="Search by Property ID..." value={query} onChange={e => setQuery(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" />

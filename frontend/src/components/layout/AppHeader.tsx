@@ -1,9 +1,11 @@
 import { Bell, ChevronDown, Menu, Search, Settings, HelpCircle, LogOut, Moon, Sun } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
+import { useModal } from '../../contexts/ModalContext'
 
 const descriptions: Record<string, string> = { Dashboard: 'Overview of property records and assessment activity', Properties: 'Manage registered property lots and records', Owners: 'Manage ownership transfers and supporting records', Assessments: 'Review property valuation and assessment information', 'GIS Map': 'Locate and inspect registered properties on the map', Documents: 'Find and print official property certifications', Reports: 'Review operational intelligence and reports' }
 
 export function AppHeader({ active, searchValue, onSearchChange, onNavigate, theme, onThemeToggle, onMenu }: { active: string; searchValue: string; onSearchChange: (value: string) => void; onNavigate?: (page: string) => void; theme: 'light' | 'dark'; onThemeToggle: () => void; onMenu: () => void }) {
+  const { showInfo } = useModal();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -79,10 +81,10 @@ export function AppHeader({ active, searchValue, onSearchChange, onNavigate, the
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">admin@municipality.gov.ph</p>
               </div>
               <div className="p-1">
-                <button onClick={() => { setIsProfileOpen(false); window.alert('Settings are currently in development.'); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md flex items-center gap-2 transition-colors">
+                <button onClick={() => { setIsProfileOpen(false); showInfo('Settings are currently in development.'); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md flex items-center gap-2 transition-colors">
                   <Settings size={16} /> Account Settings
                 </button>
-                <button onClick={() => { setIsProfileOpen(false); window.alert('Support module is currently in development.'); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md flex items-center gap-2 transition-colors">
+                <button onClick={() => { setIsProfileOpen(false); showInfo('Support module is currently in development.'); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md flex items-center gap-2 transition-colors">
                   <HelpCircle size={16} /> Help & Support
                 </button>
               </div>

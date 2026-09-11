@@ -3,6 +3,7 @@ import { MapPin, Plus, Layers } from 'lucide-react'
 import type { Property } from '../types/property'
 import { SearchBox } from '../components/common/SearchBox'
 import { CrudModal } from '../components/common/CrudModal'
+import { useModal } from '../contexts/ModalContext'
 import api, { ensureSession } from '../lib/api'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -17,6 +18,7 @@ L.Icon.Default.mergeOptions({
 })
 
 export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect }: { query: string; onQueryChange: (value: string) => void; rows: Property[]; selected: Property; onSelect: (property: Property) => void }) {
+  const { showSuccess, showError } = useModal()
   const [mapMode, setMapMode] = useState<'street' | 'satellite'>('satellite')
   const [modal, setModal] = useState<{ mode: 'create' | 'edit'; record?: any } | null>(null)
   
@@ -32,9 +34,9 @@ export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect
         await api.put(`/locations/${modal.record.location_id}`, values)
       }
       setModal(null)
-      alert('Location updated! Please reload properties to see changes on map.')
+      showSuccess('Location updated! Please reload properties to see changes on map.')
     } catch {
-      alert('Failed to update location. Please ensure property_id is correct.')
+      showError('Failed to update location. Please ensure property_id is correct.')
     }
   }
 
@@ -136,6 +138,7 @@ export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect
 }
 
 function PropertyDetails({ property }: { property: Property }) { 
+  const { showInfo } = useModal();
   if (!property) return null;
   return (
     <aside className="card map-detail">
@@ -152,7 +155,7 @@ function PropertyDetails({ property }: { property: Property }) {
         <div><span>Assessment</span><strong>{property.assessed}</strong></div>
         <div><span>Status</span><strong className={`badge-${property.status.toLowerCase()}`}>{property.status}</strong></div>
       </div>
-      <button type="button" onClick={() => window.alert('Complete record view is in development.')} className="btn-edit full" style={{marginTop: '16px'}}>View Details</button>
+      <button type="button" onClick={() => showInfo('Complete record view is in development.')} className="btn-edit full" style={{marginTop: '16px'}}>View Details</button>
     </aside>
   )
 }

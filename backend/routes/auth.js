@@ -6,18 +6,44 @@ import { authenticate } from '../middleware/auth.js'
 const router = Router()
 router.post('/login', async (req, res, next) => { try {
   const { username, password } = req.body
-  const [rows] = await pool.query('SELECT user_id, owner_id, first_name, last_name, username, password_hash, role FROM users WHERE username = ?', [username])
+  const [rows] = await pool.query('SELECT user_id, owner_id, first_name, last_name, username, password_hash, role FROM users WHERE username = ? OR email = ?', [username, username])
   const user = rows[0]
   if (!user || !(await bcrypt.compare(password, user.password_hash))) return res.status(401).json({ message: 'Invalid username or password' })
   const fullname = `${user.first_name} ${user.last_name}`
   const token = jwt.sign({ id: user.user_id, owner_id: user.owner_id, role: user.role, fullname }, process.env.JWT_SECRET, { expiresIn: '8h' })
   res.json({ token, user: { id: user.user_id, owner_id: user.owner_id, fullname, username: user.username, role: user.role } })
 } catch (err) { next(err) } })
+
+router.post('/validate-login', async (req, res, next) => {
+  try {
+    const { username, password } = req.body
+    if (!username) return res.json({ usernameExists: false, passwordCorrect: false })
+    
+    const [rows] = await pool.query('SELECT username, password_hash FROM users WHERE username = ? OR email = ?', [username, username])
+    const user = rows[0]
+    
+    if (!user) {
+      return res.json({ usernameExists: false, passwordCorrect: false })
+    }
+    
+    if (!password) {
+      return res.json({ usernameExists: true, passwordCorrect: false })
+    }
+    
+    const passwordCorrect = await bcrypt.compare(password, user.password_hash)
+    return res.json({ usernameExists: true, passwordCorrect })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.post('/register', async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     const { first_name, last_name, username, email, password } = req.body
     if (![first_name, last_name, username, email, password].every(Boolean)) return res.status(400).json({ message: 'All required fields must be provided' })
+    if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' })
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Please enter a valid email address' })
     
     await connection.beginTransaction()
     

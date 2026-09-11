@@ -1,9 +1,9 @@
-import { CheckCircle2, AlertCircle, X } from 'lucide-react'
+import { CheckCircle2, AlertCircle, X, Info, AlertTriangle } from 'lucide-react'
 
 export type MessageModalProps = {
   title: string
   message: string
-  type: 'success' | 'error' | 'confirm'
+  type: 'success' | 'error' | 'confirm' | 'info' | 'warning'
   onClose: () => void
   onConfirm?: () => void
 }
@@ -12,23 +12,27 @@ export function MessageModal({ title, message, type, onClose, onConfirm }: Messa
   return (
     <div className="workflow-backdrop" onMouseDown={onClose} style={{ zIndex: 9999 }}>
       <section 
-        className="workflow-modal" 
+        className={`workflow-modal ${type === 'success' ? 'modal-success' : type === 'error' ? 'modal-error' : ''}`} 
         role="dialog" 
         aria-modal="true" 
         style={{ maxWidth: '400px', margin: 'auto' }}
         onMouseDown={event => event.stopPropagation()}
       >
-        <header className="workflow-header" style={{ paddingBottom: '16px', borderBottom: '1px solid #e5e7eb' }}>
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: type === 'error' ? '#b91c1c' : '#15803d' }}>
-            {type === 'error' ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
+        <header className="workflow-header message-modal-header" style={{ paddingBottom: '16px' }}>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }} className={`message-title-${type}`}>
+            {type === 'error' && <AlertCircle size={20} />}
+            {type === 'success' && <CheckCircle2 size={20} />}
+            {type === 'confirm' && <AlertCircle size={20} />}
+            {type === 'info' && <Info size={20} />}
+            {type === 'warning' && <AlertTriangle size={20} />}
             {title}
           </h2>
           <button aria-label="Close" onClick={onClose}><X size={18} /></button>
         </header>
-        <div className="workflow-body" style={{ padding: '24px 20px', fontSize: '15px', color: '#374151', lineHeight: '1.5' }}>
+        <div className="workflow-body message-modal-body" style={{ padding: '24px 20px', fontSize: '15px', lineHeight: '1.5' }}>
           {message}
         </div>
-        <footer className="workflow-footer" style={{ justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
+        <footer className="workflow-footer message-modal-footer" style={{ justifyContent: 'flex-end', paddingTop: '16px' }}>
           {type === 'confirm' ? (
             <>
               <button className="workflow-cancel" onClick={onClose}>Cancel</button>
