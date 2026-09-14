@@ -85,7 +85,7 @@ export function ClientGISMap() {
                           <strong>{p.property_type}</strong><br/>
                           Owner: {p.owner}<br/>
                           Area: {p.lot_area || 0} sqm<br/>
-                          Assessment: ₱{Number(p.assessed_value || 0).toLocaleString()}<br/>
+                          Assessment: {Number(p.assessed_value) > 0 ? `₱${Number(p.assessed_value).toLocaleString()}` : 'UNASSESSED'}<br/>
                         </div>
                       </Popup>
                     </Marker>
@@ -113,7 +113,7 @@ export function ClientGISMap() {
             <div className="grid grid-cols-2 gap-y-4 gap-x-2 text-sm border-t border-gray-100 dark:border-gray-700 pt-4">
               <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Property Type</span><strong className="text-gray-900 dark:text-white">{selected.property_type}</strong></div>
               <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Area</span><strong className="text-gray-900 dark:text-white">{selected.lot_area || 0} sqm</strong></div>
-              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Assessment</span><strong className="text-gray-900 dark:text-white">₱{Number(selected.assessed_value || 0).toLocaleString()}</strong></div>
+              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Assessment</span><strong className="text-gray-900 dark:text-white">{Number(selected.assessed_value) > 0 ? `₱${Number(selected.assessed_value).toLocaleString()}` : 'UNASSESSED'}</strong></div>
               <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Status</span><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium uppercase ${selected.property_status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>{selected.property_status}</span></div>
             </div>
           </aside>

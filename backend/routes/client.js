@@ -25,44 +25,7 @@ const propertySelect = `
 `
 
 // All client routes require 'client' role
-router.use(authenticate, allowRoles('client'))
-
-// 1. My Profile
-router.get('/client/profile', async (req, res, next) => {
-  try {
-    const [rows] = await pool.query(`
-      SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.role, u.owner_id, 
-        po.contact_number 
-      FROM users u
-      LEFT JOIN property_owners po ON po.owner_id = u.owner_id
-      WHERE u.user_id = ?
-    `, [req.user.id])
-    if (rows.length === 0) return res.status(404).json({ message: 'Profile not found' })
-    res.json(rows[0])
-  } catch (e) { next(e) }
-})
-
-router.put('/client/profile', async (req, res, next) => {
-  const connection = await pool.getConnection()
-  try {
-    const { first_name, last_name, email, contact_number } = req.body
-    await connection.beginTransaction()
-    
-    await connection.query('UPDATE users SET first_name = ?, last_name = ?, email = ? WHERE user_id = ?', [first_name, last_name, email, req.user.id])
-    
-    if (req.user.owner_id) {
-      await connection.query('UPDATE property_owners SET first_name = ?, last_name = ?, email = ?, contact_number = ? WHERE owner_id = ?', [first_name, last_name, email, contact_number || null, req.user.owner_id])
-    }
-    
-    await connection.commit()
-    res.json({ message: 'Profile updated successfully' })
-  } catch (e) {
-    await connection.rollback()
-    next(e)
-  } finally {
-    connection.release()
-  }
-})
+router.use('/client', authenticate, allowRoles('client'))
 
 // 2. My Properties (List)
 router.get('/client/my-properties', async (req, res, next) => {
@@ -71,6 +34,21 @@ router.get('/client/my-properties', async (req, res, next) => {
     const [rows] = await pool.query(`${propertySelect} WHERE p.owner_id = ? ORDER BY p.property_id DESC`, [req.user.owner_id])
     res.json(rows)
   } catch (e) { next(e) }
+})
+
+router.get('/client/stats', async (req, res, next) => {
+  try {
+    if (!req.user.owner_id) return res.json({ total_properties: 0, total_lots: 0, total_buildings: 0, assessed_properties: 0, unassessed_properties: 0 })
+    const [stats] = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM properties WHERE owner_id = ?) as total_properties,
+        (SELECT COUNT(*) FROM property_lots l JOIN properties p ON p.property_id = l.property_id WHERE p.owner_id = ?) as total_lots,
+        (SELECT COUNT(*) FROM property_buildings b JOIN properties p ON p.property_id = b.property_id WHERE p.owner_id = ?) as total_buildings,
+        (SELECT COUNT(*) FROM properties p WHERE p.owner_id = ? AND EXISTS (SELECT 1 FROM property_assessments pa WHERE pa.property_id = p.property_id)) as assessed_properties,
+        (SELECT COUNT(*) FROM properties p WHERE p.owner_id = ? AND NOT EXISTS (SELECT 1 FROM property_assessments pa WHERE pa.property_id = p.property_id)) as unassessed_properties
+    `, [req.user.owner_id, req.user.owner_id, req.user.owner_id, req.user.owner_id, req.user.owner_id])
+    res.json(stats[0])
+  } catch(e) { next(e) }
 })
 
 // 2. My Property Details (with ownership check)

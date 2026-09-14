@@ -1,0 +1,80 @@
+/* Print-specific styles for certificates */
+
+@media print {
+  /* Hide all system UI elements */
+  body > div:not(#root) {
+    display: none !important;
+  }
+  
+  /* Assuming the app has a sidebar and header that we need to hide */
+  /* We use generic class hiding here, we might need to hide specific ones */
+  header, nav, aside, .sidebar, .navbar, .no-print {
+    display: none !important;
+  }
+
+  /* Expand the main content area */
+  main, #root, .app-container, .main-content {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    background-color: white !important;
+  }
+
+  /* Page setup for Letter size */
+  @page {
+    size: letter;
+    margin: 1in;
+  }
+
+  body {
+    background-color: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* The container of the certificate should fill the page and not look like a card */
+  .printable-certificate-container {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+  }
+
+  .certificate-page {
+    font-family: 'Times New Roman', Times, serif !important;
+    color: black !important;
+    page-break-after: always;
+  }
+
+  /* Ensure text doesn't overflow or clip */
+  .certificate-page p {
+    page-break-inside: avoid;
+  }
+
+  .certificate-page table {
+    page-break-inside: auto;
+  }
+
+  .certificate-page tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+}
+
+/* Screen styles for the preview */
+.printable-certificate-container {
+  min-height: 11in;
+  max-width: 8.5in;
+  margin: 0 auto;
+  background-color: white;
+  border: 1px solid #ccc;
+  padding: 1in;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.certificate-page {
+  font-family: 'Times New Roman', Times, serif;
+  color: black;
+}

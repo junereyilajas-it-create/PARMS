@@ -1,17 +1,20 @@
-import { useEffect, useState } from 'react'
-import { FileText, Search, X } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import { FileText, Search, X, Check, Printer, FileDown } from 'lucide-react'
 import api from '../lib/api'
 import type { CertificateRequest } from '../types/property'
 import { useModal } from '../contexts/ModalContext'
+import { useNavigate } from 'react-router-dom'
 
 export function AdminCertificateRequests() {
-  const { showError, showSuccess } = useModal()
+  const { showError } = useModal()
+  const navigate = useNavigate()
   const [requests, setRequests] = useState<CertificateRequest[]>([])
   const [selected, setSelected] = useState<CertificateRequest | null>(null)
   const [loading, setLoading] = useState(true)
   const [statusInput, setStatusInput] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')
   const [search, setSearch] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
 
   async function load() {
     try {
@@ -35,27 +38,48 @@ export function AdminCertificateRequests() {
         rejection_reason: statusInput === 'REJECTED' ? rejectionReason : null
       })
       setSelected(null)
-      showSuccess('Request status updated successfully.')
+      
+      setSuccessMessage('Certification request updated successfully.')
+      setTimeout(() => setSuccessMessage(''), 1000)
+      
       load()
     } catch (e: any) {
       showError(e.response?.data?.message || 'Failed to update request status')
     }
   }
 
-  const filteredRequests = requests.filter(r => 
-    String(r.request_id).includes(search) || 
-    r.client_name?.toLowerCase().includes(search.toLowerCase()) || 
-    r.certificate_type.toLowerCase().includes(search.toLowerCase())
-  )
+  const handleGenerate = (req: CertificateRequest) => {
+    navigate('/certificates/generate', { state: { request: req } })
+  }
+
+  const filteredRequests = useMemo(() => {
+    return requests.filter(r => 
+      String(r.request_id).includes(search) || 
+      r.client_name?.toLowerCase().includes(search.toLowerCase()) || 
+      r.certificate_type.toLowerCase().includes(search.toLowerCase())
+    )
+  }, [requests, search])
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading requests...</div>
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {successMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 flex flex-col items-center shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-green-600 rounded-full flex items-center justify-center mb-4">
+              <Check size={32} />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Success</h2>
+            <p className="text-gray-500 dark:text-gray-400">{successMessage}</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Certificate Requests</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Review and manage client certificate requests.</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">Certification Requests</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Review and manage client certification requests.</p>
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
@@ -99,12 +123,21 @@ export function AdminCertificateRequests() {
                       {req.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-right">
+                  <td className="px-6 py-4 text-right flex justify-end gap-3 items-center">
+                    {req.status === 'APPROVED' && (
+                      <button 
+                        onClick={() => handleGenerate(req)}
+                        className="text-sm text-green-600 hover:text-green-800 font-medium flex items-center gap-1"
+                        title="Generate Certificate"
+                      >
+                        <FileDown size={15}/> Generate
+                      </button>
+                    )}
                     <button 
                       onClick={() => { setSelected(req); setStatusInput(req.status); setRejectionReason(req.rejection_reason || ''); }} 
-                      className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                      className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
                     >
-                      Review
+                      <Search size={15}/> Review
                     </button>
                   </td>
                 </tr>
@@ -167,9 +200,14 @@ export function AdminCertificateRequests() {
                   </div>
                 )}
 
-                <div className="flex justify-end gap-3 mt-6">
-                  <button type="button" onClick={() => setSelected(null)} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors border border-gray-300 dark:border-gray-700">Cancel</button>
-                  <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">Save Status</button>
+                <div className="flex justify-between items-center mt-6">
+                  {selected.status === 'APPROVED' ? (
+                    <button type="button" onClick={() => handleGenerate(selected)} className="px-4 py-2 text-sm font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 rounded-lg transition-colors flex items-center gap-1"><Printer size={16}/> Print Certificate</button>
+                  ) : <div></div>}
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => setSelected(null)} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors border border-gray-300 dark:border-gray-700">Cancel</button>
+                    <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">Save Status</button>
+                  </div>
                 </div>
               </form>
             </div>

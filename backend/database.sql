@@ -209,10 +209,29 @@ CREATE TABLE gis_locations (
   CONSTRAINT fk_gis_property FOREIGN KEY (property_id) REFERENCES properties(property_id)
 ) ENGINE=InnoDB;
 
+
+CREATE TABLE property_history (
+  history_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  property_id INT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  action VARCHAR(80) NOT NULL,
+  previous_value TEXT,
+  new_value TEXT,
+  history_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_property_history_property FOREIGN KEY (property_id) REFERENCES properties(property_id),
+  CONSTRAINT fk_property_history_user FOREIGN KEY (user_id) REFERENCES users(user_id)
+) ENGINE=InnoDB;
+
 CREATE TABLE activity_logs (
   log_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id INT UNSIGNED NOT NULL, module_name VARCHAR(80) NOT NULL, activity TEXT NOT NULL,
-  activity_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, ip_address VARCHAR(45),
+  user_id INT UNSIGNED NOT NULL,
+  role VARCHAR(50),
+  action VARCHAR(80) NOT NULL,
+  module_name VARCHAR(80) NOT NULL,
+  record_affected VARCHAR(255),
+  activity TEXT NOT NULL,
+  activity_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ip_address VARCHAR(45),
   CONSTRAINT fk_logs_user FOREIGN KEY (user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
@@ -232,6 +251,22 @@ CREATE TABLE certificate_requests (
   CONSTRAINT fk_cert_req_user FOREIGN KEY (user_id) REFERENCES users(user_id),
   CONSTRAINT fk_cert_req_property FOREIGN KEY (property_id) REFERENCES properties(property_id),
   CONSTRAINT fk_cert_req_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(user_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE generated_certificates (
+  certificate_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  certificate_number VARCHAR(100) NOT NULL UNIQUE,
+  certificate_type VARCHAR(100) NOT NULL,
+  owner_id INT UNSIGNED NOT NULL,
+  property_id INT UNSIGNED,
+  requestor_name VARCHAR(200) NOT NULL,
+  purpose VARCHAR(255) NOT NULL,
+  status ENUM('Generated', 'Cancelled') DEFAULT 'Generated',
+  issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  issued_by_user_id INT UNSIGNED NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES property_owners(owner_id),
+  FOREIGN KEY (property_id) REFERENCES properties(property_id),
+  FOREIGN KEY (issued_by_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
 INSERT INTO property_types (property_type_name) VALUES ('Residential'), ('Commercial'), ('Agricultural'), ('Industrial');
@@ -288,53 +323,151 @@ CREATE TABLE database_backups (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (created_by_user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
+
+INSERT INTO property_owners (owner_id, first_name, last_name, email) VALUES
+  (1, 'Carla', 'Delatorre', 'carla@gmail.com'),
+  (2, 'Lloyd', 'Pabualan', 'lloyd@gmail.com'),
+  (3, 'Jaymark', 'Achas', 'jaymark@gmail.com'),
+  (4, 'Ryan', 'Uyan', 'ryan@gmail.com'),
+  (5, 'Prince', 'Galabin', 'prince@gmail.com'),
+  (6, 'Joken', 'Jailo', 'joken@gmail.com'),
+  (7, 'Joshua', 'Disgrasya', 'joshua@gmail.com'),
+  (8, 'Riel', 'Grasyaan', 'riel@gmail.com'),
+  (9, 'Janrel', 'Bana', 'janrel@gmail.com');
+
 INSERT INTO users (user_id, owner_id, first_name, last_name, username, password_hash, email, role) VALUES
-  (1,NULL,'System','Administrator','admin','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','admin@example.test','admin'),
-  (2,NULL,'Ana','Reyes','areyes','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','ana.reyes@example.test','assessor'),
-  (3,NULL,'Marco','Lopez','mlopez','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','marco.lopez@example.test','staff'),
-  (4,1,'Maria','Santos','msantos','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','maria.santos@example.test','client'),
-  (5,2,'Jose','Dela Cruz','jdelacruz','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','jose.delacruz@example.test','client'),
-  (6,4,'Junerey','Client','junerey','$2b$10$O.Zklw4nZCFWrv7drvsn.uFiMqzm8.xFSwQYyNPFh9d3PR/ma9ure','junerey@example.test','client');
-INSERT INTO property_owners (owner_id,first_name,middle_name,last_name,contact_number,email) VALUES
-  (1,'Maria','Lopez','Santos','09171234567','maria.santos@example.test'),(2,'Jose','Rivera','Dela Cruz','09181234567','jose.delacruz@example.test'),(3,'Ana','Perez','Reyes','09191234567','ana.owner@example.test'),(4,'Junerey','M','Client','09201234567','junerey@example.test');
+  (1, NULL, 'Junerey', 'Admin', 'junerey', '$2b$10$sbk8Jid9rqBoVMbhlWCarudmc0JOfwr/vh1lYZkSx/PmAWwq73eye', 'junerey@gmail.com', 'admin'),
+  (2, NULL, 'Randrei', 'LLacuna', 'randrei', '$2b$10$IhJcAZhA8qCpQ1Sehot.JOT.a.79FcEQSy.NTlLoPq2cyAtHuEBqy', 'randrei@gmail.com', 'assessor'),
+  (3, NULL, 'Jovan', 'Achas', 'jovan', '$2b$10$R28kMbEPDqAkAHPS7YRhr.oA6GeDh.7C2Xlcj7GAEQ7fEEIH4egQG', 'jovan@gmail.com', 'assessor'),
+  (4, NULL, 'Raymark', 'Acierto', 'raymark', '$2b$10$fR0.6hbHmeY5pb852bnzROHjejH6ZyOV6KWyjurhhGQ.TcvWAdFKK', 'raymark@gmail.com', 'staff'),
+  (5, NULL, 'Ating', 'Roa', 'ating', '$2b$10$H6bFMdllIbRTykvN8z9YDOC6oZvGDr2vo.YYR8yAb/O8.BEQju29u', 'ating@gmail.com', 'staff'),
+  (6, NULL, 'Ianjade', 'Lugtanan', 'ianjade', '$2b$10$gIUgDCaM.MI5rIEVL7U2ke6GyePRqnPMrTjTiFNDn4YiBcynDcqkW', 'ianjade@gmail.com', 'staff'),
+  (7, 1, 'Carla', 'Delatorre', 'carla', '$2b$10$jqvv.E7bhgi2lbTW5j21f.N.HWgINmEbNmG7LeJGb5tchnl5YTRSi', 'carla@gmail.com', 'client'),
+  (8, 2, 'Lloyd', 'Pabualan', 'lloyd', '$2b$10$hYfzEDx8rTfhtb0ERPfm/eiJgV4M5xOG3o4dWD8wd8iuUaPFgC2L6', 'lloyd@gmail.com', 'client'),
+  (9, 3, 'Jaymark', 'Achas', 'jaymark', '$2b$10$bCRYAuRoVN2yCKedfnQFu.IRZE0hD4pKuadcGgJMbwqwNNPZx1xAa', 'jaymark@gmail.com', 'client'),
+  (10, 4, 'Ryan', 'Uyan', 'ryan', '$2b$10$wm.0k.CH.yKHDMZv6hCc7uMYIj4MoBtommczqxFNQBIszZWAzkw7a', 'ryan@gmail.com', 'client'),
+  (11, 5, 'Prince', 'Galabin', 'prince', '$2b$10$UNUXMqPRuy9hWfdoMNCehufcP4BHFH7pWK57jFJoAGEPadQE3fTvW', 'prince@gmail.com', 'client'),
+  (12, 6, 'Joken', 'Jailo', 'joken', '$2b$10$cr5QfdVqd0Klr4hbFuLCC.ga5dvUHy/Max8XbNK8QUeDad0S7W3yO', 'joken@gmail.com', 'client'),
+  (13, 7, 'Joshua', 'Disgrasya', 'joshua', '$2b$10$15/ngqet/6jpc6PJXfqD.edCnIG7dL2iLl8c4ZkIVf7HLxk35S8Qe', 'joshua@gmail.com', 'client'),
+  (14, 8, 'Riel', 'Grasyaan', 'riel', '$2b$10$xQwy5bREDwv1NmPFikdnCORlCEHv4BxT1RGOgfX6OqhByqUZzMAOC', 'riel@gmail.com', 'client'),
+  (15, 9, 'Janrel', 'Bana', 'janrel', '$2b$10$BD7wUgFBEe5Yy.GII/9a3ejFhL7NFBwL0wEimC7csZQ9IhhvDORC2', 'janrel@gmail.com', 'client');
 
 INSERT INTO provinces (province_id, province_name) VALUES (1, 'Misamis Oriental');
 INSERT INTO municipalities (municipality_id, province_id, municipality_name) VALUES (1, 1, 'Lagonglong');
 INSERT INTO barangays (barangay_id, municipality_id, barangay_name) VALUES 
-(1, 1, 'Banglay'), (2, 1, 'Dampil'), (3, 1, 'Gaston'), (4, 1, 'Kabulawan'), 
-(5, 1, 'Kauswagan'), (6, 1, 'Lumbo'), (7, 1, 'Manaol'), (8, 1, 'Poblacion'), 
-(9, 1, 'Tabok'), (10, 1, 'Umagos');
+(1, 1, 'Banglay'), (2, 1, 'Dampil'), (3, 1, 'Gaston'), (4, 1, 'Kabulawan');
 
-INSERT INTO addresses (address_id,house_number,street,barangay_id,postal_code) VALUES
-  (1,'18','National Highway',8,'9006'),(2,'42','Purok 2',7,'9006'),(3,'7','Barangay Road',10,'9006'),(4,'101','Junerey St',1,'9006');
-INSERT INTO owner_addresses (owner_address_id,owner_id,address_id) VALUES (1,1,1),(2,2,2),(3,3,3),(4,4,4);
-INSERT INTO properties (property_id,owner_id,address_id,property_type_id,classification_id,property_status) VALUES
-  (1,1,1,1,1,'active'),(2,2,2,2,2,'active'),(3,3,3,3,3,'pending'),(4,4,4,1,1,'active');
-INSERT INTO property_lots (lot_id,property_id,lot_number,title_number,lot_area,lot_status) VALUES
-  (1,1,'LOT-LGL-2024-001','TCT-LGL-10001',450.00,'active'),
-  (2,2,'LOT-LGL-2024-002','TCT-LGL-10002',1250.50,'active'),
-  (3,3,'LOT-LGL-2024-003','TCT-LGL-10003',320.15,'pending'),
-  (4,4,'LOT-LGL-2024-004','TCT-LGL-10004',500.00,'active');
-INSERT INTO property_buildings (building_id,property_id,building_name,building_type,floor_area,floor_count,construction_type,year_constructed,building_status) VALUES
-  (1,1,'Poblacion Family Residence','Residential',180,2,'Concrete',2010,'active'),(2,2,'Manaol Trading Center','Commercial',750,3,'Concrete',2016,'active'),(3,3,'Umagos Farm House','Agricultural',95,1,'Wood',1998,'pending'),(4,4,'Junerey Residence','Residential',200,2,'Concrete',2020,'active');
-INSERT INTO lot_history (lot_id,owner_id,ownership_type,transfer_reason,transfer_date,registered_by_user_id,remarks) VALUES (1,1,'Individual','Initial registration','2024-01-10',3,'Current owner'),(2,2,'Individual','Sale','2024-02-12',3,'Current owner'),(3,3,'Individual','Inheritance','2024-03-15',3,'Current owner');
-INSERT INTO lot_assessment_history (lot_id,assessor_user_id,assessor_level,market_value,assessed_value,assessment_date,assessment_reason,remarks) VALUES (1,2,20.00,6225000,1245000.00,'2024-01-15','Initial assessment','Verified'),(2,2,50.00,7700000,3850000.00,'2024-02-20','Initial assessment','Verified'),(3,2,40.00,1062500,425000.00,'2024-03-20','Initial assessment','Pending review');
-INSERT INTO building_history (building_id,owner_id,ownership_type,transfer_reason,transfer_date,registered_by_user_id,remarks) VALUES (1,1,'Individual','Initial registration','2024-01-10',3,'Current owner'),(2,2,'Individual','Sale','2024-02-12',3,'Current owner'),(3,3,'Individual','Inheritance','2024-03-15',3,'Current owner');
-INSERT INTO building_assessment_history (building_id,assessor_user_id,assessor_level,market_value,assessed_value,assessment_date,assessment_reason,remarks) VALUES (1,2,20.00,6225000,1245000.00,'2024-01-15','Initial assessment','Verified'),(2,2,50.00,7700000,3850000.00,'2024-02-20','Initial assessment','Verified'),(3,2,40.00,1062500,425000.00,'2024-03-20','Initial assessment','Pending review');
-INSERT INTO property_assessments (assessment_id,property_id,assessor_user_id,assessor_level,market_value,assessed_value,assessment_date,remarks) VALUES (1,1,2,20.00,6225000,1245000.00,'2024-01-15','Initial assessment'),(2,2,2,50.00,7700000,3850000.00,'2024-02-20','Initial assessment'),(3,3,2,40.00,1062500,425000.00,'2024-03-20','Initial assessment');
-INSERT INTO tax_declarations (tax_declaration_id,property_id,assessment_id,declaration_number,tax_year,issue_date) VALUES (1,1,1,'TD-2024-01842',2024,'2024-01-20'),(2,2,2,'TD-2024-01841',2024,'2024-02-25'),(3,3,3,'TD-2024-01840',2024,'2024-03-25');
-INSERT INTO gis_locations (property_id,latitude,longitude,gps_accuracy) VALUES (1,14.8295000,120.9950000,4.5),(2,14.8305000,120.9960000,5.2),(3,14.8285000,120.9940000,6.1),(4,14.8296000,120.9955000,5.0);
-INSERT INTO activity_logs (user_id,module_name,activity,ip_address) VALUES (1,'Properties','Registered Poblacion property record','127.0.0.1'),(2,'Assessments','Assessed Manaol property record','127.0.0.1'),(3,'Lots','Updated Umagos lot record','127.0.0.1');
-INSERT INTO ownership_transfers (property_id,previous_owner_id,new_owner_id,transfer_reason,transfer_date,reference_number,remarks,processed_by_user_id) VALUES (1,1,2,'sale','2023-01-10','TR-001','Historical transfer',1),(2,2,3,'donation','2023-02-10','TR-002','Historical transfer',1),(3,3,1,'inheritance','2023-03-10','TR-003','Historical transfer',1);
-INSERT INTO property_inspections (inspection_id,property_id,inspector_user_id,scheduled_at,completed_at,inspection_status,property_condition,remarks) VALUES (1,1,2,'2024-04-01 09:00:00','2024-04-01 10:00:00','completed','Good','No issues'),(2,2,2,'2024-04-02 09:00:00',NULL,'scheduled','Good','Upcoming'),(3,3,2,'2024-04-03 09:00:00',NULL,'for_report','Fair','Report required');
-INSERT INTO inspection_photos (inspection_id,file_path,caption) VALUES (1,'/uploads/inspection-1.jpg','Front view'),(2,'/uploads/inspection-2.jpg','Storefront'),(3,'/uploads/inspection-3.jpg','Lot view');
-INSERT INTO assessment_appeals (property_id,assessment_id,appellant_owner_id,appeal_reason,assigned_assessor_id,appeal_status,resolution,resolved_at) VALUES (1,1,1,'Request market-value review',2,'under_review',NULL,NULL),(2,2,2,'Classification clarification',2,'resolved','Assessment confirmed','2024-05-10'),(3,3,3,'Area correction request',2,'submitted',NULL,NULL);
-INSERT INTO certified_copy_issuances (property_id,certification_number,document_type,requestor_name,issued_by_user_id,purpose) VALUES (1,'CERT-001','tax_declaration','Maria Santos',3,'Bank loan'),(2,'CERT-002','property_record','Jose Dela Cruz',3,'Business permit'),(3,'CERT-003','assessment_record','Ana Reyes',3,'Personal record');
-INSERT INTO database_backups (file_name,file_path,file_size_bytes,checksum,backup_status,created_by_user_id) VALUES ('backup-001.sql','/backups/backup-001.sql',102400,'sha256-001','verified',1),('backup-002.sql','/backups/backup-002.sql',102500,'sha256-002','verified',1),('backup-003.sql','/backups/backup-003.sql',102600,'sha256-003','created',1);
+INSERT INTO addresses (address_id, house_number, street, barangay_id, postal_code) VALUES
+  (1, '101', 'Kabulawan St', 4, '9006'),
+  (2, '102', 'Kabulawan St', 4, '9006'),
+  (3, '103', 'Kabulawan St', 4, '9006'),
+  (4, '104', 'Kabulawan St', 4, '9006'),
+  (5, '105', 'Kabulawan St', 4, '9006'),
+  (6, '106', 'Kabulawan St', 4, '9006'),
+  (7, '107', 'Kabulawan St', 4, '9006'),
+  (8, '108', 'Kabulawan St', 4, '9006'),
+  (9, '109', 'Kabulawan St', 4, '9006');
 
-INSERT INTO certificate_requests (user_id, property_id, certificate_type, purpose, status) VALUES
-  (4, 1, 'Certificate of Property Ownership', 'Bank loan requirement', 'PENDING'),
-  (4, 1, 'Certificate of Assessment', 'Personal record', 'APPROVED'),
-  (6, 4, 'Certificate of Property Ownership', 'Building permit', 'PENDING');
+INSERT INTO owner_addresses (owner_id, address_id) VALUES 
+  (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8), (9, 9);
+
+-- Create Properties
+INSERT INTO properties (property_id, owner_id, address_id, property_type_id, classification_id, property_status) VALUES
+  (1, 1, 1, 1, 1, 'active'), -- Carla (Group A)
+  (2, 2, 2, 1, 1, 'active'), -- Lloyd (Group A)
+  (3, 3, 3, 1, 1, 'active'), -- Jaymark (Group A)
+  (4, 4, 4, 1, 1, 'active'), -- Ryan (Group B)
+  (5, 5, 5, 1, 1, 'active'), -- Prince (Group B)
+  (6, 6, 6, 1, 1, 'active'), -- Joken (Group C)
+  (7, 7, 7, 1, 1, 'active'), -- Joshua (Group C)
+  (8, 8, 8, 1, 1, 'active'), -- Riel (Group D)
+  (9, 9, 9, 1, 1, 'active'); -- Janrel (Group D)
+
+-- Create Lots (Total 9: 7 Assessed, 2 Unassessed)
+-- Group A (3 assessed)
+-- Group B (2 assessed)
+-- Group C (4 lots: 2 assessed, 2 unassessed)
+INSERT INTO property_lots (lot_id, property_id, lot_number, title_number, lot_area, lot_status) VALUES
+  (1, 1, 'LOT-A1', 'TCT-A1', 500, 'active'),
+  (2, 2, 'LOT-A2', 'TCT-A2', 500, 'active'),
+  (3, 3, 'LOT-A3', 'TCT-A3', 500, 'active'),
+  (4, 4, 'LOT-B1', 'TCT-B1', 500, 'active'),
+  (5, 5, 'LOT-B2', 'TCT-B2', 500, 'active'),
+  (6, 6, 'LOT-C1-1', 'TCT-C1-1', 500, 'active'), -- Assessed
+  (7, 6, 'LOT-C1-2', 'TCT-C1-2', 500, 'active'), -- Unassessed
+  (8, 7, 'LOT-C2-1', 'TCT-C2-1', 500, 'active'), -- Assessed
+  (9, 7, 'LOT-C2-2', 'TCT-C2-2', 500, 'active'); -- Unassessed
+
+-- Create Buildings (Total 10: 7 Assessed, 3 Unassessed)
+-- Group A (3 assessed)
+-- Group D (4 buildings: 2 assessed, 2 unassessed)
+-- Oops wait, total should be 10 buildings. 3 (A) + 4 (D) = 7 buildings. Wait.
+-- Requirement:
+-- Group A: 3 buildings (all assessed)
+-- Group D: 4 buildings (2 assessed, 2 unassessed)
+-- That makes 7 buildings. How do we get to 10 buildings?
+-- "Total Buildings: 10 (7 assessed, 3 unassessed)"
+-- Let's add 3 more buildings to Group A or C to make up 10.
+-- Wait, let's look at the requirements again:
+-- Group A: Carla, Lloyd, Jaymark (each has 1 building, assessed) = 3 buildings (3 assessed)
+-- Group B: Ryan, Prince (0 buildings) = 0 buildings
+-- Group C: Joken, Joshua (0 buildings) = 0 buildings
+-- Group D: Riel, Janrel (each has 2 buildings, 1 assessed, 1 unassessed) = 4 buildings (2 assessed, 2 unassessed)
+-- Total requested explicitly: 3 + 4 = 7 buildings.
+-- Why did the prompt say "Total Buildings: 10, Assessed: 7, Unassessed: 3"?
+-- Maybe there are 3 additional placeholder buildings needed? Let's just create 3 more buildings to hit the exact numbers. Let's give Carla 1 more assessed building (4 assessed total), Lloyd 1 more unassessed building (3 unassessed total), and Jaymark 1 more assessed building (5 assessed total).
+-- Wait, the prompt said:
+-- Assessed Buildings: 7. Unassessed: 3.
+-- Currently explicitly allocated: 3 (Group A) + 2 (Group D) = 5 Assessed. And 2 (Group D) = 2 Unassessed.
+-- So we need 2 more Assessed and 1 more Unassessed building to reach 7 Assessed and 3 Unassessed.
+-- I'll assign these extra 3 buildings to Group A (Carla, Lloyd, Jaymark) to exactly match the requirement.
+INSERT INTO property_buildings (building_id, property_id, building_name, building_type, floor_area, floor_count, building_status) VALUES
+  (1, 1, 'Carla Bldg 1', 'Residential', 150, 1, 'active'), -- Assessed
+  (2, 2, 'Lloyd Bldg 1', 'Residential', 150, 1, 'active'), -- Assessed
+  (3, 3, 'Jaymark Bldg 1', 'Residential', 150, 1, 'active'), -- Assessed
+  (4, 8, 'Riel Bldg 1', 'Residential', 150, 1, 'active'), -- Assessed
+  (5, 8, 'Riel Bldg 2', 'Residential', 150, 1, 'active'), -- Unassessed
+  (6, 9, 'Janrel Bldg 1', 'Residential', 150, 1, 'active'), -- Assessed
+  (7, 9, 'Janrel Bldg 2', 'Residential', 150, 1, 'active'), -- Unassessed
+  -- Extra 3 buildings to reach 10 total (7 assessed, 3 unassessed):
+  (8, 1, 'Carla Bldg 2', 'Residential', 100, 1, 'active'), -- Assessed
+  (9, 2, 'Lloyd Bldg 2', 'Residential', 100, 1, 'active'), -- Assessed
+  (10, 3, 'Jaymark Bldg 2', 'Residential', 100, 1, 'active'); -- Unassessed
+
+-- Lot Assessments (7 assessed, 2 unassessed)
+-- Lots 1-6, and 8 are assessed. Lots 7 and 9 are unassessed.
+INSERT INTO lot_assessment_history (lot_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date) VALUES 
+  (1, 2, 20.00, 1000000, 200000, CURDATE()),
+  (2, 2, 20.00, 1000000, 200000, CURDATE()),
+  (3, 2, 20.00, 1000000, 200000, CURDATE()),
+  (4, 2, 20.00, 1000000, 200000, CURDATE()),
+  (5, 2, 20.00, 1000000, 200000, CURDATE()),
+  (6, 2, 20.00, 1000000, 200000, CURDATE()),
+  (8, 2, 20.00, 1000000, 200000, CURDATE());
+
+-- Building Assessments (7 assessed, 3 unassessed)
+-- Buildings 1,2,3,4,6,8,9 are assessed. Buildings 5,7,10 are unassessed.
+INSERT INTO building_assessment_history (building_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date) VALUES 
+  (1, 2, 20.00, 2000000, 400000, CURDATE()),
+  (2, 2, 20.00, 2000000, 400000, CURDATE()),
+  (3, 2, 20.00, 2000000, 400000, CURDATE()),
+  (4, 2, 20.00, 2000000, 400000, CURDATE()),
+  (6, 2, 20.00, 2000000, 400000, CURDATE()),
+  (8, 2, 20.00, 2000000, 400000, CURDATE()),
+  (9, 2, 20.00, 2000000, 400000, CURDATE());
+
+-- Property Assessments
+-- Properties 1,2,3,4,5,6,7,8,9 all have some assessment. 
+-- For simplicity, let's give them property_assessments records so they are considered "assessed" at the property level if they have any assessed component.
+INSERT INTO property_assessments (property_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date) VALUES
+  (1, 2, 20.00, 3000000, 600000, CURDATE()),
+  (2, 2, 20.00, 3000000, 600000, CURDATE()),
+  (3, 2, 20.00, 3000000, 600000, CURDATE()),
+  (4, 2, 20.00, 1000000, 200000, CURDATE()),
+  (5, 2, 20.00, 1000000, 200000, CURDATE()),
+  (6, 2, 20.00, 1000000, 200000, CURDATE()),
+  (7, 2, 20.00, 1000000, 200000, CURDATE()),
+  (8, 2, 20.00, 2000000, 400000, CURDATE()),
+  (9, 2, 20.00, 2000000, 400000, CURDATE());
 
 SET FOREIGN_KEY_CHECKS = 1;

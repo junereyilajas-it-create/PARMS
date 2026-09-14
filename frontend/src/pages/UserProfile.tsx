@@ -3,7 +3,7 @@ import { User, Mail, Phone, Shield } from 'lucide-react'
 import { useModal } from '../contexts/ModalContext'
 import api from '../lib/api'
 
-export function ClientProfile() {
+export function UserProfile() {
   const { showSuccess, showError } = useModal()
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -13,7 +13,7 @@ export function ClientProfile() {
   useEffect(() => {
     async function load() {
       try {
-        const { data } = await api.get('/client/profile')
+        const { data } = await api.get('/profile')
         setProfile(data)
         setForm({
           first_name: data.first_name || '',
@@ -34,9 +34,9 @@ export function ClientProfile() {
     e.preventDefault()
     setBusy(true)
     try {
-      await api.put('/client/profile', form)
+      await api.put('/profile', form)
       showSuccess('Profile updated successfully.')
-      const { data } = await api.get('/client/profile')
+      const { data } = await api.get('/profile')
       setProfile(data)
     } catch (err: any) {
       showError(err.response?.data?.message || 'Failed to update profile.')
@@ -115,18 +115,20 @@ export function ClientProfile() {
             </div>
           </div>
           
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-              <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2"><User size={18} className="text-gray-500" /> Owner Information</h3>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <span className="block text-xs font-bold tracking-wider text-gray-500 dark:text-gray-400 uppercase mb-1">Owner ID</span>
-                <span className="text-sm font-mono text-gray-900 dark:text-white">{profile?.owner_id ? String(profile.owner_id).padStart(5, '0') : 'N/A'}</span>
+          {profile?.role === 'client' && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2"><User size={18} className="text-gray-500" /> Owner Information</h3>
               </div>
-              <p className="text-xs text-gray-500">Note: Property ownership details and official Assessor records can only be updated by municipal staff. Visit the Assessor's Office with relevant documents if changes are required.</p>
+              <div className="p-5 space-y-4">
+                <div>
+                  <span className="block text-xs font-bold tracking-wider text-gray-500 dark:text-gray-400 uppercase mb-1">Owner ID</span>
+                  <span className="text-sm font-mono text-gray-900 dark:text-white">{profile?.owner_id ? String(profile.owner_id).padStart(5, '0') : 'N/A'}</span>
+                </div>
+                <p className="text-xs text-gray-500">Note: Property ownership details and official Assessor records can only be updated by municipal staff. Visit the Assessor's Office with relevant documents if changes are required.</p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

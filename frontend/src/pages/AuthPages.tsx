@@ -42,6 +42,7 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
   const { showError, showSuccess } = useModal()
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [loginSuccess, setLoginSuccess] = useState(false)
 
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('password')
@@ -93,7 +94,9 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
       localStorage.setItem('accessor_role', data.user.role)
       setUState('valid')
       setPState('valid')
-      showSuccess('Login successful.')
+      
+      // Show seamless success overlay
+      setLoginSuccess(true)
       setTimeout(() => onNavigate('Dashboard'), 1000)
     } catch (err: any) {
       setUState(err.response?.status === 401 ? 'valid' : 'invalid') // Keep the color logic or just explicitly fail
@@ -104,7 +107,6 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
         else setUState('invalid')
       }
       showError('Invalid username/email or password.')
-    } finally {
       setBusy(false)
     }
   }
@@ -124,12 +126,26 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
   }
 
   return (
-    <Shell>
-      <form className="auth-form" onSubmit={submit} noValidate>
-        <div className="auth-heading">
-          <h1>Welcome Back</h1>
-          <p>Please enter your credentials to access the assessor portal.</p>
+    <>
+      {loginSuccess && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 flex flex-col items-center shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-green-600 rounded-full flex items-center justify-center mb-4">
+              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Login Successful</h2>
+            <p className="text-gray-500 dark:text-gray-400">Welcome back!</p>
+          </div>
         </div>
+      )}
+      <Shell>
+        <form className="auth-form" onSubmit={submit} noValidate>
+          <div className="auth-heading">
+            <h1>Welcome Back</h1>
+            <p>Please enter your credentials to access the assessor portal.</p>
+          </div>
         
         <label>
           Email address or username
@@ -187,6 +203,7 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
         </footer>
       </form>
     </Shell>
+    </>
   )
 }
 

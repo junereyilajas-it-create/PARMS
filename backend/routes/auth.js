@@ -72,5 +72,39 @@ router.post('/register', async (req, res, next) => {
     connection.release()
   }
 })
-router.get('/profile', authenticate, (req, res) => res.json(req.user))
+router.get('/profile', authenticate, async (req, res, next) => {
+  try {
+    const [rows] = await pool.query('SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.role, u.created_at, p.owner_id, p.contact_number FROM users u LEFT JOIN property_owners p ON u.owner_id = p.owner_id WHERE u.user_id = ?', [req.user.id])
+    if (rows.length === 0) return res.status(404).json({ message: 'User not found' })
+    res.json(rows[0])
+  } catch(e) { next(e) }
+})
+
+router.put('/profile', authenticate, async (req, res, next) => {
+  const connection = await pool.getConnection()
+  try {
+    const { first_name, last_name, email, contact_number } = req.body
+    await connection.beginTransaction()
+    
+    await connection.query(
+      'UPDATE users SET first_name=?, last_name=?, email=? WHERE user_id=?',
+      [first_name, last_name, email, req.user.id]
+    )
+    
+    if (req.user.owner_id) {
+      await connection.query(
+        'UPDATE property_owners SET first_name=?, last_name=?, email=?, contact_number=? WHERE owner_id=?',
+        [first_name, last_name, email, contact_number || null, req.user.owner_id]
+      )
+    }
+    
+    await connection.commit()
+    res.json({ message: 'Profile updated' })
+  } catch(e) {
+    await connection.rollback()
+    next(e)
+  } finally {
+    connection.release()
+  }
+})
 export default router

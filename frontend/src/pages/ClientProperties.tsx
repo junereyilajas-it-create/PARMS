@@ -88,7 +88,7 @@ export function ClientProperties() {
                 </div>
                 <div className="bg-green-50 dark:bg-green-900/10 p-4 rounded-lg border border-green-100 dark:border-green-900/30">
                   <dt className="text-sm font-medium text-green-700 dark:text-green-500 mb-1">Assessed Value</dt>
-                  <dd className="text-xl font-bold text-green-800 dark:text-green-400">₱{Number(details.assessed_value).toLocaleString()}</dd>
+                  <dd className="text-xl font-bold text-green-800 dark:text-green-400">{Number(details.assessed_value) > 0 ? `₱${Number(details.assessed_value).toLocaleString()}` : 'UNASSESSED'}</dd>
                 </div>
               </dl>
             </div>
@@ -112,14 +112,14 @@ export function ClientProperties() {
             <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-1 mb-3 line-clamp-1"><MapPin size={14}/> {p.location}</p>
             <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
               <span className="text-xs text-gray-500 dark:text-gray-400">Assessed Value</span>
-              <strong className="text-sm text-gray-900 dark:text-white">₱{Number(p.assessed_value).toLocaleString()}</strong>
+              <strong className="text-sm text-gray-900 dark:text-white">{Number(p.assessed_value) > 0 ? `₱${Number(p.assessed_value).toLocaleString()}` : 'UNASSESSED'}</strong>
             </div>
           </div>
         ))}
         {properties.length === 0 && (
           <div className="col-span-full p-8 text-center bg-white dark:bg-gray-800 rounded-xl border border-dashed border-gray-300 dark:border-gray-700">
             <Building2 className="mx-auto h-12 w-12 text-gray-400 mb-3" />
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white">No Properties Found</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white">No owned properties found.</h3>
             <p className="text-sm text-gray-500 mt-1">You do not have any registered properties linked to your account.</p>
           </div>
         )}

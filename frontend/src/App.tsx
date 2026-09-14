@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Routes, Route, useNavigate, useLocation, Navigate, Outlet } from 'react-router-dom'
 import './styles/App.css'
-import { PropertyAssessments, BuildingDirectory, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, ClientProfile } from './pages'
+import { PropertyAssessments, BuildingDirectory, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, UserProfile, CertificateGenerator, CertificateRecords, AdminDashboard, AssessorDashboard, StaffDashboard, UserManagement, ActivityLogsView, PropertyHistoryView, StaffPropertySearch } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
 import { CrudModal } from './components/common/CrudModal'
+import { SystemLoadingScreen } from './components/common/SystemLoadingScreen'
 import { useModal } from './contexts/ModalContext'
 import api, { ensureSession } from './lib/api'
 import type { Property } from './types/property'
@@ -17,8 +18,8 @@ function toProperty(row: Record<string, unknown>, index: number): Property {
     owner: String(row.owner ?? 'Unassigned owner'),
     location: String(row.location ?? 'Address not yet mapped'),
     type: String(row.property_type ?? 'Unclassified'),
-    assessed: `₱${Number(row.assessed_value ?? 0).toLocaleString()}`,
-    market: `₱${Number(row.market_value ?? 0).toLocaleString()}`,
+    assessed: Number(row.assessed_value ?? 0) > 0 ? `₱${Number(row.assessed_value).toLocaleString()}` : 'UNASSESSED',
+    market: Number(row.market_value ?? 0) > 0 ? `₱${Number(row.market_value).toLocaleString()}` : 'UNASSESSED',
     status: `${status[0].toUpperCase()}${status.slice(1)}` as Property['status'],
     x: typeof row.longitude === 'number' ? 50 + ((Number(row.longitude) % 1) * 40) : 20 + ((index * 17) % 60),
     y: typeof row.latitude === 'number' ? 50 - ((Number(row.latitude) % 1) * 40) : 20 + ((index * 23) % 60),
@@ -57,6 +58,9 @@ function App() {
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
   const filteredProperties = useMemo(() => propertyRecords.filter(property => `${property.id} ${property.owner} ${property.location}`.toLowerCase().includes(query.toLowerCase())), [query, propertyRecords])
 
+  const [isInitializing, setIsInitializing] = useState(true)
+  const [initError, setInitError] = useState('')
+
   const loadPropertyRecords = async () => {
     await ensureSession()
     const { data } = await api.get('/property-records')
@@ -65,11 +69,24 @@ function App() {
     setSelectedProperty(current => records.find(record => record.id === current?.id) ?? records[0] ?? null)
   }
 
-  useEffect(() => {
+  const initializeApp = async () => {
+    setIsInitializing(true)
+    setInitError('')
     const isPublicRoute = ['/', '/login', '/register'].includes(location.pathname)
     if (!isPublicRoute && localStorage.getItem('accessor_token')) {
-      loadPropertyRecords().catch(() => setPropertyRecords([]))
+      try {
+        await loadPropertyRecords()
+      } catch (e) {
+        setInitError('Unable to connect to the server. Please make sure the API server and MySQL are running.')
+        return // keep initializing true so error shows
+      }
     }
+    // Small delay to ensure smooth UI transition and not flash
+    setTimeout(() => setIsInitializing(false), 200)
+  }
+
+  useEffect(() => {
+    initializeApp()
   }, [location.pathname])
 
   const deleteProperty = async (property: Property) => {
@@ -129,8 +146,9 @@ function App() {
       case 'Login': navigate('/login'); break;
       case 'Register': navigate('/register'); break;
       case 'Dashboard': navigate('/dashboard'); break;
-      case 'Properties':
-      case 'Lot Management': navigate('/properties'); break;
+      case 'Lots':
+      case 'Lot Management': navigate('/lots'); break;
+      case 'Building Properties':
       case 'Buildings': navigate('/buildings'); break;
       case 'Owners':
       case 'Ownership Transfer': navigate('/owners'); break;
@@ -138,13 +156,20 @@ function App() {
       case 'GIS Map': navigate('/gis'); break;
       case 'Reports': navigate('/reports'); break;
       case 'Documents': navigate('/documents'); break;
+      case 'Certification Requests':
       case 'Certificate Requests': navigate(userRole === 'client' ? '/client/certificate-requests' : '/admin/certificate-requests'); break;
+      case 'Generate Certificate': navigate('/certificates/generate'); break;
+      case 'Certificate Records': navigate('/certificates/records'); break;
       case 'Settings': navigate('/settings'); break;
       case 'My Properties': navigate('/client/my-properties'); break;
       case 'My Property Map': navigate('/client/gis-map'); break;
       case 'My Requests':
       case 'Request Certificate': navigate('/client/certificate-requests'); break;
-      case 'My Profile': navigate('/client/profile'); break;
+      case 'My Profile': navigate('/profile'); break;
+      case 'User Management': navigate('/users'); break;
+      case 'Activity Logs': navigate('/logs'); break;
+      case 'Property History': navigate('/property-history'); break;
+      case 'Property Search': navigate('/search'); break;
       default: navigate('/dashboard'); break;
     }
   }
@@ -153,18 +178,25 @@ function App() {
   const getActivePageName = () => {
     const path = location.pathname
     if (path.includes('/dashboard')) return 'Dashboard'
-    if (path.includes('/properties')) return 'Properties'
-    if (path.includes('/buildings')) return 'Buildings'
+    if (path.includes('/lots')) return 'Lots'
+    if (path.includes('/buildings')) return 'Building Properties'
+    if (path.includes('/admin/certificate-requests')) return 'Certification Requests'
     if (path.includes('/owners')) return 'Owners'
     if (path.includes('/assessments')) return 'Assessments'
     if (path.includes('/gis')) return 'GIS Map'
     if (path.includes('/reports')) return 'Reports'
     if (path.includes('/documents')) return 'Documents'
+    if (path.includes('/certificates/generate')) return 'Generate Certificate'
+    if (path.includes('/certificates/records')) return 'Certificate Records'
     if (path.includes('/admin/certificate-requests')) return 'Certificate Requests'
     if (path.includes('/client/my-properties')) return 'My Properties'
     if (path.includes('/client/gis-map')) return 'My Property Map'
     if (path.includes('/client/certificate-requests')) return 'My Requests'
-    if (path.includes('/client/profile')) return 'My Profile'
+    if (path.includes('/profile')) return 'My Profile'
+    if (path.includes('/users')) return 'User Management'
+    if (path.includes('/logs')) return 'Activity Logs'
+    if (path.includes('/property-history')) return 'Property History'
+    if (path.includes('/search')) return 'Property Search'
     if (path.includes('/settings')) return 'Settings'
     return 'Dashboard'
   }
@@ -223,6 +255,10 @@ function App() {
     </div>
   )
 
+  if (isInitializing) {
+    return <SystemLoadingScreen error={initError} onRetry={initializeApp} />
+  }
+
   return (
     <Routes>
       <Route path="/" element={<LandingPage onNavigate={handleNavigate} />} />
@@ -230,19 +266,31 @@ function App() {
       <Route path="/register" element={<RegisterPage onNavigate={handleNavigate} />} />
       
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route path="/dashboard" element={userRole === 'client' ? <ClientDashboard onNavigate={handleNavigate} /> : <DashboardView {...sharedDashboardProps}/>} />
-        <Route path="/properties" element={<PropertyLotManagement query={query} />} />
+        <Route path="/dashboard" element={
+          userRole === 'client' ? <ClientDashboard onNavigate={handleNavigate} /> :
+          userRole === 'admin' ? <AdminDashboard onNavigate={handleNavigate} /> :
+          userRole === 'assessor' ? <AssessorDashboard onNavigate={handleNavigate} /> :
+          <StaffDashboard onNavigate={handleNavigate} />
+        } />
+        <Route path="/lots" element={<PropertyLotManagement query={query} />} />
         <Route path="/buildings" element={<BuildingDirectory query={query} />} />
+        <Route path="/building-properties" element={<BuildingDirectory query={query} />} />
         <Route path="/owners" element={<PropertyOwnershipTransfer />} />
         <Route path="/assessments" element={<PropertyAssessments />} />
         <Route path="/gis" element={selectedProperty ? <PropertyMapView query={query} onQueryChange={setQuery} rows={filteredProperties} selected={selectedProperty} onSelect={setSelectedProperty}/> : <div>Select a property to view on map.</div>} />
         <Route path="/reports" element={<OperationalIntelligenceReports />} />
         <Route path="/documents" element={<Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} />} />
+        <Route path="/certificates/generate" element={<CertificateGenerator />} />
+        <Route path="/certificates/records" element={<CertificateRecords />} />
         <Route path="/admin/certificate-requests" element={<AdminCertificateRequests />} />
         <Route path="/client/my-properties" element={<ClientProperties />} />
         <Route path="/client/gis-map" element={<ClientGISMap />} />
         <Route path="/client/certificate-requests" element={<ClientCertificateRequests />} />
-        <Route path="/client/profile" element={<ClientProfile />} />
+        <Route path="/profile" element={<UserProfile />} />
+        <Route path="/users" element={<UserManagement />} />
+        <Route path="/logs" element={<ActivityLogsView />} />
+        <Route path="/property-history" element={<PropertyHistoryView />} />
+        <Route path="/search" element={<StaffPropertySearch />} />
         <Route path="/settings" element={<SystemSettings />} />
       </Route>
       

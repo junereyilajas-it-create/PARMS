@@ -1,48 +1,29 @@
-import { ClipboardCheck, Building2, FileText, Home, LayoutDashboard, Map, PanelLeftClose, Settings, Users, Printer } from 'lucide-react'
+import { ClipboardCheck, Building2, FileText, Home, LayoutDashboard, Map, PanelLeftClose, Settings, Users, Printer, SquareDashed } from 'lucide-react'
+
+const staffNavGroups = [
+  { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard }, { label: 'Property Search', icon: Building2 } ] },
+  { title: 'Operations', items: [ { label: 'Certificate Requests', icon: FileText }, { label: 'Generate Certificate', icon: Printer }, { label: 'Certificate Records', icon: FileText } ] }
+];
+
+const assessorNavGroups = [
+  { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard }, { label: 'GIS Map', icon: Map } ] },
+  { title: 'Properties', items: [ { label: 'Lots', icon: SquareDashed }, { label: 'Building Properties', icon: Building2 }, { label: 'Assessments', icon: ClipboardCheck }, { label: 'Property History', icon: FileText } ] }
+];
 
 const adminNavGroups = [
-  {
-    title: 'Main',
-    items: [
-      { label: 'Dashboard', icon: LayoutDashboard },
-      { label: 'GIS Map', icon: Map }
-    ]
-  },
-  {
-    title: 'Management',
-    items: [
-      { label: 'Properties', icon: Building2 },
-      { label: 'Buildings', icon: Building2 },
-      { label: 'Owners', icon: Users },
-      { label: 'Assessments', icon: ClipboardCheck },
-      { label: 'Documents', icon: Printer },
-      { label: 'Certificate Requests', icon: FileText },
-      { label: 'Reports', icon: FileText }
-    ]
-  }
+  { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard } ] },
+  { title: 'Properties', items: [ { label: 'Lots', icon: SquareDashed }, { label: 'Building Properties', icon: Building2 }, { label: 'Assessments', icon: ClipboardCheck }, { label: 'GIS Map', icon: Map } ] },
+  { title: 'Operations', items: [ { label: 'Certification Requests', icon: FileText } ] },
+  { title: 'Management', items: [ { label: 'User Management', icon: Users }, { label: 'Activity Logs', icon: FileText }, { label: 'Reports', icon: FileText } ] }
 ];
 
 const clientNavGroups = [
-  {
-    title: 'Main',
-    items: [
-      { label: 'Dashboard', icon: LayoutDashboard },
-      { label: 'My Properties', icon: Building2 },
-      { label: 'My Property Map', icon: Map }
-    ]
-  },
-  {
-    title: 'Services',
-    items: [
-      { label: 'Request Certificate', icon: FileText },
-      { label: 'My Requests', icon: ClipboardCheck },
-      { label: 'My Profile', icon: Users }
-    ]
-  }
+  { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard }, { label: 'My Properties', icon: Building2 }, { label: 'My Property Map', icon: Map } ] },
+  { title: 'Services', items: [ { label: 'Request Certificate', icon: FileText }, { label: 'My Requests', icon: ClipboardCheck }, { label: 'My Profile', icon: Users } ] }
 ];
 
 export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, userRole }: { active: string; onNavigate: (page: string) => void; isOpen: boolean; collapsed: boolean; onCollapse: () => void; userRole?: string }) {
-  const navGroups = userRole === 'client' ? clientNavGroups : adminNavGroups;
+  const navGroups = userRole === 'client' ? clientNavGroups : userRole === 'admin' ? adminNavGroups : userRole === 'assessor' ? assessorNavGroups : staffNavGroups;
   return (
     <aside className={`fixed inset-y-0 left-0 z-40 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transition-all duration-300 flex flex-col ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${collapsed ? 'w-20' : 'w-64'}`}>
       <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-800 shrink-0">

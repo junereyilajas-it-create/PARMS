@@ -43,7 +43,7 @@ export function ClientCertificateRequests() {
     setBusy(true)
     try {
       await api.post('/client/certificate-requests', {
-        property_id: form.property_id ? parseInt(form.property_id) : null,
+        property_id: form.property_id || null,
         certificate_type: form.certificate_type,
         purpose: form.purpose,
         remarks: form.remarks

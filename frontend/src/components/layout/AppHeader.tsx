@@ -1,6 +1,7 @@
-import { Bell, ChevronDown, Menu, Search, Settings, HelpCircle, LogOut, Moon, Sun } from 'lucide-react'
+import { Bell, ChevronDown, Menu, Search, Settings, HelpCircle, LogOut, Moon, Sun, User } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useModal } from '../../contexts/ModalContext'
+import api from '../../lib/api'
 
 const descriptions: Record<string, string> = { Dashboard: 'Overview of property records and assessment activity', Properties: 'Manage registered property lots and records', Owners: 'Manage ownership transfers and supporting records', Assessments: 'Review property valuation and assessment information', 'GIS Map': 'Locate and inspect registered properties on the map', Documents: 'Find and print official property certifications', Reports: 'Review operational intelligence and reports' }
 
@@ -9,6 +10,8 @@ export function AppHeader({ active, searchValue, onSearchChange, onNavigate, the
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
+  const [profile, setProfile] = useState<any>(null);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
@@ -16,6 +19,12 @@ export function AppHeader({ active, searchValue, onSearchChange, onNavigate, the
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
+    
+    // Fetch profile dynamically
+    if (localStorage.getItem('accessor_token')) {
+      api.get('/profile').then(res => setProfile(res.data)).catch(console.error);
+    }
+    
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
@@ -65,11 +74,13 @@ export function AppHeader({ active, searchValue, onSearchChange, onNavigate, the
             onClick={() => setIsProfileOpen(!isProfileOpen)}
           >
             <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-400 flex items-center justify-center font-bold text-sm shrink-0 border border-green-200 dark:border-green-800/50" aria-hidden="true">
-              A
+              {profile?.first_name ? profile.first_name[0].toUpperCase() : 'U'}
             </div>
             <div className="flex-col text-left hidden lg:flex pr-1">
-              <strong className="text-sm font-semibold leading-tight text-gray-900 dark:text-white">Assessor Admin</strong>
-              <span className="text-[10px] text-gray-500 dark:text-gray-400">Municipal Assessor</span>
+              <strong className="text-sm font-semibold leading-tight text-gray-900 dark:text-white">
+                {profile ? `${profile.first_name} ${profile.last_name || ''}`.trim() : 'Loading...'}
+              </strong>
+              <span className="text-[10px] text-gray-500 dark:text-gray-400 capitalize">{profile?.role === 'client' ? 'Property Owner' : profile?.role || 'User'}</span>
             </div>
             <ChevronDown size={14} className="text-gray-400 hidden lg:block" />
           </button>
@@ -77,10 +88,14 @@ export function AppHeader({ active, searchValue, onSearchChange, onNavigate, the
           {isProfileOpen && (
             <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-900 rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 z-50 overflow-hidden py-1">
               <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-                <p className="font-semibold text-sm text-gray-900 dark:text-white">Assessor Admin</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">admin@municipality.gov.ph</p>
+                <p className="font-semibold text-sm text-gray-900 dark:text-white">{profile ? `${profile.first_name} ${profile.last_name || ''}`.trim() : 'User'}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{profile?.email || profile?.username || 'No email'}</p>
+                <p className="text-[10px] text-gray-400 mt-1 capitalize border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5 inline-block">{profile?.role === 'client' ? 'Property Owner' : profile?.role || 'User'}</p>
               </div>
               <div className="p-1">
+                <button onClick={() => { setIsProfileOpen(false); if(onNavigate) onNavigate('My Profile'); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md flex items-center gap-2 transition-colors">
+                  <User size={16} /> My Profile
+                </button>
                 <button onClick={() => { setIsProfileOpen(false); showInfo('Settings are currently in development.'); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md flex items-center gap-2 transition-colors">
                   <Settings size={16} /> Account Settings
                 </button>
