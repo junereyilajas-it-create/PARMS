@@ -75,7 +75,10 @@ function App() {
     const isPublicRoute = ['/', '/login', '/register'].includes(location.pathname)
     if (!isPublicRoute && localStorage.getItem('accessor_token')) {
       try {
-        await loadPropertyRecords()
+        const role = localStorage.getItem('accessor_role')
+        if (role !== 'client') {
+          await loadPropertyRecords()
+        }
       } catch (e) {
         setInitError('Unable to connect to the server. Please make sure the API server and MySQL are running.')
         return // keep initializing true so error shows

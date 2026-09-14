@@ -107,7 +107,7 @@ export const BuildingDirectory: React.FC<{ query?: string }> = ({ query = '' }) 
     { key: 'barangay', label: 'BARANGAY' },
     { key: 'purok', label: 'PUROK' },
     { key: 'building_type', label: 'TYPE' },
-    { key: 'building_use', label: 'USE', render: (v: string) => v || '-' },
+    { key: 'building_use', label: 'USE', render: (v: string) => v ? v : '-' },
     { key: 'assessed_value', label: 'ASSESSMENT STATUS', render: (v: number) => Number(v) > 0 ? getStatusBadge('Assessed') : getStatusBadge('Pending') }
   ];
 

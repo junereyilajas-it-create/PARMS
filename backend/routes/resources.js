@@ -81,8 +81,20 @@ router.post('/properties/register', authenticate, allowRoles('admin', 'staff'), 
     const propertyIdStr = `LP-${purokStr}-A${nextPropSeq}`;
 
     await connection.query('INSERT INTO properties (property_id, owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, ?, ?, ?, ?)', [propertyIdStr, ownerResult.insertId, addressResult.insertId, typeRows[0].property_type_id, classificationRows[0].classification_id, 'pending'])
+    const [lRows] = await connection.query(
+      "SELECT lot_id FROM property_lots WHERE lot_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(lot_id, '-L', -1) AS UNSIGNED) DESC LIMIT 1",
+      [`LP-${purokStr}-L%`]
+    );
+    let nextLotSeq = 1;
+    if (lRows.length > 0) {
+      const match = lRows[0].lot_id.match(/-L(\d+)$/);
+      if (match) nextLotSeq = parseInt(match[1]) + 1;
+    }
+    const lotId = `LP-${purokStr}-L${nextLotSeq}`;
+
     const area = Number(lot_area)
-    await connection.query('INSERT INTO property_lots (property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?)', [
+    await connection.query('INSERT INTO property_lots (lot_id, property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?, ?)', [
+      lotId,
       propertyIdStr,
       lot_number?.trim() || `LOT-${propertyIdStr}`,
       title_number?.trim() || document?.trim() || null,
@@ -328,9 +340,21 @@ router.post('/lots', authenticate, allowRoles('admin', 'staff'), async (req, res
       return res.status(400).json({ message: 'The linked Property ID does not exist.' })
     }
 
+    const purokStr = property_id.split('-')[1] || 'P0';
+    const [lRows] = await connection.query(
+      "SELECT lot_id FROM property_lots WHERE lot_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(lot_id, '-L', -1) AS UNSIGNED) DESC LIMIT 1",
+      [`LP-${purokStr}-L%`]
+    );
+    let nextLotSeq = 1;
+    if (lRows.length > 0) {
+      const match = lRows[0].lot_id.match(/-L(\d+)$/);
+      if (match) nextLotSeq = parseInt(match[1]) + 1;
+    }
+    const lotId = `LP-${purokStr}-L${nextLotSeq}`;
+
     const [lotRes] = await connection.query(
-      'INSERT INTO property_lots (property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?)',
-      [property_id, lot_number, title_number || null, lot_area || null, lot_status || 'active']
+      'INSERT INTO property_lots (lot_id, property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?, ?)',
+      [lotId, property_id, lot_number, title_number || null, lot_area || null, lot_status || 'active']
     )
 
     if (latitude && longitude && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude))) {

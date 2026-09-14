@@ -1,4 +1,4 @@
-import { Check, ChevronRight, X, Building2, SquareDashed, MapPin, Lock } from 'lucide-react'
+import { Check, ChevronRight, X, Building2, SquareDashed, Lock } from 'lucide-react'
 import { useState } from 'react'
 import { useFormValidation, validateRequired, validateNumber } from '../../lib/validation'
 import '../../styles/MultiStepModal.css'
@@ -65,7 +65,7 @@ function LocalWorkflowSteps({ current, maxUnlocked, labels, onStepClick }: { cur
   return (
     <div className="workflow-steps">
       {labels.map((label, index) => {
-        const isCompleted = index < maxUnlocked || (index === maxUnlocked && index < current);
+
         const isCurrent = index === current;
         const isLocked = index > maxUnlocked;
         
@@ -446,6 +446,13 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
                     <option value="Commercial Lot">Commercial</option>
                     <option value="Agricultural Land">Agricultural</option>
                     <option value="Industrial Lot">Industrial</option>
+                    <option value="Institutional Land">Institutional</option>
+                    <option value="Government Land">Government</option>
+                    <option value="Religious Land">Religious</option>
+                    <option value="Educational Land">Educational</option>
+                    <option value="Mixed-Use Land">Mixed-Use</option>
+                    <option value="Storage/Warehouse Land">Storage/Warehouse</option>
+                    <option value="Other Land">Other</option>
                   </select>
                 </label>
               </div>
@@ -460,7 +467,17 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
                     <option>Industrial</option>
                     <option>Institutional</option>
                     <option>Government</option>
+                    <option>Religious</option>
+                    <option>Educational</option>
                     <option>Mixed-Use</option>
+                    <option>Storage/Warehouse</option>
+                    <option>Other</option>
+                    <option>Institutional</option>
+                    <option>Government</option>
+                    <option>Religious</option>
+                    <option>Educational</option>
+                    <option>Mixed-Use</option>
+                    <option>Storage/Warehouse</option>
                     <option>Vacant</option>
                     <option>Other</option>
                   </select>
@@ -505,6 +522,13 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
                       <option>Residential</option>
                       <option>Commercial</option>
                       <option>Industrial</option>
+                      <option>Institutional</option>
+                      <option>Government</option>
+                      <option>Religious</option>
+                      <option>Educational</option>
+                      <option>Mixed-Use</option>
+                      <option>Storage/Warehouse</option>
+                      <option>Other</option>
                       <option>Agricultural</option>
                       <option>Institutional</option>
                       <option>Government</option>
@@ -522,6 +546,13 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
                       <option value="Commercial Lot">Commercial</option>
                       <option value="Agricultural Land">Agricultural</option>
                       <option value="Industrial Lot">Industrial</option>
+                      <option value="Institutional Land">Institutional</option>
+                      <option value="Government Land">Government</option>
+                      <option value="Religious Land">Religious</option>
+                      <option value="Educational Land">Educational</option>
+                      <option value="Mixed-Use Land">Mixed-Use</option>
+                      <option value="Storage/Warehouse Land">Storage/Warehouse</option>
+                      <option value="Other Land">Other</option>
                     </select>
                   </label>
                 </div>

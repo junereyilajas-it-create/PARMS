@@ -128,12 +128,25 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'assessor',
     // 6 & 7. Create LOT or BUILDING
     let buildingIdStr = null;
     if (data.propertyType === 'LOT') {
+      // Generate Lot ID
+      const [lRows] = await connection.query(
+        "SELECT lot_id FROM property_lots WHERE lot_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(lot_id, '-L', -1) AS UNSIGNED) DESC LIMIT 1",
+        [`LP-${purokStr}-L%`]
+      );
+      let nextLotSeq = 1;
+      if (lRows.length > 0) {
+        const match = lRows[0].lot_id.match(/-L(\d+)$/);
+        if (match) nextLotSeq = parseInt(match[1]) + 1;
+      }
+      const lotId = `LP-${purokStr}-L${nextLotSeq}`;
+
       const lotNumber = data.lotNumber?.trim() || `LOT-${propertyId}`
       const lotArea = Number(data.lotArea)
       
       await connection.query(
-        'INSERT INTO property_lots (property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO property_lots (lot_id, property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?, ?)',
         [
+          lotId,
           propertyId,
           lotNumber,
           data.titleNumber?.trim() || null,

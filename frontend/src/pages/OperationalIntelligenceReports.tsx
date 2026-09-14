@@ -9,79 +9,30 @@ import { useModal } from '../contexts/ModalContext';
 export const OperationalIntelligenceReports: React.FC = () => {
   const { showInfo, showConfirm } = useModal();
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
-  // Mock data for Assessment Completion
+  const [stats, setStats] = useState<any>(null);
+  
+  React.useEffect(() => {
+    import('../lib/api').then(m => m.default.get('/stats/admin').then(res => setStats(res.data)).catch(console.error))
+  }, []);
+
   const assessmentCompletionData = [
-    { month: 'Jan', completed: 88 },
-    { month: 'Feb', completed: 89 },
-    { month: 'Mar', completed: 87 },
-    { month: 'Apr', completed: 91 },
-    { month: 'May', completed: 94 },
-    { month: 'Jun', completed: 96 },
-    { month: 'Jul', completed: 95 },
+    { month: 'Current', completed: stats?.propertyActivities?.length || 0 }
   ];
 
-  // Mock data for Property Inventory
   const propertyInventoryData = [
-    { name: 'Residential', value: 14204, fill: '#16a34a' },
-    { name: 'Commercial', value: 3400, fill: '#3b82f6' },
-    { name: 'Industrial', value: 1280, fill: '#1f2937' },
+    { name: 'Total', value: stats?.users?.length || 0, fill: '#16a34a' }
   ];
 
-  // Mock activity logs
-  const activityLogs = [
-    {
-      id: '1',
-      action: 'Valuation Override',
-      parcel: 'LOT-8829-B0',
-      timestamp: '10:12 AM',
-      user: 'Admin_SR',
-      severity: 'info',
-    },
-    {
-      id: '2',
-      action: 'Bulk Import Success',
-      parcel: '420 new zoning records',
-      timestamp: '09:35 AM',
-      user: 'Sys_Daemon',
-      severity: 'success',
-    },
-    {
-      id: '3',
-      action: 'API Auth Failure',
-      parcel: 'Invalid token from 192.168.1.1',
-      timestamp: '08:15 AM',
-      user: 'Critical',
-      severity: 'critical',
-    },
-  ];
+  const activityLogs = stats?.activities?.map((a: any) => ({
+    id: a.log_id.toString(),
+    action: a.activity,
+    parcel: a.module_name,
+    timestamp: new Date(a.activity_date).toLocaleTimeString(),
+    user: 'System User',
+    severity: 'info'
+  })) || [];
 
-  // Mock detailed reports
-  const initialReports = [
-    {
-      id: '1',
-      name: 'Residential Market Trends',
-      category: 'Economic',
-      schedule: 'Weekly (Mon)',
-      recipient: 'Planning Commission',
-      status: 'ACTIVE',
-    },
-    {
-      id: '2',
-      name: 'Foreclosure Warning Heatmap',
-      category: 'Risk Mgmt',
-      schedule: 'Monthly (1st)',
-      recipient: "Mayor's Office",
-      status: 'ACTIVE',
-    },
-    {
-      id: '3',
-      name: 'Zoning Compliance Audit',
-      category: 'Compliance',
-      schedule: 'On-Demand',
-      recipient: 'Internal Audit',
-      status: 'ARCHIVED',
-    },
-  ];
+  const initialReports: any[] = [];
   const [detailedReports, setDetailedReports] = useState(initialReports);
   const reportFields: CrudField[] = [{ key: 'name', label: 'Report name' }, { key: 'category', label: 'Category' }, { key: 'schedule', label: 'Schedule' }, { key: 'recipient', label: 'Recipient' }, { key: 'status', label: 'Status', type: 'select', options: ['ACTIVE', 'ARCHIVED'] }];
   const saveReport = (values: Record<string, string>) => { const record = { ...values, id: modal?.record?.id ?? crypto.randomUUID() } as typeof initialReports[number]; if (modal?.mode === 'create') setDetailedReports(items => [...items, record]); else if (modal?.record) setDetailedReports(items => items.map(item => item.id === modal.record.id ? record : item)); setModal(null); };
