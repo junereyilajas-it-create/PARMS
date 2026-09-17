@@ -4,7 +4,6 @@ import { PropertyTable } from '../components/common/PropertyTable'
 import { SearchBox } from '../components/common/SearchBox'
 import type { Property } from '../types/property'
 
-function Activity({ initials, color, text, name }: { initials: string; color: string; text: string; name: string }) { return <div className="activity-row"><div className={`person ${color}`}>{initials}</div><div><strong>{text}</strong><span>{name}</span></div></div> }
 export function DashboardView({ active, query, onQueryChange, rows, onNavigate, onRegister, onEdit, onDelete }: { active: string; query: string; onQueryChange: (value: string) => void; rows: Property[]; onNavigate: (page: string) => void; onRegister: () => void; onEdit?: (property: Property) => void; onDelete?: (property: Property) => void }) {
   const isDashboard = active === 'Dashboard'
   const propertyCount = new Set(rows.map(row => row.id)).size

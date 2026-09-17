@@ -202,11 +202,19 @@ CREATE TABLE tax_declarations (
 
 
 CREATE TABLE gis_locations (
-  location_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  property_id INT UNSIGNED NOT NULL UNIQUE, latitude DECIMAL(10,7) NOT NULL,
-  longitude DECIMAL(10,7) NOT NULL, gps_accuracy DECIMAL(8,2),
-  last_updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_gis_property FOREIGN KEY (property_id) REFERENCES properties(property_id)
+  gis_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  property_id VARCHAR(80) NOT NULL,
+  lot_id VARCHAR(80) NULL,
+  building_id VARCHAR(80) NULL,
+  geometry_type VARCHAR(50) NOT NULL DEFAULT 'Polygon',
+  coordinates JSON NOT NULL,
+  area_sqm DECIMAL(15,2),
+  perimeter_m DECIMAL(15,2),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_gis_prop FOREIGN KEY (property_id) REFERENCES properties(property_id) ON DELETE CASCADE,
+  CONSTRAINT fk_gis_lot FOREIGN KEY (lot_id) REFERENCES property_lots(lot_id) ON DELETE CASCADE,
+  CONSTRAINT fk_gis_bldg FOREIGN KEY (building_id) REFERENCES property_buildings(building_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 

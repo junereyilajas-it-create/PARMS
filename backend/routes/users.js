@@ -40,6 +40,9 @@ router.post('/users', authenticate, allowRoles('admin'), async (req, res, next) 
     res.status(201).json({ message: 'User created', user_id: result.insertId })
   } catch(e) {
     await connection.rollback()
+    if (e.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'Unable to create user. The username or email is already registered.' })
+    }
     next(e)
   } finally { connection.release() }
 })
@@ -77,6 +80,9 @@ router.put('/users/:id', authenticate, allowRoles('admin'), async (req, res, nex
     res.json({ message: 'User updated' })
   } catch(e) {
     await connection.rollback()
+    if (e.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'Unable to update user. The username or email is already registered.' })
+    }
     next(e)
   } finally { connection.release() }
 })
@@ -106,6 +112,9 @@ router.delete('/users/:id', authenticate, allowRoles('admin'), async (req, res, 
     res.status(204).end()
   } catch(e) {
     await connection.rollback()
+    if (e.code === 'ER_ROW_IS_REFERENCED_2') {
+      return res.status(400).json({ message: 'Unable to delete this user because they are linked to other records.' })
+    }
     next(e)
   } finally { connection.release() }
 })

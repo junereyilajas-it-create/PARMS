@@ -193,7 +193,7 @@ export const OperationalIntelligenceReports: React.FC = () => {
           </div>
           <p className="text-sm text-gray-600 mb-4">Recent administrative and system actions.</p>
           <div className="space-y-3">
-            {activityLogs.map((log) => (
+            {activityLogs.map((log: any) => (
               <div key={log.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">

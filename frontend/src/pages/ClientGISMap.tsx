@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import { MapPin, Layers } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { MapPin, Layers, Building2, SquareDashed, Check } from 'lucide-react'
 import api from '../lib/api'
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, Polygon, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 
@@ -13,26 +13,51 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 })
 
+type GISFeature = {
+  id: string; // lot_id or building_id
+  property_id: string;
+  title: string;
+  area: string; // from lot_area or floor_area
+  status: string;
+  gis_id: number;
+  geometry_type: string;
+  coordinates: any; // GeoJSON Polygon
+  area_sqm: number;
+  perimeter_m: number;
+  owner: string;
+  property_status: string;
+  type: 'lot' | 'building';
+}
+
 export function ClientGISMap() {
   const [mapMode, setMapMode] = useState<'street' | 'satellite'>('satellite')
-  const [properties, setProperties] = useState<any[]>([])
-  const [selected, setSelected] = useState<any>(null)
+  const [features, setFeatures] = useState<GISFeature[]>([])
+  const [selectedFeature, setSelectedFeature] = useState<GISFeature | null>(null)
   
   // Center around Lagonglong, Misamis Oriental
   const defaultCenter: [number, number] = [8.834, 124.786]
 
   useEffect(() => {
-    async function load() {
+    const loadGISData = async () => {
       try {
-        const { data } = await api.get('/client/my-gis')
-        setProperties(data)
-        if (data.length > 0) setSelected(data[0])
+        const { data } = await api.get('/gis/client-properties')
+        const allLots = (data.lots || []).map((l: any) => ({ ...l, type: 'lot' }))
+        const allBldgs = (data.buildings || []).map((b: any) => ({ ...b, type: 'building' }))
+        const allFeatures = [...allLots, ...allBldgs]
+        setFeatures(allFeatures)
+        if (allFeatures.length > 0) setSelectedFeature(allFeatures[0])
       } catch (e) {
         console.error(e)
       }
     }
-    load()
+    loadGISData()
   }, [])
+
+  // Convert GeoJSON coords (lng, lat) to Leaflet coords (lat, lng)
+  const getLeafletCoords = (coords: any) => {
+    if (!coords || !coords.geometry || !coords.geometry.coordinates || !coords.geometry.coordinates[0]) return []
+    return coords.geometry.coordinates[0].map((c: number[]) => [c[1], c[0]] as [number, number])
+  }
 
   return (
     <>
@@ -40,14 +65,14 @@ export function ClientGISMap() {
         <div>
           <p className="text-xs font-bold tracking-wider text-green-600 dark:text-green-500 uppercase mb-1">My Property Locations</p>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">GIS Map</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">View the geographical locations of your registered properties.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">View the geographical boundaries of your registered properties.</p>
         </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6 h-[600px]">
         <section className="flex-1 flex flex-col bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{properties.length} mapped locations shown</span>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{features.filter(f => f.coordinates).length} mapped features shown</span>
             <button 
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
               onClick={() => setMapMode(m => m === 'street' ? 'satellite' : 'street')}
@@ -57,7 +82,7 @@ export function ClientGISMap() {
           </div>
 
           <div className="flex-1 w-full h-full relative z-0">
-            <MapContainer center={properties[0] && properties[0].latitude ? [properties[0].latitude, properties[0].longitude] as [number, number] : defaultCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
+            <MapContainer center={defaultCenter} zoom={14} style={{ height: '100%', width: '100%' }}>
               {mapMode === 'street' ? (
                 <TileLayer
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -65,56 +90,81 @@ export function ClientGISMap() {
                 />
               ) : (
                 <TileLayer
-                  attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+                  attribution='Tiles &copy; Esri'
                   url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                 />
               )}
               
-              {properties.map(p => {
-                if (p.latitude != null && p.longitude != null) {
-                  return (
-                    <Marker 
-                      key={p.property_id} 
-                      position={[p.latitude, p.longitude]}
-                      eventHandlers={{
-                        click: () => setSelected(p)
-                      }}
-                    >
-                      <Popup>
-                        <div style={{fontSize: '12px', lineHeight: '1.4'}}>
-                          <strong>{p.property_type}</strong><br/>
-                          Owner: {p.owner}<br/>
-                          Area: {p.lot_area || 0} sqm<br/>
-                          Assessment: {Number(p.assessed_value) > 0 ? `₱${Number(p.assessed_value).toLocaleString()}` : 'UNASSESSED'}<br/>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  )
-                }
-                return null
+              {features.map(f => {
+                if (!f.coordinates) return null
+                const positions = getLeafletCoords(f.coordinates)
+                if (positions.length === 0) return null
+                
+                const isBuilding = f.type === 'building'
+                const color = isBuilding ? '#8b5cf6' : '#10b981'
+
+                return (
+                  <Polygon 
+                    key={`${f.type}-${f.id}`} 
+                    positions={positions}
+                    pathOptions={{ color, fillColor: color, fillOpacity: 0.4 }}
+                    eventHandlers={{
+                      click: () => setSelectedFeature(f)
+                    }}
+                  >
+                    <Popup>
+                      <div style={{fontSize: '12px', lineHeight: '1.4'}}>
+                        <strong>{f.title}</strong><br/>
+                        Owner: {f.owner}<br/>
+                        Type: {f.type === 'lot' ? 'Land/Lot' : 'Building'}<br/>
+                        GIS Area: {f.area_sqm} sqm<br/>
+                      </div>
+                    </Popup>
+                  </Polygon>
+                )
               })}
             </MapContainer>
           </div>
+          
+          <div className="flex gap-4 p-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-sm">
+            <span className="flex items-center gap-2"><i className="w-3 h-3 rounded-full bg-green-500 inline-block"/>Lots</span>
+            <span className="flex items-center gap-2"><i className="w-3 h-3 rounded-full bg-purple-500 inline-block"/>Buildings</span>
+          </div>
         </section>
 
-        {selected && (
+        {selectedFeature && (
           <aside className="w-full lg:w-80 flex flex-col bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 h-fit">
-            <p className="text-xs font-bold tracking-wider text-gray-500 dark:text-gray-400 uppercase mb-2">PROPERTY DETAILS</p>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Lot No. {selected.lot_number || `PROPERTY-${selected.property_id}`}</h2>
+            <p className="text-xs font-bold tracking-wider text-gray-500 dark:text-gray-400 uppercase mb-2">GIS {selectedFeature.type.toUpperCase()} DETAILS</p>
+            
+            <div className="flex items-center gap-2 mb-4">
+              {selectedFeature.type === 'building' ? <Building2 size={24} className="text-purple-600" /> : <SquareDashed size={24} className="text-green-600" />}
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white m-0">{selectedFeature.title}</h2>
+            </div>
             
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Owner:</p>
-            <strong className="text-sm text-gray-900 dark:text-white block mb-4">{selected.owner}</strong>
+            <strong className="text-sm text-gray-900 dark:text-white block mb-4">{selectedFeature.owner}</strong>
             
             <div className="flex items-start gap-2 mb-6 text-sm text-gray-600 dark:text-gray-300">
               <MapPin size={16} className="mt-0.5 shrink-0" />
-              <span>{selected.location}</span>
+              <span>Property: {selectedFeature.property_id}</span>
             </div>
             
             <div className="grid grid-cols-2 gap-y-4 gap-x-2 text-sm border-t border-gray-100 dark:border-gray-700 pt-4">
-              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Property Type</span><strong className="text-gray-900 dark:text-white">{selected.property_type}</strong></div>
-              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Area</span><strong className="text-gray-900 dark:text-white">{selected.lot_area || 0} sqm</strong></div>
-              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Assessment</span><strong className="text-gray-900 dark:text-white">{Number(selected.assessed_value) > 0 ? `₱${Number(selected.assessed_value).toLocaleString()}` : 'UNASSESSED'}</strong></div>
-              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Status</span><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium uppercase ${selected.property_status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>{selected.property_status}</span></div>
+              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Entity ID</span><strong className="text-gray-900 dark:text-white">{selectedFeature.id}</strong></div>
+              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Status</span><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium uppercase ${selectedFeature.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>{selectedFeature.status}</span></div>
+              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">Registered Area</span><strong className="text-gray-900 dark:text-white">{selectedFeature.area} sqm</strong></div>
+              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">GIS Area</span><strong className="text-green-600 dark:text-green-400">{selectedFeature.area_sqm} m²</strong></div>
+              <div><span className="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">GIS Perimeter</span><strong className="text-green-600 dark:text-green-400">{selectedFeature.perimeter_m} m</strong></div>
+            </div>
+            
+            <div className="mt-6 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg text-sm border border-green-100 dark:border-green-800/30">
+              <div className="flex items-center gap-1.5 text-green-700 dark:text-green-400 font-semibold mb-1">
+                <Check size={14} /> GIS Boundary Mapped
+              </div>
+              <p className="text-gray-600 dark:text-gray-400 m-0">
+                Geometry Type: {selectedFeature.geometry_type}<br/>
+                Vertices: {selectedFeature.coordinates?.geometry?.coordinates?.[0]?.length - 1 || 0}
+              </p>
             </div>
           </aside>
         )}

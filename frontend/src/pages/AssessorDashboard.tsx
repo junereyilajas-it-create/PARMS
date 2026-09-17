@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import api from '../lib/api'
 import { Home, Map, Building, CheckCircle, XCircle, Clock } from 'lucide-react'
 
-export function AssessorDashboard({ onNavigate }: { onNavigate?: (path: string) => void }) {
+export function AssessorDashboard() {
   const [data, setData] = useState<any>(null)
 
   useEffect(() => {

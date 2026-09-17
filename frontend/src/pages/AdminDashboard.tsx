@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import api from '../lib/api'
-import { Users, UserPlus, Shield, Activity, FileText } from 'lucide-react'
+import { Users, Shield, Activity, FileText } from 'lucide-react'
 
-export function AdminDashboard({ onNavigate }: { onNavigate?: (path: string) => void }) {
+export function AdminDashboard() {
   const [stats, setStats] = useState<any>(null)
 
   useEffect(() => {

@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react'
 import api from '../lib/api'
 import { CrudModal } from '../components/common/CrudModal'
 import { Search, Plus, Edit2, Trash2 } from 'lucide-react'
+import { useModal } from '../contexts/ModalContext'
 
 export function UserManagement() {
+  const { showSuccess, showError, showConfirm } = useModal()
   const [users, setUsers] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [modalState, setModalState] = useState<{ mode: 'create' | 'edit'; record?: any } | null>(null)
@@ -25,21 +27,30 @@ export function UserManagement() {
     try {
       if (modalState?.mode === 'create') {
         await api.post('/users', form)
+        showSuccess('User successfully created.')
       } else if (modalState?.record) {
         await api.put(`/users/${modalState.record.user_id}`, form)
+        showSuccess('User successfully updated.')
       }
       setModalState(null)
       loadUsers()
-    } catch(e) { console.error('Failed to save', e) }
+    } catch(e: any) { 
+      const msg = e.response?.data?.message || 'Failed to save user. Please check your inputs.'
+      showError(msg)
+    }
   }
 
   const handleDelete = async (id: number) => {
-    if (confirm('Are you sure you want to delete this user?')) {
+    showConfirm('Are you sure you want to delete this user?', async () => {
       try {
         await api.delete(`/users/${id}`)
+        showSuccess('User successfully deleted.')
         loadUsers()
-      } catch(e) { console.error('Failed to delete', e) }
-    }
+      } catch(e: any) { 
+        const msg = e.response?.data?.message || 'Failed to delete user.'
+        showError(msg)
+      }
+    })
   }
 
   return (

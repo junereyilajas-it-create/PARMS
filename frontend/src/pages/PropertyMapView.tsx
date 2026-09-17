@@ -1,11 +1,9 @@
-import { useState } from 'react'
-import { MapPin, Plus, Layers } from 'lucide-react'
-import type { Property } from '../types/property'
+import { useState, useEffect } from 'react'
+import { MapPin, Layers, Building2, SquareDashed, Check } from 'lucide-react'
 import { SearchBox } from '../components/common/SearchBox'
-import { CrudModal } from '../components/common/CrudModal'
 import { useModal } from '../contexts/ModalContext'
 import api, { ensureSession } from '../lib/api'
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, Polygon, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 
@@ -17,27 +15,60 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 })
 
-export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect }: { query: string; onQueryChange: (value: string) => void; rows: Property[]; selected: Property; onSelect: (property: Property) => void }) {
-  const { showSuccess, showError } = useModal()
+type GISFeature = {
+  id: string; // lot_id or building_id
+  property_id: string;
+  title: string;
+  area: string; // from lot_area or floor_area
+  status: string;
+  gis_id: number;
+  geometry_type: string;
+  coordinates: any; // GeoJSON Polygon
+  area_sqm: number;
+  perimeter_m: number;
+  owner: string;
+  property_status: string;
+  type: 'lot' | 'building';
+}
+
+export function PropertyMapView() {
+  const { showError, showInfo } = useModal()
   const [mapMode, setMapMode] = useState<'street' | 'satellite'>('satellite')
-  const [modal, setModal] = useState<{ mode: 'create' | 'edit'; record?: any } | null>(null)
+  const [query, setQuery] = useState('')
+  const [features, setFeatures] = useState<GISFeature[]>([])
+  const [selectedFeature, setSelectedFeature] = useState<GISFeature | null>(null)
+  const [filterType, setFilterType] = useState('All')
   
   // Center around Lagonglong, Misamis Oriental
   const defaultCenter: [number, number] = [8.834, 124.786]
 
-  const saveLocation = async (values: Record<string, string>) => {
-    try {
-      await ensureSession()
-      if (modal?.mode === 'create') {
-        await api.post('/locations', values)
-      } else if (modal?.record) {
-        await api.put(`/locations/${modal.record.location_id}`, values)
+  useEffect(() => {
+    const loadGISData = async () => {
+      try {
+        await ensureSession()
+        const { data } = await api.get('/gis/properties')
+        const allLots = (data.lots || []).map((l: any) => ({ ...l, type: 'lot' }))
+        const allBldgs = (data.buildings || []).map((b: any) => ({ ...b, type: 'building' }))
+        setFeatures([...allLots, ...allBldgs])
+      } catch {
+        showError('Failed to load GIS data from the server.')
       }
-      setModal(null)
-      showSuccess('Location updated! Please reload properties to see changes on map.')
-    } catch {
-      showError('Failed to update location. Please ensure property_id is correct.')
     }
+    loadGISData()
+  }, [])
+
+  const filteredFeatures = features.filter(f => {
+    const searchMatch = !query || `${f.title} ${f.owner} ${f.id} ${f.property_id}`.toLowerCase().includes(query.toLowerCase());
+    const typeMatch = filterType === 'All' || 
+                      (filterType === 'Lots' && f.type === 'lot') ||
+                      (filterType === 'Buildings' && f.type === 'building');
+    return searchMatch && typeMatch;
+  })
+
+  // Convert GeoJSON coords (lng, lat) to Leaflet coords (lat, lng)
+  const getLeafletCoords = (coords: any) => {
+    if (!coords || !coords.geometry || !coords.geometry.coordinates || !coords.geometry.coordinates[0]) return []
+    return coords.geometry.coordinates[0].map((c: number[]) => [c[1], c[0]] as [number, number])
   }
 
   return (
@@ -48,29 +79,16 @@ export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect
           <h1>Property Map</h1>
           <p className="subhead">Locate, filter, and review registered properties across Lagonglong, Misamis Oriental.</p>
         </div>
-        <button type="button" onClick={() => setModal({ mode: 'create' })} className="primary"><Plus size={18}/> Update location</button>
       </div>
 
       <div className="map-layout">
         <section className="card map-panel" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="map-tools" style={{ display: 'flex', alignItems: 'center', gap: '8px', zIndex: 10 }}>
-            <SearchBox value={query} onChange={onQueryChange}/>
-            <select>
-              <option>All barangays</option>
-              <option>Banglay</option>
-              <option>Dampil</option>
-              <option>Gaston</option>
-              <option>Kabulawan</option>
-              <option>Kauswagan</option>
-              <option>Lumbo</option>
-              <option>Manaol</option>
-              <option>Poblacion</option>
-              <option>Tabok</option>
-              <option>Umagos</option>
-            </select>
-            <select>
-              <option>All classifications</option>
-              <option>Residential</option>
+            <SearchBox value={query} onChange={setQuery}/>
+            <select value={filterType} onChange={e => setFilterType(e.target.value)}>
+              <option>All</option>
+              <option>Lots</option>
+              <option>Buildings</option>
             </select>
             <button 
               style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', borderRadius: '4px', border: '1px solid #d1d5db', background: 'white', cursor: 'pointer' }}
@@ -81,7 +99,7 @@ export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect
           </div>
 
           <div className="map-canvas" style={{ flex: 1, minHeight: '520px', borderRadius: '8px', overflow: 'hidden' }}>
-            <MapContainer center={defaultCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
+            <MapContainer center={defaultCenter} zoom={14} style={{ height: '100%', width: '100%' }}>
               {mapMode === 'street' ? (
                 <TileLayer
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -89,73 +107,87 @@ export function PropertyMapView({ query, onQueryChange, rows, selected, onSelect
                 />
               ) : (
                 <TileLayer
-                  attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+                  attribution='Tiles &copy; Esri'
                   url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                 />
               )}
               
-              {rows.map(p => {
-                if (p.latitude != null && p.longitude != null) {
-                  return (
-                    <Marker 
-                      key={p.id} 
-                      position={[p.latitude, p.longitude]}
-                      eventHandlers={{
-                        click: () => onSelect(p)
-                      }}
-                    >
-                      <Popup>
-                        <div style={{fontSize: '12px', lineHeight: '1.4'}}>
-                          <strong>Lot No. {p.id.replace('PROPERTY-', '')}</strong><br/>
-                          Owner: {p.owner}<br/>
-                          Property Type: {p.type}<br/>
-                          Area: 500 sqm<br/>
-                          Assessment: {p.assessed}<br/>
-                          <button style={{marginTop: '8px', width: '100%'}} className="btn-edit" onClick={() => onSelect(p)}>View Details</button>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  )
-                }
-                return null
+              {filteredFeatures.map(f => {
+                if (!f.coordinates) return null
+                const positions = getLeafletCoords(f.coordinates)
+                if (positions.length === 0) return null
+                
+                const isBuilding = f.type === 'building'
+                const color = isBuilding ? '#8b5cf6' : '#10b981'
+
+                return (
+                  <Polygon 
+                    key={`${f.type}-${f.id}`} 
+                    positions={positions}
+                    pathOptions={{ color, fillColor: color, fillOpacity: 0.4 }}
+                    eventHandlers={{
+                      click: () => setSelectedFeature(f)
+                    }}
+                  >
+                    <Popup>
+                      <div style={{fontSize: '12px', lineHeight: '1.4'}}>
+                        <strong>{f.title}</strong><br/>
+                        Owner: {f.owner}<br/>
+                        Type: {f.type === 'lot' ? 'Land/Lot' : 'Building'}<br/>
+                        GIS Area: {f.area_sqm} sqm<br/>
+                        <button style={{marginTop: '8px', width: '100%'}} className="btn-edit" onClick={() => setSelectedFeature(f)}>View Details</button>
+                      </div>
+                    </Popup>
+                  </Polygon>
+                )
               })}
             </MapContainer>
           </div>
 
-          <div className="map-legend">
-            <span><i className="res" style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#3b82f6', marginRight: '6px' }}/>Residential</span>
-            <span><i className="com" style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#8b5cf6', marginRight: '6px' }}/>Commercial</span>
-            <span><i className="agri" style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#10b981', marginRight: '6px' }}/>Agricultural</span>
-            <span>{rows.filter(r => r.latitude && r.longitude).length} mapped locations shown</span>
+          <div className="map-legend" style={{ display: 'flex', gap: '16px', padding: '12px', background: 'var(--card-bg)', borderTop: '1px solid var(--border)' }}>
+            <span><i className="res" style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#10b981', marginRight: '6px' }}/>Lots</span>
+            <span><i className="com" style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#8b5cf6', marginRight: '6px' }}/>Buildings</span>
+            <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>{filteredFeatures.filter(r => r.coordinates).length} mapped features shown</span>
           </div>
         </section>
 
-        <PropertyDetails property={selected}/>
+        {selectedFeature && (
+          <aside className="card map-detail">
+            <p className="eyebrow">GIS {selectedFeature.type.toUpperCase()} DETAILS</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              {selectedFeature.type === 'building' ? <Building2 size={24} className="text-purple-600" /> : <SquareDashed size={24} className="text-green-600" />}
+              <h2 style={{ margin: 0 }}>{selectedFeature.title}</h2>
+            </div>
+            
+            <p className="owner">Owner:<br/><strong>{selectedFeature.owner}</strong></p>
+            
+            <div className="detail-row">
+              <MapPin/>
+              <span>Property: {selectedFeature.property_id}</span>
+            </div>
+            
+            <div className="detail-grid" style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div><span style={{ fontSize: '11px', color: 'gray', display: 'block' }}>Entity ID</span><strong>{selectedFeature.id}</strong></div>
+              <div><span style={{ fontSize: '11px', color: 'gray', display: 'block' }}>Status</span><strong className={`badge-${selectedFeature.status.toLowerCase()}`}>{selectedFeature.status}</strong></div>
+              <div><span style={{ fontSize: '11px', color: 'gray', display: 'block' }}>Registered Area</span><strong>{selectedFeature.area} sqm</strong></div>
+              <div><span style={{ fontSize: '11px', color: 'gray', display: 'block' }}>GIS Area</span><strong className="text-green-600">{selectedFeature.area_sqm} sqm</strong></div>
+              <div><span style={{ fontSize: '11px', color: 'gray', display: 'block' }}>GIS Perimeter</span><strong className="text-green-600">{selectedFeature.perimeter_m} m</strong></div>
+            </div>
+            
+            <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669', fontWeight: 600, marginBottom: '4px' }}>
+                <Check size={14} /> GIS Boundary Mapped
+              </div>
+              <p style={{ margin: 0, color: 'var(--text)' }}>
+                Geometry Type: {selectedFeature.geometry_type}<br/>
+                Vertices: {selectedFeature.coordinates?.geometry?.coordinates?.[0]?.length - 1 || 0}
+              </p>
+            </div>
+            
+            <button type="button" onClick={() => showInfo('Complete record view is in development.')} className="btn-edit full" style={{marginTop: '16px'}}>Open Full Record</button>
+          </aside>
+        )}
       </div>
-      {modal && <CrudModal title="Update Location" fields={[{ key: 'property_id', label: 'Property ID', type: 'number' }, { key: 'latitude', label: 'Latitude', type: 'number' }, { key: 'longitude', label: 'Longitude', type: 'number' }, { key: 'gps_accuracy', label: 'GPS Accuracy (m)', type: 'number' }]} record={modal.record} onClose={() => setModal(null)} onSave={saveLocation} />}
     </>
-  )
-}
-
-function PropertyDetails({ property }: { property: Property }) { 
-  const { showInfo } = useModal();
-  if (!property) return null;
-  return (
-    <aside className="card map-detail">
-      <p className="eyebrow">PROPERTY DETAILS</p>
-      <h2>Lot No. {property.id.replace('PROPERTY-', '')}</h2>
-      <p className="owner">Owner:<br/><strong>{property.owner}</strong></p>
-      <div className="detail-row">
-        <MapPin/>
-        <span>{property.location}</span>
-      </div>
-      <div className="detail-grid">
-        <div><span>Property Type</span><strong>{property.type}</strong></div>
-        <div><span>Area</span><strong>500 sqm</strong></div>
-        <div><span>Assessment</span><strong>{property.assessed}</strong></div>
-        <div><span>Status</span><strong className={`badge-${property.status.toLowerCase()}`}>{property.status}</strong></div>
-      </div>
-      <button type="button" onClick={() => showInfo('Complete record view is in development.')} className="btn-edit full" style={{marginTop: '16px'}}>View Details</button>
-    </aside>
   )
 }

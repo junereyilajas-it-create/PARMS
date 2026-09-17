@@ -10,6 +10,7 @@ import adminCertRoutes from './routes/admin-certificates.js'
 import generatorRoutes from './routes/generator.js'
 import statsRoutes from './routes/stats.js'
 import usersRoutes from './routes/users.js'
+import gisRoutes from './routes/gis.js'
 dotenv.config({ path: new URL('./.env', import.meta.url) })
 const app = express()
 app.use(cors({ origin: [process.env.CLIENT_URL || 'http://localhost:5173', 'http://localhost:5174'] }))
@@ -24,6 +25,7 @@ app.use('/api', adminCertRoutes)
 app.use('/api', generatorRoutes)
 app.use('/api', statsRoutes)
 app.use('/api', usersRoutes)
+app.use('/api', gisRoutes)
 app.use((err, _, res, __) => {
   console.error(err)
   if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'A record with that unique ID or reference already exists.' })

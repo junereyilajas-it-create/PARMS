@@ -7,12 +7,12 @@ const staffNavGroups = [
 
 const assessorNavGroups = [
   { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard }, { label: 'GIS Map', icon: Map } ] },
-  { title: 'Properties', items: [ { label: 'Lots', icon: SquareDashed }, { label: 'Building Properties', icon: Building2 }, { label: 'Assessments', icon: ClipboardCheck }, { label: 'Property History', icon: FileText } ] }
+  { title: 'Properties', items: [ { label: 'Lots', icon: SquareDashed }, { label: 'Buildings', icon: Building2 }, { label: 'Assessments', icon: ClipboardCheck }, { label: 'Property History', icon: FileText } ] }
 ];
 
 const adminNavGroups = [
   { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard } ] },
-  { title: 'Properties', items: [ { label: 'Lots', icon: SquareDashed }, { label: 'Building Properties', icon: Building2 }, { label: 'Assessments', icon: ClipboardCheck }, { label: 'GIS Map', icon: Map } ] },
+  { title: 'Properties', items: [ { label: 'Lots', icon: SquareDashed }, { label: 'Buildings', icon: Building2 }, { label: 'Assessments', icon: ClipboardCheck }, { label: 'GIS Map', icon: Map } ] },
   { title: 'Operations', items: [ { label: 'Certification Requests', icon: FileText } ] },
   { title: 'Management', items: [ { label: 'User Management', icon: Users }, { label: 'Activity Logs', icon: FileText }, { label: 'Reports', icon: FileText } ] }
 ];

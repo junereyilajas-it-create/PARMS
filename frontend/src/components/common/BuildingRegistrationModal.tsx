@@ -4,13 +4,15 @@ import { WorkflowSteps } from './RegisterPropertyModal'
 import { useFormValidation, validateRequired, validateNumber } from '../../lib/validation'
 import '../../styles/MultiStepModal.css'
 
-export type BuildingRegistration = { property_id: string; building_name: string; building_type: string; floor_area: string; floor_count: string; construction_type: string; year_constructed: string; market_value: string; assessed_value: string; building_status: string }
+import { GISDrawMap } from './GISDrawMap'
+
+export type BuildingRegistration = { property_id: string; building_name: string; building_type: string; floor_area: string; floor_count: string; construction_type: string; year_constructed: string; market_value: string; assessed_value: string; building_status: string; coordinates?: string; area_sqm?: string; perimeter_m?: string }
 const steps = ['Basic Info', 'Structural Specs', 'Occupancy & Use']
 
 export function BuildingRegistrationModal({ close, onSave }: { close: () => void; onSave: (building: BuildingRegistration) => void }) {
   const [step, setStep] = useState(0)
 
-  const { values, setValue, setFieldTouched, getFieldError, getFieldClass, markAllTouched, isValid } = useFormValidation({
+  const { values, setValue, setFieldTouched, getFieldError, getFieldClass, markAllTouched, isValid } = useFormValidation<{ lotPin: string; id: string; yearBuilt: string; type: string; floorArea: string; stories: string; material: string; foundation: string; roof: string; occupant: string; permit: string; rooms: string; utilities: string[]; remarks: string; coordinates: string; area_sqm: string; perimeter_m: string }>({
     lotPin: { initialValue: '', rules: [validateRequired, validateNumber] },
     id: { initialValue: '', rules: [validateRequired] },
     yearBuilt: { initialValue: '', rules: [validateNumber] },
@@ -24,10 +26,14 @@ export function BuildingRegistrationModal({ close, onSave }: { close: () => void
     permit: { initialValue: '' },
     rooms: { initialValue: '', rules: [validateNumber] },
     utilities: { initialValue: [] as string[] },
-    remarks: { initialValue: '' }
+    remarks: { initialValue: '' },
+    coordinates: { initialValue: '' },
+    area_sqm: { initialValue: '' },
+    perimeter_m: { initialValue: '' },
   })
   
   const [stepError, setStepError] = useState('')
+  const [showMap, setShowMap] = useState(false)
 
   const toggleUtility = (utility: string) => setValue('utilities', values.utilities.includes(utility) ? values.utilities.filter(item => item !== utility) : [...values.utilities, utility])
   
@@ -70,7 +76,10 @@ export function BuildingRegistrationModal({ close, onSave }: { close: () => void
       year_constructed: values.yearBuilt || new Date().getFullYear().toString(), 
       market_value: '0', 
       assessed_value: '0', 
-      building_status: 'active' 
+      building_status: 'active',
+      coordinates: values.coordinates,
+      area_sqm: values.area_sqm,
+      perimeter_m: values.perimeter_m
     })
   }
 
@@ -87,6 +96,43 @@ export function BuildingRegistrationModal({ close, onSave }: { close: () => void
         <WorkflowSteps current={step} labels={steps}/>
         <div className="workflow-body">
           {stepError && <p className="error-message" style={{marginBottom: '5px', color: '#de4e4e'}}>{stepError}</p>}
+
+          {showMap && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-xl w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col">
+                <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                  <h3 className="font-bold text-lg text-gray-900 dark:text-white">Draw Building Footprint Boundary</h3>
+                  <button type="button" onClick={() => setShowMap(false)} className="text-gray-500 hover:text-gray-800 dark:hover:text-white">
+                    <X size={24}/>
+                  </button>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-900 relative">
+                  <GISDrawMap 
+                    entityType="building"
+                    initialGeometry={values.coordinates ? JSON.parse(values.coordinates) : null}
+                    onGeometryChange={(geom, area, perim) => {
+                      setValue('coordinates', geom ? JSON.stringify(geom) : '')
+                      setValue('area_sqm', String(area))
+                      setValue('perimeter_m', String(perim))
+                      if (area > 0 && (!values.floorArea || values.floorArea === '0')) {
+                        setValue('floorArea', String(area))
+                      }
+                    }}
+                  />
+                  {values.area_sqm && (
+                    <div className="absolute bottom-6 left-6 z-[500] bg-white dark:bg-gray-800 p-3 rounded-lg shadow border border-gray-200 dark:border-gray-700 text-sm">
+                      <p className="font-semibold mb-1 text-gray-800 dark:text-gray-200">Measurements</p>
+                      <p>Footprint Area: <span className="font-mono text-green-600">{values.area_sqm} m²</span></p>
+                      <p>Perimeter: <span className="font-mono text-green-600">{values.perimeter_m} m</span></p>
+                    </div>
+                  )}
+                </div>
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                  <button type="button" onClick={() => setShowMap(false)} className="px-6 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700">Done</button>
+                </div>
+              </div>
+            </div>
+          )}
           
           {step === 0 && (
             <>
@@ -207,6 +253,25 @@ export function BuildingRegistrationModal({ close, onSave }: { close: () => void
                     <option>Tile</option>
                   </select>
                 </label>
+              </div>
+
+              <div className="workflow-two-columns mt-2 mb-4">
+                <div className="col-span-2">
+                  <label className="block mb-2">GIS Footprint Boundary</label>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowMap(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-purple-500 hover:text-purple-600 transition-all font-medium"
+                  >
+                    <Building2 size={18} />
+                    {values.coordinates ? 'Edit Building on Map' : 'Draw Building on Map'}
+                  </button>
+                  {values.area_sqm && (
+                     <div className="mt-2 text-sm text-green-600 dark:text-green-400 font-medium flex items-center gap-2">
+                       <Check size={14}/> Boundary drawn ({values.area_sqm} m² footprint)
+                     </div>
+                  )}
+                </div>
               </div>
             </>
           )}

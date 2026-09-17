@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import api from '../lib/api'
 import { Home, Users, Map, Building, FileText, CheckCircle, XCircle } from 'lucide-react'
 
-export function StaffDashboard({ onNavigate }: { onNavigate?: (path: string) => void }) {
+export function StaffDashboard() {
   const [data, setData] = useState<any>(null)
 
   useEffect(() => {

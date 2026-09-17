@@ -8,7 +8,7 @@ const router = Router()
 const propertySelect = `
   SELECT p.property_id, p.property_status, l.lot_id, l.lot_number, l.title_number, 
     CONCAT_WS(', ', NULLIF(ad.street, ''), br.barangay_name, mu.municipality_name, pr.province_name) AS location, 
-    l.lot_area, g.latitude, g.longitude, l.lot_status,
+    l.lot_area, l.lot_status,
     CONCAT(o.first_name, ' ', o.last_name) AS owner, t.property_type_name AS property_type, c.classification_name,
     COALESCE(a.market_value, 0) AS market_value, COALESCE(a.assessed_value, 0) AS assessed_value
   FROM properties p 
@@ -20,7 +20,6 @@ const propertySelect = `
   JOIN municipalities mu ON mu.municipality_id = br.municipality_id
   JOIN provinces pr ON pr.province_id = mu.province_id
   LEFT JOIN property_lots l ON l.property_id = p.property_id
-  LEFT JOIN gis_locations g ON g.property_id = p.property_id
   LEFT JOIN property_assessments a ON a.assessment_id = (SELECT pa.assessment_id FROM property_assessments pa WHERE pa.property_id = p.property_id ORDER BY pa.assessment_date DESC, pa.assessment_id DESC LIMIT 1)
 `
 
@@ -64,7 +63,7 @@ router.get('/client/my-properties/:id', requireOwnership, async (req, res, next)
 router.get('/client/my-gis', async (req, res, next) => {
   try {
     if (!req.user.owner_id) return res.json([])
-    const [rows] = await pool.query(`${propertySelect} WHERE p.owner_id = ? AND g.latitude IS NOT NULL AND g.longitude IS NOT NULL`, [req.user.owner_id])
+    const [rows] = await pool.query(`${propertySelect} WHERE p.owner_id = ? AND EXISTS (SELECT 1 FROM gis_locations g WHERE g.property_id = p.property_id)`, [req.user.owner_id])
     res.json(rows)
   } catch (e) { next(e) }
 })

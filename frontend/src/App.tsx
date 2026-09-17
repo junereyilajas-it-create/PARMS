@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Routes, Route, useNavigate, useLocation, Navigate, Outlet } from 'react-router-dom'
 import './styles/App.css'
-import { PropertyAssessments, BuildingDirectory, DashboardView, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, UserProfile, CertificateGenerator, CertificateRecords, AdminDashboard, AssessorDashboard, StaffDashboard, UserManagement, ActivityLogsView, PropertyHistoryView, StaffPropertySearch } from './pages'
+import { PropertyAssessments, BuildingDirectory, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, UserProfile, CertificateGenerator, CertificateRecords, AdminDashboard, AssessorDashboard, StaffDashboard, UserManagement, ActivityLogsView, PropertyHistoryView, StaffPropertySearch } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
@@ -55,7 +55,6 @@ function App() {
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [editModal, setEditModal] = useState<{ mode: 'edit'; record: any } | null>(null)
   const [propertyRecords, setPropertyRecords] = useState<Property[]>([])
-  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
   const filteredProperties = useMemo(() => propertyRecords.filter(property => `${property.id} ${property.owner} ${property.location}`.toLowerCase().includes(query.toLowerCase())), [query, propertyRecords])
 
   const [isInitializing, setIsInitializing] = useState(true)
@@ -66,7 +65,6 @@ function App() {
     const { data } = await api.get('/property-records')
     const records: Property[] = (data as Record<string, unknown>[]).map(toProperty)
     setPropertyRecords(records)
-    setSelectedProperty(current => records.find(record => record.id === current?.id) ?? records[0] ?? null)
   }
 
   const initializeApp = async () => {
@@ -110,16 +108,7 @@ function App() {
     )
   }
 
-  const editProperty = async (property: Property) => {
-    try {
-      await ensureSession()
-      const numericId = property.id.replace('PROPERTY-', '')
-      const { data } = await api.get(`/properties/${numericId}`)
-      setEditModal({ mode: 'edit', record: data })
-    } catch (e: any) {
-      showError('Could not load property details.')
-    }
-  }
+
 
   const saveProperty = async (values: Record<string, string>) => {
     try {
@@ -151,7 +140,7 @@ function App() {
       case 'Dashboard': navigate('/dashboard'); break;
       case 'Lots':
       case 'Lot Management': navigate('/lots'); break;
-      case 'Building Properties':
+      case 'Buildings':
       case 'Buildings': navigate('/buildings'); break;
       case 'Owners':
       case 'Ownership Transfer': navigate('/owners'); break;
@@ -182,7 +171,7 @@ function App() {
     const path = location.pathname
     if (path.includes('/dashboard')) return 'Dashboard'
     if (path.includes('/lots')) return 'Lots'
-    if (path.includes('/buildings')) return 'Building Properties'
+    if (path.includes('/buildings')) return 'Buildings'
     if (path.includes('/admin/certificate-requests')) return 'Certification Requests'
     if (path.includes('/owners')) return 'Owners'
     if (path.includes('/assessments')) return 'Assessments'
@@ -204,8 +193,6 @@ function App() {
     return 'Dashboard'
   }
   const activePageName = getActivePageName()
-
-  const sharedDashboardProps = { active: activePageName, query, onQueryChange: setQuery, rows: filteredProperties, onNavigate: handleNavigate, onRegister: () => setShowRegisterModal(true), onEdit: editProperty, onDelete: deleteProperty }
 
   const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const token = localStorage.getItem('accessor_token')
@@ -271,16 +258,16 @@ function App() {
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/dashboard" element={
           userRole === 'client' ? <ClientDashboard onNavigate={handleNavigate} /> :
-          userRole === 'admin' ? <AdminDashboard onNavigate={handleNavigate} /> :
-          userRole === 'assessor' ? <AssessorDashboard onNavigate={handleNavigate} /> :
-          <StaffDashboard onNavigate={handleNavigate} />
+          userRole === 'admin' ? <AdminDashboard /> :
+          userRole === 'assessor' ? <AssessorDashboard /> :
+          <StaffDashboard />
         } />
         <Route path="/lots" element={<PropertyLotManagement query={query} />} />
         <Route path="/buildings" element={<BuildingDirectory query={query} />} />
         <Route path="/building-properties" element={<BuildingDirectory query={query} />} />
         <Route path="/owners" element={<PropertyOwnershipTransfer />} />
         <Route path="/assessments" element={<PropertyAssessments />} />
-        <Route path="/gis" element={selectedProperty ? <PropertyMapView query={query} onQueryChange={setQuery} rows={filteredProperties} selected={selectedProperty} onSelect={setSelectedProperty}/> : <div>Select a property to view on map.</div>} />
+        <Route path="/gis" element={<PropertyMapView />} />
         <Route path="/reports" element={<OperationalIntelligenceReports />} />
         <Route path="/documents" element={<Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} />} />
         <Route path="/certificates/generate" element={<CertificateGenerator />} />

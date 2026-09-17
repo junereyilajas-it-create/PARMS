@@ -39,7 +39,7 @@ function Shell({ children, register = false }: { children: React.ReactNode; regi
 }
 
 export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }) {
-  const { showError, showSuccess } = useModal()
+  const { showError } = useModal()
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loginSuccess, setLoginSuccess] = useState(false)
@@ -211,7 +211,7 @@ export function RegisterPage({ onNavigate }: { onNavigate: (page: string) => voi
   const { showError, showSuccess } = useModal()
   const [busy, setBusy] = useState(false)
 
-  const { values, setValue, setFieldTouched, markAllTouched, isValid, getFieldClass, getFieldError } = useFormValidation({
+  const { values, setValue, setFieldTouched, markAllTouched, isValid, getFieldClass, getFieldError } = useFormValidation<Record<string, string>>({
     first_name: { initialValue: '', rules: [validateRequired] },
     last_name: { initialValue: '', rules: [validateRequired] },
     email: { initialValue: '', rules: [validateRequired, validateEmail] },

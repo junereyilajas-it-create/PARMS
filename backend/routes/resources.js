@@ -9,7 +9,7 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
   const [rows] = await pool.query(`SELECT p.property_id, p.property_status, l.lot_id, l.lot_number, l.title_number, 
     CONCAT_WS(', ', NULLIF(ad.street, ''), br.barangay_name, mu.municipality_name, pr.province_name) AS location, 
     ad.street AS purok, br.barangay_name AS barangay, mu.municipality_name AS municipality, pr.province_name AS province,
-    l.lot_area, g.latitude, g.longitude, l.lot_status,
+    l.lot_area, l.lot_status,
     CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner, 
     t.property_type_name AS property_type, c.classification_name,
     COALESCE(a.market_value, 0) AS market_value, COALESCE(a.assessed_value, 0) AS assessed_value
@@ -22,7 +22,6 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
     JOIN municipalities mu ON mu.municipality_id = br.municipality_id
     JOIN provinces pr ON pr.province_id = mu.province_id
     LEFT JOIN property_lots l ON l.property_id = p.property_id
-    LEFT JOIN gis_locations g ON g.property_id = p.property_id
     LEFT JOIN property_assessments a ON a.assessment_id = (SELECT pa.assessment_id FROM property_assessments pa WHERE pa.property_id = p.property_id ORDER BY pa.assessment_date DESC, pa.assessment_id DESC LIMIT 1)
     ORDER BY p.property_id DESC`)
   res.json(rows)
@@ -39,7 +38,6 @@ router.post('/properties/register', authenticate, allowRoles('admin', 'staff'), 
     const firstName = nameParts.shift()
     const lastName = nameParts.pop() || firstName
     const middleName = nameParts.join(' ') || null
-    const [latitude, longitude] = typeof coordinates === 'string' ? coordinates.split(',').map(value => Number(value.trim())) : []
     const classifications = { Residential: 'Residential Lot', Commercial: 'Commercial Lot', Industrial: 'Industrial Lot', Agricultural: 'Agricultural Land' }
 
     await connection.beginTransaction()
@@ -101,7 +99,7 @@ router.post('/properties/register', authenticate, allowRoles('admin', 'staff'), 
       Number.isFinite(area) ? area : null,
       'pending',
     ])
-    if (Number.isFinite(latitude) && Number.isFinite(longitude)) await connection.query('INSERT INTO gis_locations (property_id, latitude, longitude) VALUES (?, ?, ?)', [propertyIdStr, latitude, longitude])
+
     const value = Number(String(market_value || '').replace(/[^0-9.-]/g, ''))
     if (Number.isFinite(value) && market_value !== '') await connection.query('INSERT INTO property_assessments (property_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date, remarks) VALUES (?, ?, ?, ?, ?, CURDATE(), ?)', [propertyIdStr, req.user.id, 20.00, value, value * 0.20, document || null])
     await logActivity(connection, req, 'CREATE', 'Properties', `Property ID ${propertyIdStr}`, `Registered property for ${owner}`)
@@ -332,7 +330,7 @@ router.post('/lots', authenticate, allowRoles('admin', 'staff'), async (req, res
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
-    const { property_id, lot_number, title_number, lot_area, lot_status, latitude, longitude } = req.body
+    const { property_id, lot_number, title_number, lot_area, lot_status } = req.body
     
     const [propCheck] = await connection.query('SELECT 1 FROM properties WHERE property_id = ?', [property_id])
     if (!propCheck.length) {
@@ -357,12 +355,6 @@ router.post('/lots', authenticate, allowRoles('admin', 'staff'), async (req, res
       [lotId, property_id, lot_number, title_number || null, lot_area || null, lot_status || 'active']
     )
 
-    if (latitude && longitude && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude))) {
-      await connection.query(
-        'INSERT INTO gis_locations (property_id, latitude, longitude) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE latitude=?, longitude=?',
-        [property_id, Number(latitude), Number(longitude), Number(latitude), Number(longitude)]
-      )
-    }
 
     await connection.commit()
     res.status(201).json({ id: lotRes.insertId, message: 'Lot created' })
@@ -398,12 +390,6 @@ router.put('/lots/:id', authenticate, allowRoles('admin', 'staff'), async (req, 
       return res.status(404).json({ message: 'Record not found' })
     }
 
-    if (latitude && longitude && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude))) {
-      await connection.query(
-        'INSERT INTO gis_locations (property_id, latitude, longitude) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE latitude=?, longitude=?',
-        [property_id, Number(latitude), Number(longitude), Number(latitude), Number(longitude)]
-      )
-    }
 
     await connection.commit()
     res.json({ message: 'Lot updated' })
@@ -437,6 +423,70 @@ router.delete('/lots/:id', authenticate, allowRoles('admin'), async (req, res, n
   }
 })
 
+router.delete('/buildings/:id', authenticate, allowRoles('admin'), async (req, res, next) => {
+  const connection = await pool.getConnection()
+  try {
+    await connection.beginTransaction()
+    const id = req.params.id
+    await connection.query('DELETE FROM building_history WHERE building_id = ?', [id])
+    await connection.query('DELETE FROM building_assessment_history WHERE building_id = ?', [id])
+    await connection.query('DELETE FROM gis_locations WHERE building_id = ?', [id])
+    const [result] = await connection.query('DELETE FROM property_buildings WHERE building_id = ?', [id])
+    if (!result.affectedRows) {
+      await connection.rollback()
+      return res.status(404).json({ message: 'Record not found' })
+    }
+    await connection.commit()
+    res.status(204).end()
+  } catch (e) {
+    await connection.rollback()
+    next(e)
+  } finally {
+    connection.release()
+  }
+})
+
+router.delete('/properties/:id', authenticate, allowRoles('admin'), async (req, res, next) => {
+  const connection = await pool.getConnection()
+  try {
+    await connection.beginTransaction()
+    const id = req.params.id
+    
+    // Delete GIS locations
+    await connection.query('DELETE FROM gis_locations WHERE property_id = ?', [id])
+    
+    // Delete buildings
+    await connection.query('DELETE FROM building_history WHERE building_id IN (SELECT building_id FROM property_buildings WHERE property_id = ?)', [id])
+    await connection.query('DELETE FROM building_assessment_history WHERE building_id IN (SELECT building_id FROM property_buildings WHERE property_id = ?)', [id])
+    await connection.query('DELETE FROM property_buildings WHERE property_id = ?', [id])
+    
+    // Delete lots
+    await connection.query('DELETE FROM lot_history WHERE lot_id IN (SELECT lot_id FROM property_lots WHERE property_id = ?)', [id])
+    await connection.query('DELETE FROM lot_assessment_history WHERE lot_id IN (SELECT lot_id FROM property_lots WHERE property_id = ?)', [id])
+    await connection.query('DELETE FROM property_lots WHERE property_id = ?', [id])
+    
+    // Delete assessments
+    await connection.query('DELETE FROM tax_declarations WHERE property_id = ?', [id])
+    await connection.query('DELETE FROM property_assessments WHERE property_id = ?', [id])
+    await connection.query('DELETE FROM property_history WHERE property_id = ?', [id])
+    
+    // Delete property
+    const [result] = await connection.query('DELETE FROM properties WHERE property_id = ?', [id])
+    if (!result.affectedRows) {
+      await connection.rollback()
+      return res.status(404).json({ message: 'Record not found' })
+    }
+    
+    await connection.commit()
+    res.status(204).end()
+  } catch (e) {
+    await connection.rollback()
+    next(e)
+  } finally {
+    connection.release()
+  }
+})
+
 const config = {
   provinces: { table: 'provinces', idColumn: 'province_id', columns: ['province_name'] },
   municipalities: { table: 'municipalities', idColumn: 'municipality_id', columns: ['province_id','municipality_name'] },
@@ -457,9 +507,8 @@ const config = {
   assessments: { table: 'property_assessments', idColumn: 'assessment_id', columns: ['property_id','assessor_user_id','assessor_level','market_value','assessed_value','assessment_date','remarks'] },
   declarations: { table: 'tax_declarations', idColumn: 'tax_declaration_id', columns: ['property_id','assessment_id','declaration_number','tax_year','issue_date'] },
 
-  locations: { table: 'gis_locations', idColumn: 'location_id', columns: ['property_id','latitude','longitude','gps_accuracy'] },
+  locations: { table: 'gis_locations', idColumn: 'location_id', columns: ['property_id'] },
   activityLogs: { table: 'activity_logs', idColumn: 'log_id', columns: ['user_id','module_name','activity','ip_address'] },
-  users: { table: 'users', idColumn: 'user_id', columns: ['first_name','last_name','username','password_hash','email','role'] },
   transfers: { table: 'ownership_transfers', idColumn: 'transfer_id', columns: ['property_id','previous_owner_id','new_owner_id','transfer_reason','transfer_date','reference_number','remarks','processed_by_user_id'] },
   inspections: { table: 'property_inspections', idColumn: 'inspection_id', columns: ['property_id','inspector_user_id','scheduled_at','completed_at','inspection_status','property_condition','remarks'] },
   inspectionPhotos: { table: 'inspection_photos', idColumn: 'photo_id', columns: ['inspection_id','file_path','caption'] },

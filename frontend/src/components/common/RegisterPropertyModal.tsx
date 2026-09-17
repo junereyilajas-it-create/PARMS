@@ -12,7 +12,7 @@ export function RegisterPropertyModal({ close, onSave }: { close: () => void; on
   const [step, setStep] = useState(0)
   const [busy, setBusy] = useState(false)
   
-  const { values, setValue, setFieldTouched, getFieldError, getFieldClass, markAllTouched, isValid } = useFormValidation({
+  const { values, setValue, setFieldTouched, getFieldError, getFieldClass, markAllTouched, isValid } = useFormValidation<PropertyRegistrationForm>({
     type: { initialValue: 'Residential', rules: [validateRequired] },
     taxId: { initialValue: '' },
     street: { initialValue: '', rules: [validateRequired] },
@@ -54,7 +54,7 @@ export function RegisterPropertyModal({ close, onSave }: { close: () => void; on
     setBusy(true)
     setStepError('')
     try { 
-      await onSave(values)
+      await onSave(values as PropertyRegistrationForm)
       close() 
     } catch (err: any) { 
       showError(err instanceof Error ? err.message : 'Unable to register the property.') 

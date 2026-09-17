@@ -2,6 +2,7 @@ import { Check, ChevronRight, X, Building2, SquareDashed, Lock } from 'lucide-re
 import { useState } from 'react'
 import { useFormValidation, validateRequired, validateNumber } from '../../lib/validation'
 import '../../styles/MultiStepModal.css'
+import { GISDrawMap } from './GISDrawMap'
 
 export type UnifiedPropertyRegistration = {
   propertyType: 'LOT' | 'BUILDING' | '';
@@ -59,6 +60,11 @@ export type UnifiedPropertyRegistration = {
   doorsOther: string;
   windows: string;
   windowsOther: string;
+  
+  // GIS
+  coordinates: string;
+  area_sqm: string;
+  perimeter_m: string;
 }
 
 function LocalWorkflowSteps({ current, maxUnlocked, labels, onStepClick }: { current: number, maxUnlocked: number, labels: string[], onStepClick: (i: number) => void }) {
@@ -108,7 +114,7 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
   
   const stepsList = ['Property Type', 'Owner Info', 'Owner Address', 'Property Address', 'Details', 'Review & Save']
 
-  const { values, setValue, setFieldTouched, getFieldError, getFieldClass, markAllTouched, isValid } = useFormValidation({
+  const { values, setValue, setFieldTouched, getFieldError, getFieldClass, markAllTouched, isValid } = useFormValidation<UnifiedPropertyRegistration>({
     propertyType: { initialValue: '' as UnifiedPropertyRegistration['propertyType'], rules: [validateRequired] },
     
     ownerFirstName: { initialValue: '', rules: [validateRequired] },
@@ -129,42 +135,46 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
     
     lotNumber: { initialValue: '' },
     titleNumber: { initialValue: '' },
-    lotArea: { initialValue: '', rules: [v => values.propertyType === 'LOT' ? (validateRequired(v) || validateNumber(v)) : null] },
+    lotArea: { initialValue: '', rules: [(v, formValues) => formValues.propertyType === 'LOT' ? (validateRequired(v) || validateNumber(v)) : null] },
     latitude: { initialValue: '' },
     longitude: { initialValue: '' },
     lotStatus: { initialValue: 'active' },
-    lotClassification: { initialValue: '', rules: [v => values.propertyType === 'LOT' ? validateRequired(v) : null] },
+    lotClassification: { initialValue: '', rules: [(v, formValues) => formValues.propertyType === 'LOT' ? validateRequired(v) : null] },
     lotTypeUse: { initialValue: '' },
     
     buildingName: { initialValue: '' },
-    buildingType: { initialValue: '', rules: [v => values.propertyType === 'BUILDING' ? validateRequired(v) : null] },
-    floorArea: { initialValue: '', rules: [v => values.propertyType === 'BUILDING' ? (validateRequired(v) || validateNumber(v)) : null] },
-    floorCount: { initialValue: '', rules: [v => values.propertyType === 'BUILDING' ? (validateRequired(v) || validateNumber(v)) : null] },
+    buildingType: { initialValue: '', rules: [(v, formValues) => formValues.propertyType === 'BUILDING' ? validateRequired(v) : null] },
+    floorArea: { initialValue: '', rules: [(v, formValues) => formValues.propertyType === 'BUILDING' ? (validateRequired(v) || validateNumber(v)) : null] },
+    floorCount: { initialValue: '', rules: [(v, formValues) => formValues.propertyType === 'BUILDING' ? (validateRequired(v) || validateNumber(v)) : null] },
     constructionType: { initialValue: '' },
-    yearConstructed: { initialValue: '', rules: [v => values.propertyType === 'BUILDING' ? (validateRequired(v) || validateNumber(v)) : null] },
+    yearConstructed: { initialValue: '', rules: [(v, formValues) => formValues.propertyType === 'BUILDING' ? (validateRequired(v) || validateNumber(v)) : null] },
     buildingStatus: { initialValue: 'active' },
-    buildingClassification: { initialValue: '', rules: [v => values.propertyType === 'BUILDING' ? validateRequired(v) : null] },
+    buildingClassification: { initialValue: '', rules: [(v, formValues) => formValues.propertyType === 'BUILDING' ? validateRequired(v) : null] },
     buildingUse: { initialValue: '' },
     
     foundation: { initialValue: '' },
-    foundationOther: { initialValue: '', rules: [v => values.foundation === 'Other' ? validateRequired(v) : null] },
+    foundationOther: { initialValue: '', rules: [(v, formValues) => formValues.foundation === 'Other' ? validateRequired(v) : null] },
     structuralFrame: { initialValue: '' },
-    structuralFrameOther: { initialValue: '', rules: [v => values.structuralFrame === 'Other' ? validateRequired(v) : null] },
+    structuralFrameOther: { initialValue: '', rules: [(v, formValues) => formValues.structuralFrame === 'Other' ? validateRequired(v) : null] },
     exteriorWalls: { initialValue: '' },
-    exteriorWallsOther: { initialValue: '', rules: [v => values.exteriorWalls === 'Other' ? validateRequired(v) : null] },
+    exteriorWallsOther: { initialValue: '', rules: [(v, formValues) => formValues.exteriorWalls === 'Other' ? validateRequired(v) : null] },
     roofing: { initialValue: '' },
-    roofingOther: { initialValue: '', rules: [v => values.roofing === 'Other' ? validateRequired(v) : null] },
+    roofingOther: { initialValue: '', rules: [(v, formValues) => formValues.roofing === 'Other' ? validateRequired(v) : null] },
     flooring: { initialValue: '' },
-    flooringOther: { initialValue: '', rules: [v => values.flooring === 'Other' ? validateRequired(v) : null] },
+    flooringOther: { initialValue: '', rules: [(v, formValues) => formValues.flooring === 'Other' ? validateRequired(v) : null] },
     ceiling: { initialValue: '' },
-    ceilingOther: { initialValue: '', rules: [v => values.ceiling === 'Other' ? validateRequired(v) : null] },
+    ceilingOther: { initialValue: '', rules: [(v, formValues) => formValues.ceiling === 'Other' ? validateRequired(v) : null] },
     doors: { initialValue: '' },
-    doorsOther: { initialValue: '', rules: [v => values.doors === 'Other' ? validateRequired(v) : null] },
+    doorsOther: { initialValue: '', rules: [(v, formValues) => formValues.doors === 'Other' ? validateRequired(v) : null] },
     windows: { initialValue: '' },
-    windowsOther: { initialValue: '', rules: [v => values.windows === 'Other' ? validateRequired(v) : null] }
+    windowsOther: { initialValue: '', rules: [(v, formValues) => formValues.windows === 'Other' ? validateRequired(v) : null] },
+    coordinates: { initialValue: '' },
+    area_sqm: { initialValue: '' },
+    perimeter_m: { initialValue: '' }
   })
   
   const [stepError, setStepError] = useState('')
+  const [showMap, setShowMap] = useState(false)
 
   const handleCancelClick = () => {
     setShowCancelConfirm(true)
@@ -295,6 +305,45 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
         <div className="workflow-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
           {stepError && <p className="error-message" style={{marginBottom: '15px', color: '#de4e4e'}}>{stepError}</p>}
           
+          {showMap && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-xl w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col">
+                <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                  <h3 className="font-bold text-lg text-gray-900 dark:text-white">Draw {values.propertyType === 'LOT' ? 'Lot Boundary' : 'Building Footprint'}</h3>
+                  <button type="button" onClick={() => setShowMap(false)} className="text-gray-500 hover:text-gray-800 dark:hover:text-white">
+                    <X size={24}/>
+                  </button>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-900 relative">
+                  <GISDrawMap 
+                    entityType={values.propertyType === 'BUILDING' ? 'building' : 'lot'}
+                    initialGeometry={values.coordinates ? JSON.parse(values.coordinates) : null}
+                    onGeometryChange={(geom, area, perim) => {
+                      setValue('coordinates', geom ? JSON.stringify(geom) : '')
+                      setValue('area_sqm', String(area))
+                      setValue('perimeter_m', String(perim))
+                      
+                      if (area > 0) {
+                        if (values.propertyType === 'LOT' && (!values.lotArea || values.lotArea === '0')) setValue('lotArea', String(area))
+                        if (values.propertyType === 'BUILDING' && (!values.floorArea || values.floorArea === '0')) setValue('floorArea', String(area))
+                      }
+                    }}
+                  />
+                  {values.area_sqm && (
+                    <div className="absolute bottom-6 left-6 z-[500] bg-white dark:bg-gray-800 p-3 rounded-lg shadow border border-gray-200 dark:border-gray-700 text-sm">
+                      <p className="font-semibold mb-1 text-gray-800 dark:text-gray-200">Measurements</p>
+                      <p>Area: <span className="font-mono text-green-600">{values.area_sqm} m²</span></p>
+                      <p>Perimeter: <span className="font-mono text-green-600">{values.perimeter_m} m</span></p>
+                    </div>
+                  )}
+                </div>
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                  <button type="button" onClick={() => setShowMap(false)} className="px-6 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700">Done</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {step === 0 && (
             <div className="space-y-4">
               <p className="text-center mb-4 text-gray-600">Select the type of property you are registering.</p>
@@ -500,13 +549,23 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
                 </label>
               </div>
 
-              <div className="workflow-two-columns">
-                <label>Latitude
-                  <input type="number" step="any" value={values.latitude} onChange={e => setValue('latitude', e.target.value)} placeholder="e.g. 8.8471" />
-                </label>
-                <label>Longitude
-                  <input type="number" step="any" value={values.longitude} onChange={e => setValue('longitude', e.target.value)} placeholder="e.g. 124.7892" />
-                </label>
+              <div className="workflow-two-columns mt-4">
+                <div className="col-span-2">
+                  <label className="block mb-2">GIS Boundary</label>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowMap(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-blue-500 hover:text-blue-600 transition-all font-medium"
+                  >
+                    <SquareDashed size={18} />
+                    {values.coordinates ? 'Edit Lot on Map' : 'Draw Lot on Map'}
+                  </button>
+                  {values.area_sqm && (
+                     <div className="mt-2 text-sm text-green-600 dark:text-green-400 font-medium flex items-center gap-2">
+                       <Check size={14}/> Boundary drawn ({values.area_sqm} m²)
+                     </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -597,6 +656,25 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
                   <label>Year Built <span className="required">*</span>
                     <input className={getFieldClass('yearConstructed')} type="number" value={values.yearConstructed} onChange={e => setValue('yearConstructed', e.target.value)} onBlur={() => setFieldTouched('yearConstructed')} />
                   </label>
+                </div>
+              </div>
+
+              <div className="workflow-two-columns mb-4">
+                <div className="col-span-2">
+                  <label className="block mb-2">GIS Footprint Boundary</label>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowMap(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-purple-500 hover:text-purple-600 transition-all font-medium"
+                  >
+                    <Building2 size={18} />
+                    {values.coordinates ? 'Edit Building on Map' : 'Draw Building on Map'}
+                  </button>
+                  {values.area_sqm && (
+                     <div className="mt-2 text-sm text-green-600 dark:text-green-400 font-medium flex items-center gap-2">
+                       <Check size={14}/> Boundary drawn ({values.area_sqm} m² footprint)
+                     </div>
+                  )}
                 </div>
               </div>
 

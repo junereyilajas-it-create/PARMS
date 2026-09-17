@@ -155,10 +155,10 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'assessor',
         ]
       )
 
-      if (data.latitude && data.longitude && Number.isFinite(Number(data.latitude)) && Number.isFinite(Number(data.longitude))) {
+      if (data.coordinates) {
         await connection.query(
-          'INSERT INTO gis_locations (property_id, latitude, longitude) VALUES (?, ?, ?)',
-          [propertyId, Number(data.latitude), Number(data.longitude)]
+          'INSERT INTO gis_locations (property_id, lot_id, geometry_type, coordinates, area_sqm, perimeter_m) VALUES (?, ?, ?, ?, ?, ?)',
+          [propertyId, lotId, 'Polygon', data.coordinates, Number(data.area_sqm) || 0, Number(data.perimeter_m) || 0]
         )
       }
     } else if (data.propertyType === 'BUILDING') {
@@ -213,6 +213,13 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'assessor',
         await connection.query(
           'INSERT INTO building_assessment_history (building_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date, assessment_reason) VALUES (?, ?, ?, ?, ?, CURDATE(), ?)',
           [buildingIdStr, req.user.id, 20.00, Number(data.marketValue) || 0, Number(data.assessedValue) || 0, 'Initial registration']
+        )
+      }
+
+      if (data.coordinates) {
+        await connection.query(
+          'INSERT INTO gis_locations (property_id, building_id, geometry_type, coordinates, area_sqm, perimeter_m) VALUES (?, ?, ?, ?, ?, ?)',
+          [propertyId, buildingIdStr, 'Polygon', data.coordinates, Number(data.area_sqm) || 0, Number(data.perimeter_m) || 0]
         )
       }
     }
