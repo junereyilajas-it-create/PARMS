@@ -39,16 +39,18 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'assessor',
     if (!data.propertyType || !['LOT', 'BUILDING'].includes(data.propertyType)) {
       throw Object.assign(new Error('Invalid or missing Property Type.'), { status: 400 })
     }
-    if (!data.ownerFirstName || !data.ownerLastName) {
-      throw Object.assign(new Error('Owner First Name and Last Name are required.'), { status: 400 })
+    // 2. Create Owner or Use Existing
+    let ownerId = data.ownerId;
+    if (!ownerId) {
+      if (!data.ownerFirstName || !data.ownerLastName) {
+        throw Object.assign(new Error('Owner First Name and Last Name are required.'), { status: 400 })
+      }
+      const [ownerResult] = await connection.query(
+        'INSERT INTO property_owners (first_name, middle_name, last_name, contact_number) VALUES (?, ?, ?, ?)',
+        [data.ownerFirstName.trim(), data.ownerMiddleName?.trim() || null, data.ownerLastName.trim(), data.ownerContactNumber?.trim() || null]
+      )
+      ownerId = ownerResult.insertId
     }
-
-    // 2. Create Owner
-    const [ownerResult] = await connection.query(
-      'INSERT INTO property_owners (first_name, middle_name, last_name) VALUES (?, ?, ?)',
-      [data.ownerFirstName.trim(), data.ownerMiddleName?.trim() || null, data.ownerLastName.trim()]
-    )
-    const ownerId = ownerResult.insertId
 
     // 3. Create/Resolve Owner Address
     const ownerProvId = await getOrInsertProvince(connection, data.ownerProvince || 'Misamis Oriental')

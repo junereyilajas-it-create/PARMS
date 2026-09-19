@@ -5,6 +5,26 @@ import { logActivity, logPropertyHistory } from '../utils/logger.js'
 const router = Router()
 // Read models keep relationship data useful to the UI while the individual
 // resources above remain available for normal table-level CRUD.
+router.get('/resources/roles', authenticate, allowRoles('admin'), (req, res) => {
+  res.json(['admin', 'assessor', 'staff'])
+})
+
+// Search Property Owners
+router.get('/owners/search', authenticate, allowRoles('admin', 'assessor', 'staff'), async (req, res, next) => {
+  try {
+    const q = req.query.q || '';
+    if (q.length < 1) return res.json([]);
+    const queryStr = `${q}%`;
+    const [rows] = await pool.query(`
+      SELECT owner_id, first_name, middle_name, last_name, contact_number, email 
+      FROM property_owners 
+      WHERE first_name LIKE ? OR last_name LIKE ? OR CONCAT(first_name, ' ', last_name) LIKE ?
+      LIMIT 10
+    `, [queryStr, queryStr, queryStr]);
+    res.json(rows);
+  } catch(e) { next(e) }
+})
+
 router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 'staff'), async (_, res, next) => { try {
   const [rows] = await pool.query(`SELECT p.property_id, p.property_status, l.lot_id, l.lot_number, l.title_number, 
     CONCAT_WS(', ', NULLIF(ad.street, ''), br.barangay_name, mu.municipality_name, pr.province_name) AS location, 

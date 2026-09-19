@@ -58,7 +58,7 @@ export function PropertyLotManagement({ query = '' }: { query?: string }) {
         </div>
         <button onClick={() => setShowAddProperty(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
           <Plus size={20} />
-          + Add Property
+          Add Property
         </button>
       </div>
       

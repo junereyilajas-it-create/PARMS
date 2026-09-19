@@ -3,12 +3,17 @@ import { useState } from 'react'
 import { useFormValidation, validateRequired, validateNumber } from '../../lib/validation'
 import '../../styles/MultiStepModal.css'
 import { GISDrawMap } from './GISDrawMap'
+import { OwnerAutocomplete } from './OwnerAutocomplete'
+import { LocationAutocomplete } from './LocationAutocomplete'
+import { getProvinces, getBarangays, getMunicipalities, getZipCode } from '../../lib/ph_locations'
 
 export type UnifiedPropertyRegistration = {
+  ownerId?: number | null;
   propertyType: 'LOT' | 'BUILDING' | '';
   ownerFirstName: string;
   ownerMiddleName: string;
   ownerLastName: string;
+  ownerContactNumber: string;
   
   ownerHouseNumber: string;
   ownerStreet: string;
@@ -114,23 +119,58 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
   
   const stepsList = ['Property Type', 'Owner Info', 'Owner Address', 'Property Address', 'Details', 'Review & Save']
 
-  const { values, setValue, setFieldTouched, getFieldError, getFieldClass, markAllTouched, isValid } = useFormValidation<UnifiedPropertyRegistration>({
+  const { values, setValue, setFieldTouched, getFieldError, getFieldClass, markAllTouched, isValid, touched } = useFormValidation<UnifiedPropertyRegistration>({
     propertyType: { initialValue: '' as UnifiedPropertyRegistration['propertyType'], rules: [validateRequired] },
     
+    ownerId: { initialValue: null },
     ownerFirstName: { initialValue: '', rules: [validateRequired] },
     ownerMiddleName: { initialValue: '' },
     ownerLastName: { initialValue: '', rules: [validateRequired] },
+    ownerContactNumber: { initialValue: '' },
     
     ownerHouseNumber: { initialValue: '' },
     ownerStreet: { initialValue: '' },
     ownerPurok: { initialValue: '' },
-    ownerBarangay: { initialValue: '', rules: [validateRequired] },
-    ownerMunicipality: { initialValue: '', rules: [validateRequired] },
     ownerProvince: { initialValue: '', rules: [validateRequired] },
+    ownerMunicipality: { 
+      initialValue: '', 
+      rules: [
+        validateRequired,
+        (val, form) => {
+          if (!val) return null;
+          const valid = getMunicipalities(form.ownerProvince).some(m => m.name.toLowerCase() === val.trim().toLowerCase());
+          if (!valid) return 'Must be a valid municipality.';
+          return null;
+        }
+      ] 
+    },
+    ownerBarangay: { 
+      initialValue: '', 
+      rules: [
+        validateRequired,
+        (val, form) => {
+          if (!val) return null;
+          const valid = getBarangays(form.ownerMunicipality).some(b => b.toLowerCase() === val.trim().toLowerCase());
+          if (!valid) return 'Must be a valid barangay.';
+          return null;
+        }
+      ] 
+    },
     ownerZipCode: { initialValue: '' },
     
     propertyPurok: { initialValue: '' },
-    propertyBarangay: { initialValue: '', rules: [validateRequired] },
+    propertyBarangay: { 
+      initialValue: '', 
+      rules: [
+        validateRequired,
+        (val) => {
+          if (!val) return null;
+          const valid = getBarangays('Lagonglong').some(b => b.toLowerCase() === val.trim().toLowerCase());
+          if (!valid) return 'Must be a valid barangay in Lagonglong.';
+          return null;
+        }
+      ] 
+    },
     propertyStreet: { initialValue: '' },
     
     lotNumber: { initialValue: '' },
@@ -302,7 +342,7 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
         
         <LocalWorkflowSteps current={step} maxUnlocked={maxUnlockedStep} labels={stepsList} onStepClick={handleStepClick} />
         
-        <div className="workflow-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+        <div className="workflow-body">
           {stepError && <p className="error-message" style={{marginBottom: '15px', color: '#de4e4e'}}>{stepError}</p>}
           
           {showMap && (
@@ -379,34 +419,85 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
 
           {step === 1 && (
             <>
+              <div className="mb-4">
+                <label className="block mb-1">Search Owner <span className="required">*</span></label>
+                <OwnerAutocomplete 
+                  value={values.ownerId || undefined}
+                  onSelect={(owner) => {
+                    setValue('ownerId', owner ? owner.owner_id : null)
+                    setValue('ownerFirstName', owner ? owner.first_name : '')
+                    setValue('ownerMiddleName', owner ? owner.middle_name || '' : '')
+                    setValue('ownerLastName', owner ? owner.last_name : '')
+                    setValue('ownerContactNumber', owner ? owner.contact_number || '' : '')
+                  }}
+                  error={touched['ownerId'] && !values.ownerId && !values.ownerFirstName}
+                />
+                {touched['ownerId'] && !values.ownerId && !values.ownerFirstName && <p className="text-red-500 text-sm mt-1 text-left">Please select or enter an owner.</p>}
+              </div>
+              
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="font-bold text-gray-800 dark:text-gray-200">Owner Details</h3>
+                {values.ownerId && (
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setValue('ownerId', null);
+                      setValue('ownerFirstName', '');
+                      setValue('ownerMiddleName', '');
+                      setValue('ownerLastName', '');
+                      setValue('ownerContactNumber', '');
+                    }}
+                    className="text-xs text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 font-medium"
+                  >
+                    Clear / Change Owner
+                  </button>
+                )}
+              </div>
+
               <div className="workflow-two-columns">
-                <label>
-                  First Name <span className="required">*</span>
+                <label>First Name <span className="required">*</span>
                   <input 
-                    className={getFieldClass('ownerFirstName')} 
+                    className={getFieldClass('ownerFirstName', values.ownerId ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed' : '')} 
+                    readOnly={!!values.ownerId} 
                     value={values.ownerFirstName} 
                     onChange={e => setValue('ownerFirstName', e.target.value)}
                     onBlur={() => setFieldTouched('ownerFirstName')}
+                    placeholder={values.ownerId ? '' : 'e.g. Juan'} 
                   />
                 </label>
-                <label>
-                  Last Name <span className="required">*</span>
+                <label>Last Name <span className="required">*</span>
                   <input 
-                    className={getFieldClass('ownerLastName')} 
+                    className={getFieldClass('ownerLastName', values.ownerId ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed' : '')} 
+                    readOnly={!!values.ownerId} 
                     value={values.ownerLastName} 
                     onChange={e => setValue('ownerLastName', e.target.value)}
                     onBlur={() => setFieldTouched('ownerLastName')}
+                    placeholder={values.ownerId ? '' : 'e.g. Dela Cruz'} 
                   />
                 </label>
               </div>
-              <label>
-                Middle Name
-                <input 
-                  className={getFieldClass('ownerMiddleName')} 
-                  value={values.ownerMiddleName} 
-                  onChange={e => setValue('ownerMiddleName', e.target.value)}
-                />
-              </label>
+              <div className="workflow-two-columns">
+                <label>
+                  Middle Name
+                  <input 
+                    className={values.ownerId ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed' : ''} 
+                    readOnly={!!values.ownerId} 
+                    value={values.ownerMiddleName} 
+                    onChange={e => setValue('ownerMiddleName', e.target.value)}
+                    placeholder={values.ownerId ? '' : 'Optional'} 
+                  />
+                </label>
+                <label>
+                  Contact Number
+                  <input 
+                    className={values.ownerId ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed' : ''} 
+                    readOnly={!!values.ownerId} 
+                    value={values.ownerContactNumber} 
+                    onChange={e => setValue('ownerContactNumber', e.target.value)}
+                    placeholder={values.ownerId ? '' : 'e.g. 09XXXXXXXXX'} 
+                  />
+                </label>
+              </div>
             </>
           )}
 
@@ -414,67 +505,109 @@ export function AddPropertyWorkflow({ close, onSave }: { close: () => void; onSa
             <>
               <div className="workflow-two-columns">
                 <label>House/Building No.
-                  <input value={values.ownerHouseNumber} onChange={e => setValue('ownerHouseNumber', e.target.value)} />
+                  <input value={values.ownerHouseNumber} onChange={e => setValue('ownerHouseNumber', e.target.value)} placeholder="e.g. 123" />
                 </label>
                 <label>Street
-                  <input value={values.ownerStreet} onChange={e => setValue('ownerStreet', e.target.value)} />
+                  <input value={values.ownerStreet} onChange={e => setValue('ownerStreet', e.target.value)} placeholder="e.g. Main Street" />
                 </label>
               </div>
-              <div className="workflow-two-columns">
-                <label>Purok
-                  <input value={values.ownerPurok} onChange={e => setValue('ownerPurok', e.target.value)} />
-                </label>
-                <label>Barangay <span className="required">*</span>
-                  <input className={getFieldClass('ownerBarangay')} value={values.ownerBarangay} onChange={e => setValue('ownerBarangay', e.target.value)} onBlur={() => setFieldTouched('ownerBarangay')} />
-                </label>
-              </div>
-              <div className="workflow-two-columns">
-                <label>Municipality/City <span className="required">*</span>
-                  <input className={getFieldClass('ownerMunicipality')} value={values.ownerMunicipality} onChange={e => setValue('ownerMunicipality', e.target.value)} onBlur={() => setFieldTouched('ownerMunicipality')} />
-                </label>
-                <label>Province <span className="required">*</span>
-                  <input className={getFieldClass('ownerProvince')} value={values.ownerProvince} onChange={e => setValue('ownerProvince', e.target.value)} onBlur={() => setFieldTouched('ownerProvince')} />
-                </label>
-              </div>
-              <label>ZIP Code
-                <input value={values.ownerZipCode} onChange={e => setValue('ownerZipCode', e.target.value)} />
+              <label>Purok
+                <input value={values.ownerPurok} onChange={e => setValue('ownerPurok', e.target.value)} placeholder="e.g. Purok 1" />
               </label>
+              <div className="workflow-two-columns">
+                <label>Province <span className="required">*</span>
+                  <select 
+                    className={getFieldClass('ownerProvince')} 
+                    value={values.ownerProvince} 
+                    onChange={e => {
+                      setValue('ownerProvince', e.target.value);
+                      setValue('ownerMunicipality', '');
+                      setValue('ownerBarangay', '');
+                      setValue('ownerZipCode', '');
+                    }} 
+                    onBlur={() => setFieldTouched('ownerProvince')}
+                  >
+                    <option value="">Select Province ▼</option>
+                    {getProvinces().map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </label>
+                <label>Municipality/City <span className="required">*</span>
+                  <LocationAutocomplete 
+                    value={values.ownerMunicipality}
+                    onChange={(val) => {
+                      setValue('ownerMunicipality', val);
+                      setValue('ownerBarangay', '');
+                      setValue('ownerZipCode', getZipCode(val));
+                      setFieldTouched('ownerMunicipality');
+                    }}
+                    options={values.ownerProvince ? getMunicipalities(values.ownerProvince).map(m => m.name) : []}
+                    placeholder="Example: Lagonglong"
+                    emptyMessage="No matching municipality found"
+                    className={getFieldClass('ownerMunicipality')}
+                  />
+                  {touched['ownerMunicipality'] && getFieldError('ownerMunicipality') && (
+                    <span style={{color: '#de4e4e', fontSize: '10px'}}>{getFieldError('ownerMunicipality')}</span>
+                  )}
+                </label>
+              </div>
+              <div className="workflow-two-columns">
+                <label>Barangay <span className="required">*</span>
+                  <LocationAutocomplete 
+                    value={values.ownerBarangay}
+                    onChange={(val) => {
+                      setValue('ownerBarangay', val);
+                      setFieldTouched('ownerBarangay');
+                    }}
+                    options={values.ownerMunicipality ? getBarangays(values.ownerMunicipality) : []}
+                    placeholder="Example: Poblacion"
+                    emptyMessage="No matching barangay found"
+                    className={getFieldClass('ownerBarangay')}
+                  />
+                  {touched['ownerBarangay'] && getFieldError('ownerBarangay') && (
+                    <span style={{color: '#de4e4e', fontSize: '10px'}}>{getFieldError('ownerBarangay')}</span>
+                  )}
+                </label>
+                <label>ZIP Code
+                  <input value={values.ownerZipCode} className="bg-gray-100 dark:bg-gray-700" readOnly placeholder="Auto-filled" />
+                </label>
+              </div>
             </>
           )}
 
           {step === 3 && (
             <>
               <div className="workflow-two-columns">
+                <label>Province
+                  <input className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed" readOnly value="Misamis Oriental" />
+                </label>
+                <label>Municipality
+                  <input className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed" readOnly value="Lagonglong" />
+                </label>
+              </div>
+              <div className="workflow-two-columns">
                 <label>Barangay <span className="required">*</span>
-                  <select className={getFieldClass('propertyBarangay')} value={values.propertyBarangay} onChange={e => setValue('propertyBarangay', e.target.value)} onBlur={() => setFieldTouched('propertyBarangay')}>
-                    <option value="">Select Barangay ▼</option>
-                    <option value="Banglay">Banglay</option>
-                    <option value="Dampil">Dampil</option>
-                    <option value="Gaston">Gaston</option>
-                    <option value="Kabulawan">Kabulawan</option>
-                    <option value="Kauswagan">Kauswagan</option>
-                    <option value="Lumbo">Lumbo</option>
-                    <option value="Manaol">Manaol</option>
-                    <option value="Poblacion">Poblacion</option>
-                    <option value="Tabok">Tabok</option>
-                    <option value="Umagos">Umagos</option>
-                  </select>
+                  <LocationAutocomplete 
+                    value={values.propertyBarangay}
+                    onChange={(val) => {
+                      setValue('propertyBarangay', val);
+                      setFieldTouched('propertyBarangay');
+                    }}
+                    options={getBarangays('Lagonglong')}
+                    placeholder="Example: Poblacion"
+                    emptyMessage="No barangay found in Lagonglong"
+                    className={getFieldClass('propertyBarangay')}
+                  />
+                  {touched['propertyBarangay'] && getFieldError('propertyBarangay') && (
+                    <span style={{color: '#de4e4e', fontSize: '10px'}}>{getFieldError('propertyBarangay')}</span>
+                  )}
                 </label>
                 <label>Purok
-                  <input value={values.propertyPurok} onChange={e => setValue('propertyPurok', e.target.value)} placeholder="Enter Purok" />
+                  <input value={values.propertyPurok} onChange={e => setValue('propertyPurok', e.target.value)} placeholder="Example: Purok 5" />
                 </label>
               </div>
-              <label>Street/Location
-                <input value={values.propertyStreet} onChange={e => setValue('propertyStreet', e.target.value)} />
+              <label>Street/Sitio
+                <input value={values.propertyStreet} onChange={e => setValue('propertyStreet', e.target.value)} placeholder="Example: Main Street" />
               </label>
-              <div className="workflow-two-columns">
-                <label>Municipality
-                  <input value="Lagonglong" readOnly className="bg-gray-100 cursor-not-allowed" />
-                </label>
-                <label>Province
-                  <input value="Misamis Oriental" readOnly className="bg-gray-100 cursor-not-allowed" />
-                </label>
-              </div>
             </>
           )}
 
