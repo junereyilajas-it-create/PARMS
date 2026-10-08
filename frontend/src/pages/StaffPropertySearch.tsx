@@ -8,16 +8,21 @@ export function StaffPropertySearch() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    let active = true;
     if (query.length > 2) {
       setLoading(true)
-      api.get(`/property-records?q=${query}`).then(res => {
-        const filtered = (res.data as any[]).filter(p => 
-          String(p.property_id).includes(query) || 
-          String(p.owner).toLowerCase().includes(query.toLowerCase()) || 
-          String(p.location).toLowerCase().includes(query.toLowerCase())
-        )
-        setResults(filtered)
-      }).catch(console.error).finally(() => setLoading(false))
+      const timeoutId = setTimeout(() => {
+        api.get(`/property-records?q=${query}`).then(res => {
+          if (!active) return;
+          const filtered = (res.data as any[]).filter(p => 
+            String(p.property_id).includes(query) || 
+            String(p.owner).toLowerCase().includes(query.toLowerCase()) || 
+            String(p.location).toLowerCase().includes(query.toLowerCase())
+          )
+          setResults(filtered)
+        }).catch(console.error).finally(() => { if (active) setLoading(false); })
+      }, 350)
+      return () => { active = false; clearTimeout(timeoutId); setLoading(false); }
     } else {
       setResults([])
     }

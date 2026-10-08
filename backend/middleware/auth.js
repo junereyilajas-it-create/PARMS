@@ -8,12 +8,22 @@ export function authenticate(req, res, next) {
   catch { return res.status(401).json({ message: 'Invalid or expired token' }) }
 }
 export const allowRoles = (...roles) => (req, res, next) => {
-  console.log(`Checking role: '${req.user.role}' against allowed: ${roles}`);
-  return roles.includes(req.user.role) ? next() : res.status(403).json({ message: 'Insufficient permissions' })
+  const userRole = (req.user?.role || '').toString().trim().toLowerCase();
+  const allowedRoles = roles.map(r => r.toString().trim().toLowerCase());
+  
+  if (userRole === 'super_admin') {
+    if (allowedRoles.length === 1 && allowedRoles[0] === 'client') {
+      return res.status(403).json({ message: 'Super Admin cannot access client-only endpoints' });
+    }
+    return next();
+  }
+  
+  console.log(`[${req.originalUrl}] Checking role: '${userRole}' against allowed: ${allowedRoles}`);
+  return allowedRoles.includes(userRole) ? next() : res.status(403).json({ message: 'Insufficient permissions' })
 }
 
 export const requireOwnership = async (req, res, next) => {
-  if (req.user.role === 'admin' || req.user.role === 'assessor' || req.user.role === 'staff') return next()
+  if (req.user.role === 'super_admin' || req.user.role === 'admin' || req.user.role === 'assessor' || req.user.role === 'staff') return next()
   if (req.user.role !== 'client') return res.status(403).json({ message: 'Insufficient permissions' })
   if (!req.user.owner_id) return res.status(403).json({ message: 'No owner ID linked to this client' })
 

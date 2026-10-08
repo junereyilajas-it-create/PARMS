@@ -3,7 +3,7 @@ import { pool } from '../config/db.js'
 import { authenticate, allowRoles } from '../middleware/auth.js'
 
 const router = Router()
-router.use(authenticate, allowRoles('admin', 'assessor', 'staff'))
+router.use('/generator', authenticate, allowRoles('admin', 'assessor', 'staff'))
 
 // Get owner's properties with detailed information needed for certificates
 router.get('/generator/owners/:id/properties', async (req, res, next) => {

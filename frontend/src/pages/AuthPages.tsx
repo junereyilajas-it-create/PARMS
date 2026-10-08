@@ -4,6 +4,7 @@ import { ArrowRight, Building2, Eye, EyeOff, Landmark, LockKeyhole, Mail } from 
 import { useModal } from '../contexts/ModalContext'
 import { useFormValidation, validateRequired, validateEmail, validatePassword } from '../lib/validation'
 import api from '../lib/api'
+import { SystemLogo } from '../components/common/SystemLogo'
 import '../styles/AuthPages.css'
 
 function Shell({ children, register = false }: { children: React.ReactNode; register?: boolean }) {
@@ -12,7 +13,7 @@ function Shell({ children, register = false }: { children: React.ReactNode; regi
       <section className="auth-card">
         <div className="auth-panel">
           <div className="auth-brand">
-            <Landmark size={19}/><strong>Accessor Office</strong>
+            <SystemLogo className="w-12 h-12 object-contain shrink-0" navigateTo="/" /><strong>Accessor Office</strong>
           </div>
           {children}
         </div>
@@ -26,7 +27,7 @@ function Shell({ children, register = false }: { children: React.ReactNode; regi
               </>
             ) : (
               <>
-                <Building2 size={21}/>
+                <SystemLogo className="w-12 h-12 object-contain shrink-0 mb-4" clickable={false} />
                 <h2>Accessor Office</h2>
                 <p>Supporting fair and accurate property valuation in Lagonglong, Misamis Oriental.</p>
               </>
@@ -44,8 +45,8 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
   const [busy, setBusy] = useState(false)
   const [loginSuccess, setLoginSuccess] = useState(false)
 
-  const [username, setUsername] = useState('admin')
-  const [password, setPassword] = useState('password')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [uState, setUState] = useState<'normal'|'valid'|'invalid'>('normal')
   const [pState, setPState] = useState<'normal'|'valid'|'invalid'>('normal')
   const [touchedU, setTouchedU] = useState(false)
@@ -106,7 +107,7 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
         if (uState === 'valid') setPState('invalid')
         else setUState('invalid')
       }
-      showError('Invalid username/email or password.')
+      showError(err.response?.data?.message || 'Invalid username/email or password.')
       setBusy(false)
     }
   }
@@ -141,7 +142,7 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
         </div>
       )}
       <Shell>
-        <form className="auth-form" onSubmit={submit} noValidate>
+        <form className="auth-form" onSubmit={submit} autoComplete="off" noValidate>
           <div className="auth-heading">
             <h1>Welcome Back</h1>
             <p>Please enter your credentials to access the assessor portal.</p>
@@ -158,7 +159,8 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
                 setTouchedU(true)
               }}
               onBlur={() => setTouchedU(true)}
-              autoComplete="username" 
+              autoComplete="off" 
+              placeholder="Enter your email or username"
               required
             />
           </div>
@@ -176,7 +178,8 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
                 setTouchedP(true)
               }}
               onBlur={() => setTouchedP(true)}
-              autoComplete="current-password" 
+              autoComplete="new-password" 
+              placeholder="Enter your password"
               required
             />
             <button type="button" onClick={() => setShow(!show)}>
@@ -185,9 +188,12 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
           </div>
         </label>
         
-        <label className="auth-check">
-          <input type="checkbox"/> Remember this device for 30 days
-        </label>
+        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+          <label className="auth-check">
+            <input type="checkbox"/> Remember this device for 30 days
+          </label>
+          <button type="button" onClick={() => onNavigate('ForgotPassword')} style={{background: 'none', border: 'none', color: '#10b981', fontSize: '12px', cursor: 'pointer', padding: 0}}>Forgot Password?</button>
+        </div>
         
         <button className="auth-submit" disabled={busy}>
           {busy ? 'Signing in…' : <>Sign In <ArrowRight size={16}/></>}
@@ -254,7 +260,7 @@ export function RegisterPage({ onNavigate }: { onNavigate: (page: string) => voi
 
   return (
     <Shell register>
-      <form className="auth-form" onSubmit={submit} noValidate>
+      <form className="auth-form" onSubmit={submit} autoComplete="off" noValidate>
         <div className="auth-heading">
           <h1>Create an account</h1>
           <p>Register for official municipal access. All fields are required.</p>
@@ -305,6 +311,7 @@ export function RegisterPage({ onNavigate }: { onNavigate: (page: string) => voi
             value={values.username} 
             onChange={e => setValue('username', e.target.value)}
             onBlur={() => setFieldTouched('username')}
+            autoComplete="off"
             required
           />
         </label>
@@ -321,6 +328,7 @@ export function RegisterPage({ onNavigate }: { onNavigate: (page: string) => voi
               if (values.confirm_password) setFieldTouched('confirm_password') // Re-validate match
             }}
             onBlur={() => setFieldTouched('password')}
+            autoComplete="new-password"
             required
           />
         </label>
@@ -333,6 +341,7 @@ export function RegisterPage({ onNavigate }: { onNavigate: (page: string) => voi
             value={values.confirm_password} 
             onChange={e => setValue('confirm_password', e.target.value)}
             onBlur={() => setFieldTouched('confirm_password')}
+            autoComplete="new-password"
             required
           />
           {getFieldError('confirm_password') && (
@@ -351,6 +360,158 @@ export function RegisterPage({ onNavigate }: { onNavigate: (page: string) => voi
         <footer>
           © 2024 Municipal Assessor’s Office · Privacy Policy · Terms of Service
         </footer>
+      </form>
+    </Shell>
+  )
+}
+
+export function ForgotPasswordPage({ onNavigate }: { onNavigate: (page: string) => void }) {
+  const { showError, showSuccess } = useModal()
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!email) {
+      showError('Please enter your email address.')
+      return
+    }
+    setBusy(true)
+    try {
+      const { data } = await api.post('/forgot-password', { email })
+      showSuccess(data.message)
+    } catch (err: any) {
+      showError(err.response?.data?.message || 'An error occurred.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Shell>
+      <form className="auth-form" onSubmit={submit} autoComplete="off" noValidate>
+        <div className="auth-heading">
+          <h1>Forgot Password</h1>
+          <p>Enter your registered email address and we will send instructions to reset your password.</p>
+        </div>
+        
+        <label>
+          Email address
+          <div className="auth-input">
+            <Mail size={15}/>
+            <input 
+              type="email"
+              value={email} 
+              onChange={e => setEmail(e.target.value)}
+              autoComplete="off"
+              placeholder="Enter your email"
+              required
+            />
+          </div>
+        </label>
+        
+        <button className="auth-submit" disabled={busy} style={{marginTop: '20px'}}>
+          {busy ? 'Sending…' : 'Send Reset Link'}
+        </button>
+        
+        <p className="auth-switch" style={{marginTop: '20px'}}>
+          <button type="button" onClick={() => onNavigate('Login')}>Back to Login</button>
+        </p>
+      </form>
+    </Shell>
+  )
+}
+
+export function ResetPasswordPage({ onNavigate }: { onNavigate: (page: string) => void }) {
+  const { showError, showSuccess } = useModal()
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [show, setShow] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+
+  // Get token from URL
+  const queryParams = new URLSearchParams(window.location.search)
+  const token = queryParams.get('token')
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!password || !confirmPassword) {
+      showError('Both fields are required.')
+      return
+    }
+    if (password !== confirmPassword) {
+      showError('Passwords do not match.')
+      return
+    }
+    if (password.length < 6) {
+      showError('Password is too short.')
+      return
+    }
+
+    setBusy(true)
+    try {
+      const { data } = await api.post('/reset-password', { token, newPassword: password })
+      showSuccess(data.message)
+      setTimeout(() => onNavigate('Login'), 2000)
+    } catch (err: any) {
+      showError(err.response?.data?.message || 'Failed to reset password.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Shell>
+      <form className="auth-form" onSubmit={submit} autoComplete="off" noValidate>
+        <div className="auth-heading">
+          <h1>Reset Password</h1>
+          <p>Enter your new password below.</p>
+        </div>
+        
+        <label>
+          New Password
+          <div className="auth-input">
+            <LockKeyhole size={15}/>
+            <input 
+              type={show ? 'text' : 'password'}
+              value={password} 
+              onChange={e => setPassword(e.target.value)}
+              autoComplete="new-password"
+              placeholder="Enter new password"
+              required
+            />
+            <button type="button" onClick={() => setShow(!show)}>
+              {show ? <EyeOff size={15}/> : <Eye size={15}/>}
+            </button>
+          </div>
+        </label>
+        
+        <label>
+          Confirm Password
+          <div className="auth-input">
+            <LockKeyhole size={15}/>
+            <input 
+              type={showConfirm ? 'text' : 'password'}
+              value={confirmPassword} 
+              onChange={e => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+              placeholder="Confirm new password"
+              required
+            />
+            <button type="button" onClick={() => setShowConfirm(!showConfirm)}>
+              {showConfirm ? <EyeOff size={15}/> : <Eye size={15}/>}
+            </button>
+          </div>
+        </label>
+        
+        <button className="auth-submit" disabled={busy} style={{marginTop: '20px'}}>
+          {busy ? 'Saving…' : 'Change Password'}
+        </button>
+        
+        <p className="auth-switch" style={{marginTop: '20px'}}>
+          <button type="button" onClick={() => onNavigate('Login')}>Back to Login</button>
+        </p>
       </form>
     </Shell>
   )

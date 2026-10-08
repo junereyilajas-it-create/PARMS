@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Routes, Route, useNavigate, useLocation, Navigate, Outlet } from 'react-router-dom'
 import './styles/App.css'
-import { PropertyAssessments, BuildingDirectory, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, UserProfile, CertificateGenerator, CertificateRecords, AdminDashboard, AssessorDashboard, StaffDashboard, UserManagement, ActivityLogsView, PropertyHistoryView, StaffPropertySearch } from './pages'
+import { PropertyAssessments, BuildingDirectory, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, ForgotPasswordPage, ResetPasswordPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, AccountSettings, HelpSupport, CertificateGenerator, CertificateRecords, AdminDashboard, AssessorDashboard, StaffDashboard, UserManagement, ActivityLogsView, PropertyHistoryView, StaffPropertySearch, SuperAdminDashboard, RoleManagement, AssessmentAssignments, AssessmentPermissionRequests } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
@@ -42,14 +42,14 @@ function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('accessor_theme') === 'dark' ? 'dark' : 'light')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('accessor_sidebar_collapsed') === 'true')
-  
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     document.documentElement.classList.toggle('dark', theme === 'dark')
     localStorage.setItem('accessor_theme', theme)
   }, [theme])
   useEffect(() => { localStorage.setItem('accessor_sidebar_collapsed', String(sidebarCollapsed)) }, [sidebarCollapsed])
-  
+
   const [query, setQuery] = useState('')
   const { showSuccess, showError, showConfirm } = useModal()
   const [showRegisterModal, setShowRegisterModal] = useState(false)
@@ -133,21 +133,36 @@ function App() {
 
   const handleNavigate = (page: string) => {
     setSidebarOpen(false)
-    switch(page) {
+    const currentRole = localStorage.getItem('accessor_role') || userRole;
+    setUserRole(currentRole);
+    switch (page) {
       case 'Landing': navigate('/'); break;
       case 'Login': navigate('/login'); break;
       case 'Register': navigate('/register'); break;
-      case 'Dashboard': navigate('/dashboard'); break;
+      case 'ForgotPassword': navigate('/forgot-password'); break;
+      case 'ResetPassword': navigate('/reset-password'); break;
+      case 'Dashboard':
+        if (currentRole === 'super_admin') {
+          navigate('/super-admin/dashboard');
+        } else {
+          navigate('/dashboard');
+        }
+        break;
       case 'Lots':
       case 'Lot Management': navigate('/lots'); break;
       case 'Buildings':
-      case 'Buildings': navigate('/buildings'); break;
+      case 'Properties':
+      case 'Assigned Properties': navigate('/buildings'); break;
       case 'Owners':
       case 'Ownership Transfer': navigate('/owners'); break;
       case 'Assessments': navigate('/assessments'); break;
-      case 'GIS Map': navigate('/gis'); break;
+      case 'Assessment Assignments': navigate('/assessment-assignments'); break;
+      case 'Permission Requests': navigate('/permission-requests'); break;
+      case 'GIS Map':
+      case 'My GIS Property': navigate('/gis'); break;
       case 'Reports': navigate('/reports'); break;
-      case 'Documents': navigate('/documents'); break;
+      case 'Documents':
+      case 'Certificates': navigate('/documents'); break;
       case 'Certification Requests':
       case 'Certificate Requests': navigate(userRole === 'client' ? '/client/certificate-requests' : '/admin/certificate-requests'); break;
       case 'Generate Certificate': navigate('/certificates/generate'); break;
@@ -156,12 +171,16 @@ function App() {
       case 'My Properties': navigate('/client/my-properties'); break;
       case 'My Property Map': navigate('/client/gis-map'); break;
       case 'My Requests':
-      case 'Request Certificate': navigate('/client/certificate-requests'); break;
-      case 'My Profile': navigate('/profile'); break;
+      case 'My Assessments': navigate('/client/my-properties'); break;
+      case 'Account Settings': navigate('/account-settings'); break;
+      case 'Help & Support': navigate('/help-support'); break;
       case 'User Management': navigate('/users'); break;
+      case 'Roles & Permissions': navigate('/roles'); break;
       case 'Activity Logs': navigate('/logs'); break;
       case 'Property History': navigate('/property-history'); break;
       case 'Property Search': navigate('/search'); break;
+      case 'Assigned Tasks': navigate('/dashboard'); break;
+      case 'System Settings': navigate('/settings'); break;
       default: navigate('/dashboard'); break;
     }
   }
@@ -169,22 +188,22 @@ function App() {
   // Determine active page name for header/sidebar based on path
   const getActivePageName = () => {
     const path = location.pathname
-    if (path.includes('/dashboard')) return 'Dashboard'
+    if (path.includes('/dashboard') || path.includes('/super-admin/dashboard')) return 'Dashboard'
     if (path.includes('/lots')) return 'Lots'
     if (path.includes('/buildings')) return 'Buildings'
-    if (path.includes('/admin/certificate-requests')) return 'Certification Requests'
     if (path.includes('/owners')) return 'Owners'
     if (path.includes('/assessments')) return 'Assessments'
     if (path.includes('/gis')) return 'GIS Map'
     if (path.includes('/reports')) return 'Reports'
-    if (path.includes('/documents')) return 'Documents'
+    if (path.includes('/documents')) return 'Certificates'
     if (path.includes('/certificates/generate')) return 'Generate Certificate'
     if (path.includes('/certificates/records')) return 'Certificate Records'
     if (path.includes('/admin/certificate-requests')) return 'Certificate Requests'
     if (path.includes('/client/my-properties')) return 'My Properties'
-    if (path.includes('/client/gis-map')) return 'My Property Map'
-    if (path.includes('/client/certificate-requests')) return 'My Requests'
-    if (path.includes('/profile')) return 'My Profile'
+    if (path.includes('/client/gis-map')) return 'My GIS Property'
+    if (path.includes('/client/certificate-requests')) return 'Certificate Requests'
+    if (path.includes('/account-settings')) return 'Account Settings'
+    if (path.includes('/help-support')) return 'Help & Support'
     if (path.includes('/users')) return 'User Management'
     if (path.includes('/logs')) return 'Activity Logs'
     if (path.includes('/property-history')) return 'Property History'
@@ -200,50 +219,21 @@ function App() {
     return <>{children}</>
   }
 
-  const Layout = () => (
-    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-950 font-sans text-gray-900 dark:text-gray-100 transition-colors overflow-hidden">
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity" 
-          aria-label="Close navigation" 
-          onClick={() => setSidebarOpen(false)} 
-        />
-      )}
-      
-      <AppSidebar 
-        active={activePageName} 
-        onNavigate={handleNavigate} 
-        isOpen={sidebarOpen} 
-        collapsed={sidebarCollapsed} 
-        onCollapse={() => setSidebarCollapsed(value => !value)} 
-        userRole={userRole}
-      />
-      
-      <main className={`flex-1 flex flex-col min-w-0 transition-all duration-300 h-screen overflow-y-auto ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
-        <AppHeader 
-          active={activePageName} 
-          searchValue={query} 
-          onSearchChange={setQuery} 
-          onNavigate={handleNavigate} 
-          theme={theme} 
-          onThemeToggle={() => setTheme(value => value === 'light' ? 'dark' : 'light')} 
-          onMenu={() => setSidebarOpen(true)} 
-        />
-        <section className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-7xl mx-auto">
-          <Outlet />
-        </section>
-      </main>
+  const RoleProtectedRoute = ({ allowedRoles, children }: { allowedRoles: string[], children: React.ReactNode }) => {
+    if (!allowedRoles.includes(userRole)) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center space-y-4">
+            <h2 className="text-2xl font-bold text-green-600">403 Forbidden</h2>
+            <p className="text-gray-600 dark:text-gray-400">You do not have permission to access this page.</p>
+          </div>
+        </div>
+      )
+    }
+    return <>{children}</>
+  }
 
-      {showRegisterModal && <RegisterPropertyModal close={() => setShowRegisterModal(false)} onSave={registerProperty} />}
-      {editModal && <CrudModal title="Edit Property" fields={[
-        { key: 'owner_id', label: 'Owner ID', type: 'number' },
-        { key: 'address_id', label: 'Address ID', type: 'number' },
-        { key: 'property_type_id', label: 'Property Type ID', type: 'number' },
-        { key: 'classification_id', label: 'Classification ID', type: 'number' },
-        { key: 'property_status', label: 'Status', type: 'select', options: ['active', 'inactive', 'pending'] }
-      ]} record={editModal.record} onClose={() => setEditModal(null)} onSave={saveProperty} />}
-    </div>
-  )
+
 
   if (isInitializing) {
     return <SystemLoadingScreen error={initError} onRetry={initializeApp} />
@@ -254,36 +244,87 @@ function App() {
       <Route path="/" element={<LandingPage onNavigate={handleNavigate} />} />
       <Route path="/login" element={<LoginPage onNavigate={handleNavigate} />} />
       <Route path="/register" element={<RegisterPage onNavigate={handleNavigate} />} />
-      
-      <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+      <Route path="/forgot-password" element={<ForgotPasswordPage onNavigate={handleNavigate} />} />
+      <Route path="/reset-password" element={<ResetPasswordPage onNavigate={handleNavigate} />} />
+
+      <Route element={
+        <ProtectedRoute>
+          <div className="flex min-h-screen bg-gray-50 dark:bg-gray-950 font-sans text-gray-900 dark:text-gray-100 transition-colors overflow-hidden">
+            {sidebarOpen && (
+              <div
+                className="fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity"
+                aria-label="Close navigation"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
+
+            <AppSidebar
+              active={activePageName}
+              onNavigate={handleNavigate}
+              isOpen={sidebarOpen}
+              collapsed={sidebarCollapsed}
+              onCollapse={() => setSidebarCollapsed(value => !value)}
+              userRole={userRole}
+            />
+
+            <main className="flex-1 w-full overflow-x-hidden flex flex-col min-w-0 transition-all duration-300 h-screen">
+              <AppHeader
+                active={activePageName}
+                onNavigate={handleNavigate}
+                theme={theme}
+                onThemeToggle={() => setTheme(value => value === 'light' ? 'dark' : 'light')}
+                onMenu={() => setSidebarOpen(true)}
+              />
+              <section className="flex-1 p-4 sm:p-6 lg:p-8 w-full overflow-y-auto custom-scrollbar">
+                <Outlet />
+              </section>
+            </main>
+
+            {showRegisterModal && <RegisterPropertyModal close={() => setShowRegisterModal(false)} onSave={registerProperty} />}
+            {editModal && <CrudModal title="Edit Property" fields={[
+              { key: 'owner_id', label: 'Owner ID', type: 'number' },
+              { key: 'address_id', label: 'Address ID', type: 'number' },
+              { key: 'property_type_id', label: 'Property Type ID', type: 'number' },
+              { key: 'classification_id', label: 'Classification ID', type: 'number' },
+              { key: 'property_status', label: 'Status', type: 'select', options: ['active', 'inactive', 'pending'] }
+            ]} record={editModal.record} onClose={() => setEditModal(null)} onSave={saveProperty} />}
+          </div>
+        </ProtectedRoute>
+      }>
         <Route path="/dashboard" element={
           userRole === 'client' ? <ClientDashboard onNavigate={handleNavigate} /> :
-          userRole === 'admin' ? <AdminDashboard /> :
-          userRole === 'assessor' ? <AssessorDashboard /> :
-          <StaffDashboard />
+            userRole === 'super_admin' ? <Navigate to="/super-admin/dashboard" replace /> :
+              userRole === 'admin' ? <AdminDashboard /> :
+                userRole === 'assessor' ? <AssessorDashboard /> :
+                  <StaffDashboard />
         } />
-        <Route path="/lots" element={<PropertyLotManagement query={query} />} />
-        <Route path="/buildings" element={<BuildingDirectory query={query} />} />
-        <Route path="/building-properties" element={<BuildingDirectory query={query} />} />
-        <Route path="/owners" element={<PropertyOwnershipTransfer />} />
-        <Route path="/assessments" element={<PropertyAssessments />} />
-        <Route path="/gis" element={<PropertyMapView />} />
-        <Route path="/reports" element={<OperationalIntelligenceReports />} />
-        <Route path="/documents" element={<Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} />} />
-        <Route path="/certificates/generate" element={<CertificateGenerator />} />
-        <Route path="/certificates/records" element={<CertificateRecords />} />
-        <Route path="/admin/certificate-requests" element={<AdminCertificateRequests />} />
-        <Route path="/client/my-properties" element={<ClientProperties />} />
-        <Route path="/client/gis-map" element={<ClientGISMap />} />
-        <Route path="/client/certificate-requests" element={<ClientCertificateRequests />} />
-        <Route path="/profile" element={<UserProfile />} />
-        <Route path="/users" element={<UserManagement />} />
-        <Route path="/logs" element={<ActivityLogsView />} />
+        <Route path="/super-admin/dashboard" element={<RoleProtectedRoute allowedRoles={['super_admin']}><SuperAdminDashboard /></RoleProtectedRoute>} />
+        <Route path="/lots" element={<RoleProtectedRoute allowedRoles={['admin']}><PropertyLotManagement /></RoleProtectedRoute>} />
+        <Route path="/buildings" element={<RoleProtectedRoute allowedRoles={['admin']}><BuildingDirectory /></RoleProtectedRoute>} />
+        <Route path="/building-properties" element={<RoleProtectedRoute allowedRoles={['admin']}><BuildingDirectory /></RoleProtectedRoute>} />
+        <Route path="/owners" element={<RoleProtectedRoute allowedRoles={['admin', 'staff']}><PropertyOwnershipTransfer /></RoleProtectedRoute>} />
+        <Route path="/assessments" element={<RoleProtectedRoute allowedRoles={['admin', 'assessor']}><PropertyAssessments /></RoleProtectedRoute>} />
+        <Route path="/assessment-assignments" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin']}><AssessmentAssignments /></RoleProtectedRoute>} />
+        <Route path="/permission-requests" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin', 'assessor']}><AssessmentPermissionRequests /></RoleProtectedRoute>} />
+        <Route path="/gis" element={<RoleProtectedRoute allowedRoles={['admin', 'assessor']}><PropertyMapView /></RoleProtectedRoute>} />
+        <Route path="/reports" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin']}><OperationalIntelligenceReports /></RoleProtectedRoute>} />
+        <Route path="/documents" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin', 'staff']}><Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} /></RoleProtectedRoute>} />
+        <Route path="/certificates/generate" element={<RoleProtectedRoute allowedRoles={['admin', 'staff']}><CertificateGenerator /></RoleProtectedRoute>} />
+        <Route path="/certificates/records" element={<RoleProtectedRoute allowedRoles={['admin', 'staff']}><CertificateRecords /></RoleProtectedRoute>} />
+        <Route path="/admin/certificate-requests" element={<RoleProtectedRoute allowedRoles={['admin', 'staff']}><AdminCertificateRequests /></RoleProtectedRoute>} />
+        <Route path="/client/my-properties" element={<RoleProtectedRoute allowedRoles={['owner', 'client']}><ClientProperties /></RoleProtectedRoute>} />
+        <Route path="/client/gis-map" element={<RoleProtectedRoute allowedRoles={['owner', 'client']}><ClientGISMap /></RoleProtectedRoute>} />
+        <Route path="/client/certificate-requests" element={<RoleProtectedRoute allowedRoles={['owner', 'client']}><ClientCertificateRequests /></RoleProtectedRoute>} />
+        <Route path="/account-settings" element={<AccountSettings />} />
+        <Route path="/help-support" element={<HelpSupport />} />
+        <Route path="/users" element={<RoleProtectedRoute allowedRoles={['super_admin']}><UserManagement /></RoleProtectedRoute>} />
+        <Route path="/roles" element={<RoleProtectedRoute allowedRoles={['super_admin']}><RoleManagement /></RoleProtectedRoute>} />
+        <Route path="/logs" element={<RoleProtectedRoute allowedRoles={['super_admin']}><ActivityLogsView /></RoleProtectedRoute>} />
         <Route path="/property-history" element={<PropertyHistoryView />} />
-        <Route path="/search" element={<StaffPropertySearch />} />
-        <Route path="/settings" element={<SystemSettings />} />
+        <Route path="/search" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin', 'staff', 'assessor']}><StaffPropertySearch /></RoleProtectedRoute>} />
+        <Route path="/settings" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin', 'assessor', 'staff']}><SystemSettings /></RoleProtectedRoute>} />
       </Route>
-      
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

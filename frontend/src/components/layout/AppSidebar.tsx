@@ -1,34 +1,72 @@
-import { ClipboardCheck, Building2, FileText, Home, LayoutDashboard, Map, PanelLeftClose, Settings, Users, Printer, SquareDashed } from 'lucide-react'
+import { ClipboardCheck, Building2, FileText, Home, LayoutDashboard, Map, PanelLeftClose, Settings, Users, SquareDashed, Shield, User, HelpCircle } from 'lucide-react'
+import { SystemLogo } from '../common/SystemLogo'
 
-const staffNavGroups = [
-  { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard }, { label: 'Property Search', icon: Building2 } ] },
-  { title: 'Operations', items: [ { label: 'Certificate Requests', icon: FileText }, { label: 'Generate Certificate', icon: Printer }, { label: 'Certificate Records', icon: FileText } ] }
+const ALL_NAV_GROUPS = [
+  {
+    title: 'Main',
+    items: [
+      { label: 'Dashboard', icon: LayoutDashboard, roles: ['super_admin', 'admin', 'assessor', 'staff', 'owner', 'client'] },
+      { label: 'My Properties', icon: Building2, roles: ['owner', 'client'] },
+      { label: 'My GIS Property', icon: Map, roles: ['owner', 'client'] },
+      { label: 'My Assessments', icon: ClipboardCheck, roles: ['owner', 'client'] },
+      { label: 'Reports', icon: FileText, roles: ['super_admin', 'admin'] }
+    ]
+  },
+  {
+    title: 'User Management',
+    items: [
+      { label: 'User Management', icon: Users, roles: ['super_admin'] },
+      { label: 'Roles & Permissions', icon: Shield, roles: ['super_admin'] }
+    ]
+  },
+  {
+    title: 'Properties',
+    items: [
+      { label: 'Lots', icon: SquareDashed, roles: ['admin'] },
+      { label: 'Buildings', icon: Building2, roles: ['admin'] },
+      { label: 'Owners', icon: Users, roles: ['admin', 'staff'] },
+      { label: 'Assigned Properties', icon: Building2, roles: ['assessor'] },
+      { label: 'GIS Map', icon: Map, roles: ['admin', 'assessor'] }
+    ]
+  },
+  {
+    title: 'Operations',
+    items: [
+      { label: 'Assessments', icon: ClipboardCheck, roles: ['admin', 'assessor'] },
+      { label: 'Assessment Assignments', icon: ClipboardCheck, roles: ['admin', 'super_admin'] },
+      { label: 'Permission Requests', icon: FileText, roles: ['admin', 'super_admin', 'assessor'] },
+      { label: 'Certificates', icon: FileText, roles: ['admin', 'staff'] },
+      { label: 'Certificate Requests', icon: FileText, roles: ['owner', 'client'] },
+      { label: 'Assigned Tasks', icon: ClipboardCheck, roles: ['staff'] }
+    ]
+  },
+  {
+    title: 'System',
+    items: [
+      { label: 'Activity Logs', icon: FileText, roles: ['super_admin'] },
+      { label: 'System Settings', icon: Settings, roles: ['super_admin', 'admin', 'assessor', 'staff'] },
+      { label: 'Account Settings', icon: User, roles: ['super_admin', 'admin', 'assessor', 'staff', 'owner', 'client'] },
+      { label: 'Help & Support', icon: HelpCircle, roles: ['super_admin', 'admin', 'assessor', 'staff', 'owner', 'client'] }
+    ]
+  }
 ];
 
-const assessorNavGroups = [
-  { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard }, { label: 'GIS Map', icon: Map } ] },
-  { title: 'Properties', items: [ { label: 'Lots', icon: SquareDashed }, { label: 'Buildings', icon: Building2 }, { label: 'Assessments', icon: ClipboardCheck }, { label: 'Property History', icon: FileText } ] }
-];
+export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, userRole = '' }: { active: string; onNavigate: (page: string) => void; isOpen: boolean; collapsed: boolean; onCollapse: () => void; userRole?: string }) {
+  const currentRole = userRole || 'client';
 
-const adminNavGroups = [
-  { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard } ] },
-  { title: 'Properties', items: [ { label: 'Lots', icon: SquareDashed }, { label: 'Buildings', icon: Building2 }, { label: 'Assessments', icon: ClipboardCheck }, { label: 'GIS Map', icon: Map } ] },
-  { title: 'Operations', items: [ { label: 'Certification Requests', icon: FileText } ] },
-  { title: 'Management', items: [ { label: 'User Management', icon: Users }, { label: 'Activity Logs', icon: FileText }, { label: 'Reports', icon: FileText } ] }
-];
+  const navGroups = ALL_NAV_GROUPS.map(group => ({
+    title: group.title,
+    items: group.items.filter(item => item.roles.includes(currentRole))
+  })).filter(group => group.items.length > 0);
 
-const clientNavGroups = [
-  { title: 'Main', items: [ { label: 'Dashboard', icon: LayoutDashboard }, { label: 'My Properties', icon: Building2 }, { label: 'My Property Map', icon: Map } ] },
-  { title: 'Services', items: [ { label: 'Request Certificate', icon: FileText }, { label: 'My Requests', icon: ClipboardCheck }, { label: 'My Profile', icon: Users } ] }
-];
-
-export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, userRole }: { active: string; onNavigate: (page: string) => void; isOpen: boolean; collapsed: boolean; onCollapse: () => void; userRole?: string }) {
-  const navGroups = userRole === 'client' ? clientNavGroups : userRole === 'admin' ? adminNavGroups : userRole === 'assessor' ? assessorNavGroups : staffNavGroups;
   return (
-    <aside className={`fixed inset-y-0 left-0 z-40 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transition-all duration-300 flex flex-col ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${collapsed ? 'w-20' : 'w-64'}`}>
+    <aside className={`fixed inset-y-0 left-0 md:sticky md:top-0 h-screen z-40 bg-white dark:bg-gray-900 transition-all duration-300 flex flex-col shrink-0 ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${collapsed ? 'w-20' : 'w-64'}`}>
       <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-800 shrink-0">
         <div className="flex items-center gap-3 overflow-hidden">
-          <img src="/logo.png" alt="Assessor's Office logo" className="w-8 h-8 shrink-0 object-contain" />
+          <SystemLogo 
+            className="w-8 h-8 shrink-0 object-contain" 
+            onClick={() => onNavigate('Dashboard')} 
+          />
           {!collapsed && (
             <div className="flex flex-col whitespace-nowrap">
               <strong className="text-gray-900 dark:text-white text-sm font-semibold">Assessor's Office</strong>
@@ -40,19 +78,19 @@ export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, 
           <PanelLeftClose size={18} className={`transition-transform duration-300 ${collapsed ? "rotate-180" : ""}`} />
         </button>
       </div>
-      
-      <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-6 custom-scrollbar">
+
+      <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-6 custom-scrollbar border-r border-gray-200 dark:border-gray-800">
         {navGroups.map((group, idx) => (
           <div key={idx} className="px-3">
             {!collapsed && <h3 className="mb-2 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">{group.title}</h3>}
             <nav className="flex flex-col gap-1">
-              {group.items.map(({label, icon: Icon}) => (
-                <button 
-                  key={label} 
-                  title={label} 
+              {group.items.map(({ label, icon: Icon }) => (
+                <button
+                  key={label}
+                  title={label}
                   className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left
-                    ${active === label 
-                      ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
+                    ${active === label
+                      ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
                     } ${collapsed ? 'justify-center' : ''}`}
                   onClick={() => onNavigate(label)}
@@ -66,19 +104,11 @@ export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, 
         ))}
 
         <div className="mt-auto px-3">
-          {!collapsed && <h3 className="mb-2 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">System</h3>}
+          {!collapsed && <h3 className="mb-2 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</h3>}
           <nav className="flex flex-col gap-1">
-            <button 
+            <button
               className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white ${collapsed ? 'justify-center' : ''}`}
-              title="Settings"
-              onClick={() => onNavigate('Settings')}
-            >
-              <Settings size={18} className="shrink-0" />
-              {!collapsed && <span className="text-sm font-medium truncate">Settings</span>}
-            </button>
-            <button 
-              className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white ${collapsed ? 'justify-center' : ''}`}
-              title="Back to home" 
+              title="Back to home"
               onClick={() => onNavigate('Landing')}
             >
               <Home size={18} className="shrink-0" />

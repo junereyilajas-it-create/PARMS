@@ -24,18 +24,18 @@ export function StaffDashboard() {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between">
+        <div className="glass-panel p-4 rounded-xl flex items-center justify-between">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400"><CheckCircle size={18} className="text-green-500"/> Assessed Properties</div>
           <div className="text-xl font-bold dark:text-white">{stats.assessed_properties}</div>
         </div>
-        <div className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between">
+        <div className="glass-panel p-4 rounded-xl flex items-center justify-between">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400"><XCircle size={18} className="text-red-500"/> Unassessed Properties</div>
           <div className="text-xl font-bold dark:text-white">{stats.unassessed_properties}</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm">
+        <div className="glass-panel p-6 rounded-2xl">
           <h2 className="text-lg font-semibold mb-4 dark:text-white">Recently Added Properties</h2>
           <div className="space-y-3">
             {recentProperties.map((p: any) => (
@@ -47,12 +47,12 @@ export function StaffDashboard() {
           </div>
         </div>
         
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm">
+        <div className="glass-panel p-6 rounded-2xl">
           <h2 className="text-lg font-semibold mb-4 dark:text-white flex items-center gap-2"><FileText size={18}/> Recently Issued Documents</h2>
           <div className="space-y-3">
             {recentDocs.map((d: any) => (
-              <div key={d.issuance_id} className="text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
-                <span className="font-medium">{d.certification_number}</span> - {d.document_type}
+              <div key={d.certificate_id} className="text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
+                <span className="font-medium">{d.certificate_number}</span> - {d.certificate_type}
                 <div className="text-xs text-gray-500">Issued to {d.requestor_name} on {new Date(d.issued_at).toLocaleDateString()}</div>
               </div>
             ))}
@@ -68,7 +68,7 @@ function Metric({ title, value, icon, color }: any) {
   const colors: Record<string, string> = { blue: 'text-blue-500 bg-blue-50', red: 'text-red-500 bg-red-50', orange: 'text-orange-500 bg-orange-50', green: 'text-green-500 bg-green-50', purple: 'text-purple-500 bg-purple-50' }
   const darkColors: Record<string, string> = { blue: 'dark:text-blue-400 dark:bg-blue-900/20', red: 'dark:text-red-400 dark:bg-red-900/20', orange: 'dark:text-orange-400 dark:bg-orange-900/20', green: 'dark:text-green-400 dark:bg-green-900/20', purple: 'dark:text-purple-400 dark:bg-purple-900/20' }
   return (
-    <div className="bg-white dark:bg-gray-900 p-5 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-4">
+    <div className="glass-panel p-5 rounded-2xl flex items-center gap-4 hover:scale-[1.02] transition-transform">
       <div className={`p-3 rounded-lg ${colors[color]} ${darkColors[color]}`}>{icon}</div>
       <div>
         <div className="text-sm text-gray-500 dark:text-gray-400">{title}</div>

@@ -1,59 +1,94 @@
 import { useState, useEffect } from 'react'
 import api from '../lib/api'
-import { Home, Map, Building, CheckCircle, XCircle, Clock } from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, FileText, ArrowLeftRight } from 'lucide-react'
+import { DataTable } from '../components/common/DataTable'
 
 export function AssessorDashboard() {
-  const [data, setData] = useState<any>(null)
+  const [assignments, setAssignments] = useState<any[]>([])
+  const [requests, setRequests] = useState<any[]>([])
 
   useEffect(() => {
-    api.get('/stats/assessor').then(res => setData(res.data)).catch(console.error)
+    api.get('/assessments/assignments/my').then(res => setAssignments(res.data)).catch(console.error)
+    api.get('/assessments/requests').then(res => setRequests(res.data)).catch(console.error)
   }, [])
 
-  if (!data) return <div className="p-8">Loading dashboard...</div>
-  const { stats, recentAssessments, recentUpdates } = data
+  const getStatusBadge = (status: string) => {
+    const s = String(status).toUpperCase();
+    const style = s === 'APPROVED' ? 'bg-green-100 text-green-800' 
+                : s === 'ASSIGNED' ? 'bg-green-100 text-green-800' 
+                : s === 'IN_PROGRESS' ? 'bg-green-100 text-green-800' 
+                : s === 'PENDING' || s === 'SUBMITTED' ? 'bg-green-100 text-green-800'
+                : s === 'RETURNED' ? 'bg-green-100 text-green-800'
+                : s === 'REJECTED' || s === 'CANCELLED' ? 'bg-green-100 text-green-800'
+                : 'bg-gray-100 text-gray-800';
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${style}`}>{status}</span>;
+  };
+
+  const assignmentCols = [
+    { key: 'target_id_str', label: 'PROPERTY ID' },
+    { key: 'property_type', label: 'TYPE', render: (v: string) => v.toUpperCase() },
+    { key: 'due_date', label: 'DUE DATE', render: (v: string) => v ? new Date(v).toLocaleDateString() : '-' },
+    { key: 'assignment_status', label: 'STATUS', render: (v: string) => getStatusBadge(v) }
+  ];
+
+  const requestCols = [
+    { key: 'target_id_str', label: 'PROPERTY ID' },
+    { key: 'property_type', label: 'TYPE', render: (v: string) => v.toUpperCase() },
+    { key: 'reason', label: 'REASON' },
+    { key: 'request_status', label: 'STATUS', render: (v: string) => getStatusBadge(v) }
+  ];
+
+  const activeAssignments = assignments.filter(a => ['assigned', 'in_progress', 'submitted'].includes(a.assignment_status));
+  const returnedAssignments = assignments.filter(a => a.assignment_status === 'returned');
+  const completedAssignments = assignments.filter(a => a.assignment_status === 'approved');
+
+  const pendingRequests = requests.filter(r => r.request_status === 'pending');
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold dark:text-white">Assessor Dashboard</h1>
+    <div className="space-y-6 fade-in">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-teal-600 to-emerald-600 bg-clip-text text-transparent">Assessor Dashboard</h1>
+        <p className="text-gray-500 mt-2">Manage your assigned properties, requests, and pending assessments.</p>
+      </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Metric title="Total Properties" value={stats.total_properties} icon={<Home/>} color="blue" />
-        <Metric title="Total Lots" value={stats.total_lots} icon={<Map/>} color="green" />
-        <Metric title="Total Buildings" value={stats.total_buildings} icon={<Building/>} color="purple" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Metric title="Active Assignments" value={activeAssignments.length} icon={<Clock/>} color="blue" />
+        <Metric title="Corrections Needed" value={returnedAssignments.length} icon={<AlertCircle/>} color="orange" />
+        <Metric title="Pending Requests" value={pendingRequests.length} icon={<ArrowLeftRight/>} color="purple" />
+        <Metric title="Completed Assessments" value={completedAssignments.length} icon={<CheckCircle/>} color="green" />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <SmallMetric title="Assessed Props" value={stats.assessed_properties} icon={<CheckCircle size={16}/>} />
-        <SmallMetric title="Unassessed Props" value={stats.unassessed_properties} icon={<XCircle size={16}/>} />
-        <SmallMetric title="Assessed Lots" value={stats.assessed_lots} icon={<CheckCircle size={16}/>} />
-        <SmallMetric title="Unassessed Lots" value={stats.unassessed_lots} icon={<XCircle size={16}/>} />
-        <SmallMetric title="Assessed Bldgs" value={stats.assessed_buildings} icon={<CheckCircle size={16}/>} />
-        <SmallMetric title="Unassessed Bldgs" value={stats.unassessed_buildings} icon={<XCircle size={16}/>} />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4 dark:text-white flex items-center gap-2"><Clock size={18}/> Recent Assessments</h2>
-          <div className="space-y-3">
-            {recentAssessments.map((a: any) => (
-              <div key={a.assessment_id} className="text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
-                <span className="font-medium">Prop {a.property_id}</span> - Assessed at ₱{Number(a.assessed_value).toLocaleString()}
-                <div className="text-xs text-gray-500">{new Date(a.assessment_date).toLocaleDateString()}</div>
-              </div>
-            ))}
-          </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+        <div className="glass-panel rounded-2xl p-6">
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-green-800 dark:text-green-400">
+            <FileText className="w-5 h-5"/> My Active Assignments
+          </h2>
+          <DataTable columns={assignmentCols} data={activeAssignments.slice(0, 5)} showActions={false} />
+          {activeAssignments.length === 0 && <p className="text-sm text-gray-500 mt-4">No active assignments.</p>}
         </div>
         
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4 dark:text-white">Recent Property Updates</h2>
-          <div className="space-y-3">
-            {recentUpdates.map((u: any) => (
-              <div key={u.history_id} className="text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
-                <span className="font-medium">Prop {u.property_id}</span> - {u.action}
-                <div className="text-xs text-gray-500">{new Date(u.history_date).toLocaleString()}</div>
-              </div>
-            ))}
-          </div>
+        <div className="glass-panel rounded-2xl p-6">
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-green-800 dark:text-green-400">
+            <AlertCircle className="w-5 h-5"/> My Corrections
+          </h2>
+          <DataTable columns={assignmentCols} data={returnedAssignments.slice(0, 5)} showActions={false} />
+          {returnedAssignments.length === 0 && <p className="text-sm text-gray-500 mt-4">No corrections needed at this time.</p>}
+        </div>
+
+        <div className="glass-panel rounded-2xl p-6">
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-green-800 dark:text-green-400">
+            <ArrowLeftRight className="w-5 h-5"/> My Requests
+          </h2>
+          <DataTable columns={requestCols} data={requests.slice(0, 5)} showActions={false} />
+          {requests.length === 0 && <p className="text-sm text-gray-500 mt-4">No permission requests.</p>}
+        </div>
+
+        <div className="glass-panel rounded-2xl p-6">
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-green-800 dark:text-green-400">
+            <CheckCircle className="w-5 h-5"/> Completed
+          </h2>
+          <DataTable columns={assignmentCols} data={completedAssignments.slice(0, 5)} showActions={false} />
+          {completedAssignments.length === 0 && <p className="text-sm text-gray-500 mt-4">No completed assessments yet.</p>}
         </div>
       </div>
     </div>
@@ -61,24 +96,19 @@ export function AssessorDashboard() {
 }
 
 function Metric({ title, value, icon, color }: any) {
-  const colors: Record<string, string> = { blue: 'text-blue-500 bg-blue-50', red: 'text-red-500 bg-red-50', orange: 'text-orange-500 bg-orange-50', green: 'text-green-500 bg-green-50', purple: 'text-purple-500 bg-purple-50' }
-  const darkColors: Record<string, string> = { blue: 'dark:text-blue-400 dark:bg-blue-900/20', red: 'dark:text-red-400 dark:bg-red-900/20', orange: 'dark:text-orange-400 dark:bg-orange-900/20', green: 'dark:text-green-400 dark:bg-green-900/20', purple: 'dark:text-purple-400 dark:bg-purple-900/20' }
+  const colors: Record<string, string> = { 
+    blue: 'text-green-500 bg-green-50 dark:bg-green-900/20 dark:text-green-400', 
+    green: 'text-green-500 bg-green-50 dark:bg-green-900/20 dark:text-green-400', 
+    orange: 'text-green-500 bg-green-50 dark:bg-green-900/20 dark:text-green-400',
+    purple: 'text-green-500 bg-green-50 dark:bg-green-900/20 dark:text-green-400'
+  }
   return (
-    <div className="bg-white dark:bg-gray-900 p-5 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-4">
-      <div className={`p-3 rounded-lg ${colors[color]} ${darkColors[color]}`}>{icon}</div>
+    <div className="glass-panel p-6 rounded-2xl flex items-center gap-5 hover:scale-[1.02] transition-transform">
+      <div className={`p-4 rounded-xl ${colors[color]}`}>{icon}</div>
       <div>
-        <div className="text-sm text-gray-500 dark:text-gray-400">{title}</div>
-        <div className="text-2xl font-bold dark:text-white">{value}</div>
+        <div className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</div>
+        <div className="text-2xl font-bold text-gray-900 dark:text-white">{value}</div>
       </div>
-    </div>
-  )
-}
-
-function SmallMetric({ title, value, icon }: any) {
-  return (
-    <div className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col justify-between h-24">
-      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">{icon} {title}</div>
-      <div className="text-xl font-bold dark:text-white">{value}</div>
     </div>
   )
 }

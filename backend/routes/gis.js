@@ -25,7 +25,7 @@ router.get('/gis/properties', authenticate, allowRoles('admin', 'assessor', 'sta
       FROM property_lots l
       JOIN properties p ON l.property_id = p.property_id
       JOIN property_owners o ON p.owner_id = o.owner_id
-      JOIN gis_locations g ON g.lot_id = l.lot_id
+      LEFT JOIN gis_locations g ON g.lot_id = l.lot_id
     `)
 
     const [buildings] = await pool.query(`
@@ -45,7 +45,7 @@ router.get('/gis/properties', authenticate, allowRoles('admin', 'assessor', 'sta
       FROM property_buildings b
       JOIN properties p ON b.property_id = p.property_id
       JOIN property_owners o ON p.owner_id = o.owner_id
-      JOIN gis_locations g ON g.building_id = b.building_id
+      LEFT JOIN gis_locations g ON g.building_id = b.building_id
     `)
 
     res.json({ lots, buildings })
@@ -79,7 +79,7 @@ router.get('/gis/client-properties', authenticate, allowRoles('client'), async (
       FROM property_lots l
       JOIN properties p ON l.property_id = p.property_id
       JOIN property_owners o ON p.owner_id = o.owner_id
-      JOIN gis_locations g ON g.lot_id = l.lot_id
+      LEFT JOIN gis_locations g ON g.lot_id = l.lot_id
       WHERE p.owner_id = ?
     `, [owner_id])
 
@@ -100,7 +100,7 @@ router.get('/gis/client-properties', authenticate, allowRoles('client'), async (
       FROM property_buildings b
       JOIN properties p ON b.property_id = p.property_id
       JOIN property_owners o ON p.owner_id = o.owner_id
-      JOIN gis_locations g ON g.building_id = b.building_id
+      LEFT JOIN gis_locations g ON g.building_id = b.building_id
       WHERE p.owner_id = ?
     `, [owner_id])
 

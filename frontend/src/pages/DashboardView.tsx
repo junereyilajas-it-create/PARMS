@@ -1,4 +1,4 @@
-import { Building2, MapPin, Plus, ClipboardCheck, Users } from 'lucide-react'
+import { Building2, MapPin, ClipboardCheck, Users } from 'lucide-react'
 import { Metric } from '../components/common/Metric'
 import { PropertyTable } from '../components/common/PropertyTable'
 import { SearchBox } from '../components/common/SearchBox'
@@ -9,7 +9,7 @@ export function DashboardView({ active, query, onQueryChange, rows, onNavigate, 
   const propertyCount = new Set(rows.map(row => row.id)).size
   const pendingCount = rows.filter(row => row.status.toLowerCase() === 'pending').length
   const assessedCount = rows.filter(row => Number(row.market.replace(/[^0-9.-]/g, '')) > 0).length
-  return <><div className="title-row"><div><p className="eyebrow">WELCOME, ADMIN</p><h1>{isDashboard ? 'Dashboard Overview' : active}</h1><p className="subhead">{isDashboard ? "Here's what's happening with your records today." : `Manage ${active.toLowerCase()} in one place.`}</p></div><button className="btn-save" onClick={onRegister}><Plus size={18}/> Add Property</button></div>
+  return <><div className="title-row"><div><p className="eyebrow">WELCOME, ADMIN</p><h1>{isDashboard ? 'Dashboard Overview' : active}</h1><p className="subhead">{isDashboard ? "Here's what's happening with your records today." : `Manage ${active.toLowerCase()} in one place.`}</p></div><button className="btn-save" onClick={onRegister}>Add Property</button></div>
   <div className="metrics">
     <Metric icon={<Building2/>} title="Total Properties" value={propertyCount.toLocaleString()} detail="Registered property records" color="green"/>
     <Metric icon={<MapPin/>} title="Total Lots" value={rows.length.toLocaleString()} detail="Lots linked to properties" color="blue"/>

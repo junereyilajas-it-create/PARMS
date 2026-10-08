@@ -32,7 +32,8 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
     l.lot_area, l.lot_status,
     CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner, 
     t.property_type_name AS property_type, c.classification_name,
-    COALESCE(a.market_value, 0) AS market_value, COALESCE(a.assessed_value, 0) AS assessed_value
+    COALESCE(a.market_value, 0) AS market_value, COALESCE(a.assessed_value, 0) AS assessed_value,
+    a.assessment_status
     FROM properties p 
     JOIN property_owners o ON o.owner_id = p.owner_id 
     JOIN property_types t ON t.property_type_id = p.property_type_id
@@ -49,7 +50,7 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
 
 // Keep owner, address, and property creation atomic so incomplete records are
 // never left in the database when a registration fails.
-router.post('/properties/register', authenticate, allowRoles('admin', 'staff'), async (req, res, next) => {
+router.post('/properties/register', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     const { owner, street, barangay, type, lot_area, market_value, coordinates, document, lot_number, title_number } = req.body
@@ -133,7 +134,7 @@ router.post('/properties/register', authenticate, allowRoles('admin', 'staff'), 
   } finally { connection.release() }
 })
 
-router.delete('/properties/:id', authenticate, allowRoles('admin'), async (req, res, next) => {
+router.delete('/properties/:id', authenticate, allowRoles('super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -205,7 +206,8 @@ router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'),
         pr.province_name as province,
         TRIM(CONCAT(o.first_name, ' ', IFNULL(o.middle_name, ''), ' ', o.last_name)) as owner,
         COALESCE(bah.market_value, 0) AS market_value,
-        COALESCE(bah.assessed_value, 0) AS assessed_value
+        COALESCE(bah.assessed_value, 0) AS assessed_value,
+        bah.assessment_status
       FROM property_buildings b
       JOIN properties p ON b.property_id = p.property_id
       LEFT JOIN property_owners o ON p.owner_id = o.owner_id
@@ -225,7 +227,7 @@ router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'),
   } catch (e) { next(e) }
 })
 
-router.post('/buildings', authenticate, allowRoles('admin', 'staff'), async (req, res, next) => {
+router.post('/buildings', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -282,7 +284,7 @@ router.post('/buildings', authenticate, allowRoles('admin', 'staff'), async (req
   }
 })
 
-router.put('/buildings/:id', authenticate, allowRoles('admin', 'staff'), async (req, res, next) => {
+router.put('/buildings/:id', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -323,7 +325,7 @@ router.put('/buildings/:id', authenticate, allowRoles('admin', 'staff'), async (
   }
 })
 
-router.delete('/buildings/:id', authenticate, allowRoles('admin'), async (req, res, next) => {
+router.delete('/buildings/:id', authenticate, allowRoles('super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -346,7 +348,7 @@ router.delete('/buildings/:id', authenticate, allowRoles('admin'), async (req, r
 })
 
 // Custom endpoints for Lots to handle GIS locations
-router.post('/lots', authenticate, allowRoles('admin', 'staff'), async (req, res, next) => {
+router.post('/lots', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -386,7 +388,7 @@ router.post('/lots', authenticate, allowRoles('admin', 'staff'), async (req, res
   }
 })
 
-router.put('/lots/:id', authenticate, allowRoles('admin', 'staff'), async (req, res, next) => {
+router.put('/lots/:id', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -421,7 +423,7 @@ router.put('/lots/:id', authenticate, allowRoles('admin', 'staff'), async (req, 
   }
 })
 
-router.delete('/lots/:id', authenticate, allowRoles('admin'), async (req, res, next) => {
+router.delete('/lots/:id', authenticate, allowRoles('super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -443,7 +445,7 @@ router.delete('/lots/:id', authenticate, allowRoles('admin'), async (req, res, n
   }
 })
 
-router.delete('/buildings/:id', authenticate, allowRoles('admin'), async (req, res, next) => {
+router.delete('/buildings/:id', authenticate, allowRoles('super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -466,7 +468,7 @@ router.delete('/buildings/:id', authenticate, allowRoles('admin'), async (req, r
   }
 })
 
-router.delete('/properties/:id', authenticate, allowRoles('admin'), async (req, res, next) => {
+router.delete('/properties/:id', authenticate, allowRoles('super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -539,7 +541,7 @@ const config = {
 for (const [path, { table, columns, idColumn }] of Object.entries(config)) {
   router.get(`/${path}`, authenticate, allowRoles('admin', 'assessor', 'staff'), async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} ORDER BY ${idColumn} DESC`); res.json(rows) } catch (e) { next(e) } })
   router.get(`/${path}/:id`, authenticate, allowRoles('admin', 'assessor', 'staff'), async (req, res, next) => { try { const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [req.params.id]); if (rows[0]) res.json(rows[0]); else res.status(404).json({ message: 'Record not found' }) } catch (e) { next(e) } })
-  router.post(`/${path}`, authenticate, allowRoles('admin','staff'), async (req, res, next) => { try {
+  router.post(`/${path}`, authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => { try {
     const values = columns.map(c => req.body[c] === '' ? null : req.body[c])
     
     // Explicit Validation
@@ -564,7 +566,7 @@ for (const [path, { table, columns, idColumn }] of Object.entries(config)) {
     }
     res.status(201).json({ record: rows[0], message: 'Record created' })
   } catch (e) { next(e) } })
-  router.put(`/${path}/:id`, authenticate, allowRoles('admin','staff'), async (req, res, next) => { try {
+  router.put(`/${path}/:id`, authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => { try {
     const values = [...columns.map(c => req.body[c] === '' ? null : req.body[c]), req.params.id]
     
     if (columns.includes('property_id') && req.body.property_id) {
@@ -588,7 +590,7 @@ for (const [path, { table, columns, idColumn }] of Object.entries(config)) {
     }
     res.json({ record: rows[0], message: 'Record updated' })
   } catch (e) { next(e) } })
-  router.delete(`/${path}/:id`, authenticate, allowRoles('admin'), async (req, res, next) => { try {
+  router.delete(`/${path}/:id`, authenticate, allowRoles('super_admin'), async (req, res, next) => { try {
     const [result] = await pool.query(`DELETE FROM ${table} WHERE ${idColumn} = ?`, [req.params.id])
     if (!result.affectedRows) return res.status(404).json({ message: 'Record not found' })
     await logActivity(pool, req, 'DELETE', path, `${idColumn} ${req.params.id}`, `Deleted record from ${path}`)

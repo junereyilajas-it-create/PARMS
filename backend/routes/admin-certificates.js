@@ -5,7 +5,7 @@ import { authenticate, allowRoles } from '../middleware/auth.js'
 const router = Router()
 
 // Admin/Staff routes for certificate requests
-router.use(authenticate, allowRoles('admin', 'assessor', 'staff'))
+router.use('/admin/certificate-requests', authenticate, allowRoles('admin', 'assessor', 'staff'))
 
 // List all certificate requests
 router.get('/admin/certificate-requests', async (req, res, next) => {

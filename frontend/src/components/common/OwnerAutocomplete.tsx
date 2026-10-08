@@ -17,7 +17,7 @@ type Props = {
   error?: boolean;
 };
 
-export function OwnerAutocomplete({ value, onSelect, error }: Props) {
+export function OwnerAutocomplete({ onSelect, error }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<OwnerRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,6 +36,7 @@ export function OwnerAutocomplete({ value, onSelect, error }: Props) {
   }, []);
 
   useEffect(() => {
+    let active = true;
     const timer = setTimeout(async () => {
       if (!query.trim() || (selectedOwner && `${selectedOwner.first_name} ${selectedOwner.last_name}` === query)) {
         setResults([]);
@@ -44,15 +45,17 @@ export function OwnerAutocomplete({ value, onSelect, error }: Props) {
       setLoading(true);
       try {
         const { data } = await api.get(`/owners/search?q=${encodeURIComponent(query)}`);
-        setResults(Array.isArray(data) ? data : []);
-        setIsOpen(true);
+        if (active) {
+          setResults(Array.isArray(data) ? data : []);
+          setIsOpen(true);
+        }
       } catch (err) {
         console.error('Failed to fetch owners:', err);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { active = false; clearTimeout(timer); };
   }, [query, selectedOwner]);
 
   return (

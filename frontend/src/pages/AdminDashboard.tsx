@@ -1,68 +1,65 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
-import { Users, Shield, Activity, FileText } from 'lucide-react'
+import { Home, Building2, CheckCircle2, AlertCircle, Clock, Activity, ArrowLeftRight, FileText } from 'lucide-react'
 
 export function AdminDashboard() {
-  const [stats, setStats] = useState<any>(null)
+  const [data, setData] = useState<any>(null)
+  const [assignments, setAssignments] = useState<any[]>([])
+  const [requests, setRequests] = useState<any[]>([])
+  const navigate = useNavigate()
 
   useEffect(() => {
-    api.get('/stats/admin').then(res => setStats(res.data)).catch(console.error)
+    api.get('/stats/admin').then(res => setData(res.data)).catch(console.error)
+    api.get('/assessments/assignments').then(res => setAssignments(res.data)).catch(console.error)
+    api.get('/assessments/requests').then(res => setRequests(res.data)).catch(console.error)
   }, [])
 
-  if (!stats) return <div className="p-8">Loading dashboard...</div>
+  if (!data) return <div className="p-8">Loading dashboard...</div>
 
-  const countByRole = (role: string) => stats.users.find((u: any) => u.role === role)?.count || 0
-  const totalUsers = stats.users.reduce((acc: number, u: any) => acc + Number(u.count), 0)
+  const stats = data.stats || {}
+  
+  const assigned = assignments.filter(a => a.assignment_status === 'assigned').length;
+  const inProgress = assignments.filter(a => a.assignment_status === 'in_progress').length;
+  const pendingRequests = requests.filter(r => r.request_status === 'pending').length;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold dark:text-white">Admin Dashboard</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Metric title="Total Users" value={totalUsers} icon={<Users />} color="blue" />
-        <Metric title="Admins" value={countByRole('admin')} icon={<Shield />} color="red" />
-        <Metric title="Assessors" value={countByRole('assessor')} icon={<Activity />} color="orange" />
-        <Metric title="Staff" value={countByRole('staff')} icon={<FileText />} color="green" />
-        <Metric title="Property Owners" value={countByRole('client')} icon={<Users />} color="purple" />
+    <div className="space-y-6 fade-in">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-green-700 dark:text-green-500">Head Assessor Dashboard</h1>
+        <p className="text-gray-500 mt-2">Overview of municipal property assessments and workflow.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4 dark:text-white">Recent Activities</h2>
-          <div className="space-y-3">
-            {stats.activities.map((act: any) => (
-              <div key={act.log_id} className="text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
-                <span className="font-medium">{act.role}</span> - {act.activity}
-                <div className="text-xs text-gray-500">{new Date(act.activity_date).toLocaleString()}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Metric title="Total Properties" value={stats.total_properties || 0} icon={<Home />} color="blue" onClick={() => navigate('/assessments')} />
+        <Metric title="Unassessed Lots" value={stats.unassessed_lots || 0} icon={<AlertCircle />} color="orange" onClick={() => navigate('/building-properties')} />
+        <Metric title="Unassessed Buildings" value={stats.unassessed_buildings || 0} icon={<Building2 />} color="orange" onClick={() => navigate('/building-properties')} />
+        <Metric title="Assigned Assessments" value={assigned} icon={<FileText />} color="blue" onClick={() => navigate('/assessment-assignments')} />
+        <Metric title="In Progress" value={inProgress} icon={<Activity />} color="purple" onClick={() => navigate('/assessment-assignments')} />
         
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4 dark:text-white">Recent User Registrations</h2>
-          <div className="space-y-3">
-            {stats.registrations.map((u: any) => (
-              <div key={u.user_id} className="flex justify-between text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
-                <span>{u.first_name} {u.last_name}</span>
-                <span className="px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 uppercase">{u.role}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Metric title="Pending Approval" value={stats.pending_assessments || 0} icon={<Clock />} color="orange" onClick={() => navigate('/assessments?status=submitted')} />
+        <Metric title="Returned" value={stats.returned_assessments || 0} icon={<AlertCircle />} color="red" onClick={() => navigate('/assessments?status=returned')} />
+        <Metric title="Approved" value={stats.approved_assessments || 0} icon={<CheckCircle2 />} color="green" onClick={() => navigate('/assessments?status=approved')} />
+        <Metric title="Permission Requests" value={pendingRequests} icon={<ArrowLeftRight />} color="purple" onClick={() => navigate('/permission-requests')} />
       </div>
     </div>
   )
 }
 
-function Metric({ title, value, icon, color }: any) {
-  const colors: Record<string, string> = { blue: 'text-blue-500 bg-blue-50', red: 'text-red-500 bg-red-50', orange: 'text-orange-500 bg-orange-50', green: 'text-green-500 bg-green-50', purple: 'text-purple-500 bg-purple-50' }
-  const darkColors: Record<string, string> = { blue: 'dark:text-blue-400 dark:bg-blue-900/20', red: 'dark:text-red-400 dark:bg-red-900/20', orange: 'dark:text-orange-400 dark:bg-orange-900/20', green: 'dark:text-green-400 dark:bg-green-900/20', purple: 'dark:text-purple-400 dark:bg-purple-900/20' }
+function Metric({ title, value, icon, color, onClick }: any) {
+  const colors: Record<string, string> = {
+    blue: 'text-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-400',
+    red: 'text-red-500 bg-red-50 dark:bg-red-900/20 dark:text-red-400',
+    orange: 'text-orange-500 bg-orange-50 dark:bg-orange-900/20 dark:text-orange-400',
+    green: 'text-green-500 bg-green-50 dark:bg-green-900/20 dark:text-green-400',
+    purple: 'text-purple-500 bg-purple-50 dark:bg-purple-900/20 dark:text-purple-400'
+  }
   return (
-    <div className="bg-white dark:bg-gray-900 p-5 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-4">
-      <div className={`p-3 rounded-lg ${colors[color]} ${darkColors[color]}`}>{icon}</div>
+    <div onClick={onClick} className="glass-panel p-6 rounded-2xl flex items-center gap-5 hover:scale-[1.02] transition-transform cursor-pointer">
+      <div className={`p-4 rounded-xl ${colors[color]}`}>{icon}</div>
       <div>
-        <div className="text-sm text-gray-500 dark:text-gray-400">{title}</div>
-        <div className="text-2xl font-bold dark:text-white">{value}</div>
+        <div className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</div>
+        <div className="text-2xl font-bold text-gray-900 dark:text-white">{value}</div>
       </div>
     </div>
   )

@@ -17,6 +17,7 @@ interface DataTableProps {
   totalPages?: number;
   onPageChange?: (page: number) => void;
   showActions?: boolean;
+  customActions?: (row: any) => React.ReactNode;
 }
 
 export const DataTable: React.FC<DataTableProps> = ({
@@ -29,6 +30,7 @@ export const DataTable: React.FC<DataTableProps> = ({
   totalPages = 1,
   onPageChange,
   showActions = true,
+  customActions,
 }) => {
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -41,7 +43,7 @@ export const DataTable: React.FC<DataTableProps> = ({
                   {col.label}
                 </th>
               ))}
-              {showActions && (onView || onEdit || onDelete) && (
+              {showActions && (onView || onEdit || onDelete || customActions) && (
                 <th className="px-6 py-3 text-left text-sm font-semibold">Actions</th>
               )}
             </tr>
@@ -57,7 +59,7 @@ export const DataTable: React.FC<DataTableProps> = ({
                     {col.render ? col.render(row[col.key], row) : row[col.key]}
                   </td>
                 ))}
-                {showActions && (onView || onEdit || onDelete) && (
+                {showActions && (onView || onEdit || onDelete || customActions) && (
                   <td className="px-6 py-4 text-sm">
                     <div className="flex gap-2">
                       {onView && (
@@ -87,6 +89,7 @@ export const DataTable: React.FC<DataTableProps> = ({
                           <Trash2 size={18} />
                         </button>
                       )}
+                      {customActions && customActions(row)}
                     </div>
                   </td>
                 )}

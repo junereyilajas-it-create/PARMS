@@ -1,11 +1,12 @@
-import { Landmark, Loader2, RotateCcw } from 'lucide-react'
+import { Loader2, RotateCcw } from 'lucide-react'
+import { SystemLogo } from './SystemLogo'
 
 export function SystemLoadingScreen({ error, onRetry }: { error?: string; onRetry?: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors duration-300">
       <div className="flex flex-col items-center max-w-sm w-full p-8 text-center animate-in fade-in zoom-in duration-500">
-        <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-600 text-white shadow-xl mb-6">
-          <Landmark size={32} />
+        <div className="flex items-center justify-center mb-6">
+          <SystemLogo className="w-16 h-16 object-contain" clickable={false} />
         </div>
         
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight mb-1">

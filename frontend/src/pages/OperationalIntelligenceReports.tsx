@@ -1,235 +1,435 @@
-import React, { useState } from 'react';
-import { FileText, Download as DownloadIcon, Plus } from 'lucide-react';
-import { BarChartComponent } from '../components/charts/BarChartComponent';
-import { DonutChartComponent } from '../components/charts/DonutChartComponent';
-import { DataTable } from '../components/common/DataTable';
-import { CrudModal, type CrudField } from '../components/common/CrudModal';
+import React, { useState, useEffect } from 'react';
+import { FileText, Printer, Save, History, Search } from 'lucide-react';
+import api from '../lib/api';
 import { useModal } from '../contexts/ModalContext';
+import { DataTable } from '../components/common/DataTable';
 
 export const OperationalIntelligenceReports: React.FC = () => {
-  const { showInfo, showConfirm } = useModal();
-  const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
-  const [stats, setStats] = useState<any>(null);
-  
-  React.useEffect(() => {
-    import('../lib/api').then(m => m.default.get('/stats/admin').then(res => setStats(res.data)).catch(console.error))
-  }, []);
+  const { showSuccess, showError } = useModal();
+  const [activeTab, setActiveTab] = useState<'generate' | 'history'>('generate');
 
-  const assessmentCompletionData = [
-    { month: 'Current', completed: stats?.propertyActivities?.length || 0 }
-  ];
+  const [reportType, setReportType] = useState('semi-annual');
+  const [semester, setSemester] = useState('January-June');
+  const [year, setYear] = useState(new Date().getFullYear().toString());
 
-  const propertyInventoryData = [
-    { name: 'Total', value: stats?.users?.length || 0, fill: '#16a34a' }
-  ];
+  const [reportData, setReportData] = useState<any>(null);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
-  const activityLogs = stats?.activities?.map((a: any) => ({
-    id: a.log_id.toString(),
-    action: a.activity,
-    parcel: a.module_name,
-    timestamp: new Date(a.activity_date).toLocaleTimeString(),
-    user: 'System User',
-    severity: 'info'
-  })) || [];
+  useEffect(() => {
+    if (activeTab === 'history') {
+      loadHistory();
+    }
+    // Get current user for signature
+    api.get('/profile').then(res => setCurrentUser(res.data)).catch(console.error);
+  }, [activeTab]);
 
-  const initialReports: any[] = [];
-  const [detailedReports, setDetailedReports] = useState(initialReports);
-  const reportFields: CrudField[] = [{ key: 'name', label: 'Report name' }, { key: 'category', label: 'Category' }, { key: 'schedule', label: 'Schedule' }, { key: 'recipient', label: 'Recipient' }, { key: 'status', label: 'Status', type: 'select', options: ['ACTIVE', 'ARCHIVED'] }];
-  const saveReport = (values: Record<string, string>) => { const record = { ...values, id: modal?.record?.id ?? crypto.randomUUID() } as typeof initialReports[number]; if (modal?.mode === 'create') setDetailedReports(items => [...items, record]); else if (modal?.record) setDetailedReports(items => items.map(item => item.id === modal.record.id ? record : item)); setModal(null); };
+  const loadHistory = async () => {
+    try {
+      const res = await api.get('/reports/history');
+      setHistoryData(res.data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
-  const reportColumns = [
-    { key: 'name', label: 'Report Name' },
-    { key: 'category', label: 'Category' },
-    { key: 'schedule', label: 'Schedule' },
-    { key: 'recipient', label: 'Recipient' },
-    {
-      key: 'status',
-      label: 'Status',
-      render: (status: string) => (
-        <span
-          className={`px-3 py-1 rounded-full text-xs font-medium ${
-            status === 'ACTIVE'
-              ? 'bg-green-100 text-green-800'
-              : 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {status}
-        </span>
-      ),
-    },
-  ];
+  const handleGenerate = async () => {
+    setIsLoading(true);
+    try {
+      if (reportType === 'semi-annual') {
+        const res = await api.get(`/reports/semi-annual?period=${semester}&year=${year}`);
+        setReportData({ type: 'semi-annual', data: res.data });
+      } else if (reportType === 'property-summary') {
+        const res = await api.get(`/reports/property-summary`);
+        setReportData({ type: 'property-summary', data: res.data });
+      } else if (reportType === 'gis-summary') {
+        const res = await api.get(`/reports/gis-summary`);
+        setReportData({ type: 'gis-summary', data: res.data });
+      } else if (reportType === 'assessed-value') {
+        const res = await api.get(`/reports/assessed-value`);
+        setReportData({ type: 'assessed-value', data: res.data });
+      } else if (reportType === 'new-assessments') {
+        const res = await api.get(`/reports/new-assessments`);
+        setReportData({ type: 'new-assessments', data: res.data });
+      } else if (reportType === 'cancellation-modification') {
+        const res = await api.get(`/reports/cancellation-modification`);
+        setReportData({ type: 'cancellation-modification', data: res.data });
+      } else if (reportType === 'appeals') {
+        const res = await api.get(`/reports/appeals`);
+        setReportData({ type: 'appeals', data: res.data });
+      }
+    } catch (e: any) {
+      showError(e.response?.data?.message || 'Failed to generate report.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  const getActivityBadge = (severity: string) => {
-    const severityStyles: Record<string, string> = {
-      info: 'bg-blue-100 text-blue-800',
-      success: 'bg-green-100 text-green-800',
-      critical: 'bg-red-100 text-red-800',
-    };
-    return (
-      <span className={`px-3 py-1 rounded-full text-xs font-medium ${severityStyles[severity]}`}>
-        {severity.charAt(0).toUpperCase() + severity.slice(1)}
-      </span>
-    );
+  const handleSaveToHistory = async () => {
+    if (!reportData) return;
+    try {
+      const period = reportType === 'semi-annual' ? `${semester} ${year}` : new Date().toLocaleDateString();
+      const count = reportData.data?.summary?.total_properties || reportData.data?.total_properties || reportData.data?.total_mapped_properties || 0;
+
+      const getReportTitle = (type: string) => {
+        const titles: Record<string, string> = {
+          'semi-annual': 'Semi-Annual Assessment Report',
+          'property-summary': 'Property Assessment Summary',
+          'gis-summary': 'GIS / Tax Mapping Report',
+          'assessed-value': 'Assessed Value Report',
+          'new-assessments': 'New Assessment Report',
+          'cancellation-modification': 'Cancellation and Modification Report',
+          'appeals': 'Assessment Appeal Report'
+        };
+        return titles[type] || 'Official Report';
+      };
+
+      await api.post('/reports/history', {
+        report_type: getReportTitle(reportType),
+        reporting_period: period,
+        record_count: count
+      });
+      showSuccess('Official report saved to history.');
+    } catch (e: any) {
+      showError(e.response?.data?.message || 'Failed to save report.');
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 fade-in print:p-0 print:m-0 print:space-y-0">
+      {/* Header - hide in print */}
+      <div className="flex items-center justify-between print:hidden">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Operational Intelligence Reports</h1>
-          <p className="text-gray-600 mt-1">
-            Aggregate and analyze city-wide parcel data and tax distributions
-            for the 2024 fiscal year.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight text-green-700 dark:text-green-500">Official Reports</h1>
+          <p className="text-gray-500 mt-2">Generate, print, and manage official assessment reports for the Municipal Mayor.</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setModal({ mode: 'create' })} className="flex items-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 transition"><Plus size={18}/>New Report</button>
-          <button type="button" onClick={() => showInfo('Export to PDF is in development.')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
-            <FileText size={18} />
-            Generate PDF
-          </button>
-          <button type="button" onClick={() => showInfo('Scheduling reports is in development.')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
-            <DownloadIcon size={18} />
-            Export Excel
-          </button>
+        <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+          <button onClick={() => setActiveTab('generate')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'generate' ? 'bg-white dark:bg-gray-700 shadow text-green-600' : 'text-gray-500 hover:text-gray-900'}`}>Generate Report</button>
+          <button onClick={() => setActiveTab('history')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'history' ? 'bg-white dark:bg-gray-700 shadow text-green-600' : 'text-gray-500 hover:text-gray-900'}`}><History size={16} /> Report History</button>
         </div>
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Assessment Completion Chart */}
-        <BarChartComponent
-          data={assessmentCompletionData}
-          title="Assessment Completion Rate"
-          xAxisKey="month"
-          bars={[{ key: 'completed', fill: '#16a34a', name: 'Completion %' }]}
-          height={300}
-        />
+      {activeTab === 'generate' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 print:block">
+          {/* Filters - hide in print */}
+          <div className="lg:col-span-1 space-y-6 print:hidden">
+            <div className="glass-panel p-6 rounded-2xl">
+              <h2 className="text-lg font-bold mb-4">Report Configuration</h2>
 
-        {/* Property Inventory Donut Chart */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-4">Property Inventory</h3>
-          <p className="text-sm text-gray-600 mb-4">Current distribution of assets.</p>
-          <div className="flex items-center justify-center">
-            <DonutChartComponent
-              data={propertyInventoryData}
-              title=""
-              colors={['#16a34a', '#3b82f6', '#1f2937']}
-              height={250}
-            />
-          </div>
-          <div className="mt-4 space-y-2 text-sm">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">
-                <span className="inline-block w-3 h-3 bg-green-600 rounded mr-2"></span>
-                Residential
-              </span>
-              <span className="font-semibold">68%</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">
-                <span className="inline-block w-3 h-3 bg-blue-600 rounded mr-2"></span>
-                Commercial
-              </span>
-              <span className="font-semibold">24%</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">
-                <span className="inline-block w-3 h-3 bg-gray-900 rounded mr-2"></span>
-                Industrial
-              </span>
-              <span className="font-semibold">9%</span>
-            </div>
-          </div>
-        </div>
-      </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Type</label>
+                  <select value={reportType} onChange={(e) => setReportType(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg dark:bg-gray-800 dark:border-gray-700">
+                    <option value="semi-annual">Semi-Annual Assessment Report</option>
+                    <option value="property-summary">Property Assessment Summary</option>
+                    <option value="assessed-value">Assessed Value Report</option>
+                    <option value="new-assessments">New Assessment Report</option>
+                    <option value="cancellation-modification">Cancellation and Modification Report</option>
+                    <option value="gis-summary">GIS / Tax Mapping Report</option>
+                    <option value="appeals">Assessment Appeal Report</option>
+                  </select>
+                </div>
 
-      {/* Tax Collection & Activity */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Tax Collection Estimates */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-4">Tax Collection Estimates</h3>
-          <p className="text-sm text-gray-600 mb-4">Projected revenue vs. Historical averages.</p>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">Q3 2024 Projection</span>
-                <span className="text-lg font-bold text-green-600">$12.4M</span>
-              </div>
-              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-green-600" style={{ width: '80%' }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">YTD Actuals</span>
-                <span className="text-lg font-bold text-blue-600">$24.1M</span>
-              </div>
-              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-600" style={{ width: '100%' }}></div>
-              </div>
-            </div>
-          </div>
-          <div className="mt-6 pt-6 border-t border-gray-200 grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="text-gray-600">Growth Rate</p>
-              <p className="text-2xl font-bold text-green-600">+4.2%</p>
-            </div>
-            <div>
-              <p className="text-gray-600">Variance</p>
-              <p className="text-2xl font-bold text-blue-600">-0.8%</p>
-            </div>
-          </div>
-        </div>
+                {reportType === 'semi-annual' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Semester</label>
+                      <select value={semester} onChange={(e) => setSemester(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg dark:bg-gray-800 dark:border-gray-700">
+                        <option value="January-June">January-June</option>
+                        <option value="July-December">July-December</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Year</label>
+                      <input type="number" value={year} onChange={(e) => setYear(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                  </>
+                )}
 
-        {/* User Activity Logs */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">User Activity Logs</h3>
-            <a href="#" className="text-green-600 text-sm hover:text-green-700">
-              View All →
-            </a>
+                <button onClick={handleGenerate} disabled={isLoading} className="w-full mt-4 flex justify-center items-center gap-2 py-2 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50">
+                  <Search size={18} />
+                  {isLoading ? 'Generating...' : 'Generate Report'}
+                </button>
+              </div>
+            </div>
+
+            {reportData && (
+              <div className="glass-panel p-6 rounded-2xl flex flex-col gap-3">
+                <button onClick={handlePrint} className="w-full flex justify-center items-center gap-2 py-2 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white rounded-lg font-medium transition-colors">
+                  <Printer size={18} /> Print Document
+                </button>
+                <button onClick={handleSaveToHistory} className="w-full flex justify-center items-center gap-2 py-2 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors">
+                  <Save size={18} /> Save Official Report
+                </button>
+              </div>
+            )}
           </div>
-          <p className="text-sm text-gray-600 mb-4">Recent administrative and system actions.</p>
-          <div className="space-y-3">
-            {activityLogs.map((log: any) => (
-              <div key={log.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm text-gray-900">{log.action}</span>
-                    {getActivityBadge(log.severity)}
+
+          {/* Report Preview */}
+          <div className="lg:col-span-3 glass-panel p-8 md:p-12 rounded-2xl bg-white dark:bg-gray-900 min-h-[800px] text-gray-900 dark:text-gray-100 print:shadow-none print:border-none print:w-full print:absolute print:left-0 print:top-0 print:bg-white print:text-black print:p-0">
+            {reportData ? (
+              <div className="max-w-3xl mx-auto font-serif">
+                {/* Official Header */}
+                <div className="text-center mb-10 border-b-2 border-black dark:border-white pb-6">
+                  <h2 className="text-xl font-bold uppercase tracking-wider">Republic of the Philippines</h2>
+                  <h3 className="text-lg font-bold">Province of Misamis Oriental</h3>
+                  <h3 className="text-lg font-bold">Municipality of Lagonglong</h3>
+                  <br />
+                  <h1 className="text-2xl font-black uppercase mt-4">Municipal Assessor's Office</h1>
+                </div>
+
+                {reportType === 'semi-annual' && reportData.type === 'semi-annual' && (
+                  <div className="space-y-8">
+                    <h2 className="text-xl font-bold text-center underline">SEMI-ANNUAL PROPERTY ASSESSMENT REPORT</h2>
+                    <p className="text-center font-bold">Reporting Period: {reportData.data.period}</p>
+
+                    <div className="mt-8 space-y-2 text-lg">
+                      <p className="font-bold underline mb-4">I. SUMMARY OF ASSESSMENTS</p>
+                      <div className="grid grid-cols-2 gap-4 ml-4">
+                        <span>Total Properties in Database:</span> <span className="font-bold">{reportData.data.summary.total_properties}</span>
+                        <span>Newly Assessed Properties:</span> <span className="font-bold">{reportData.data.summary.newly_assessed}</span>
+                        <span>Modified Assessments:</span> <span className="font-bold">{reportData.data.summary.modified_assessments}</span>
+                        <span>Cancelled Assessments:</span> <span className="font-bold">{reportData.data.summary.cancelled_assessments}</span>
+                        <span>Pending Assessments:</span> <span className="font-bold text-green-600 print:text-black">{reportData.data.summary.pending_assessments}</span>
+                        <span className="mt-2 font-bold">Total Assessed Value:</span> <span className="mt-2 font-bold text-xl">₱{Number(reportData.data.summary.total_assessed_value || 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-8 text-lg">
+                      <p className="font-bold underline mb-4">II. ASSESSMENT ACTIVITY BY BARANGAY</p>
+                      <table className="w-full border-collapse border border-gray-400 dark:border-gray-600 print:border-black ml-4">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-800 print:bg-transparent">
+                            <th className="border border-gray-400 dark:border-gray-600 print:border-black p-2 text-left">Barangay</th>
+                            <th className="border border-gray-400 dark:border-gray-600 print:border-black p-2 text-right">Total Properties</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportData.data.barangayActivity?.map((b: any) => (
+                            <tr key={b.barangay_name}>
+                              <td className="border border-gray-400 dark:border-gray-600 print:border-black p-2">{b.barangay_name}</td>
+                              <td className="border border-gray-400 dark:border-gray-600 print:border-black p-2 text-right">{b.count}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                  <div className="flex gap-4 text-xs text-gray-600">
-                    <span>{log.parcel}</span>
-                    <span>{log.timestamp}</span>
-                    <span>{log.user}</span>
+                )}
+
+                {reportType === 'property-summary' && reportData.type === 'property-summary' && (
+                  <div className="space-y-8">
+                    <h2 className="text-xl font-bold text-center underline">PROPERTY ASSESSMENT SUMMARY</h2>
+                    <p className="text-center">As of {new Date().toLocaleDateString()}</p>
+
+                    <div className="mt-8 space-y-2 text-lg">
+                      <div className="grid grid-cols-2 gap-4 ml-4">
+                        <span>Total Properties Registered:</span> <span className="font-bold">{reportData.data.total_properties}</span>
+                        <span>Total Lots Registered:</span> <span className="font-bold">{reportData.data.total_lots}</span>
+                        <span>Total Buildings Registered:</span> <span className="font-bold">{reportData.data.total_buildings}</span>
+                        <br />
+                        <span>Properties with Approved Assessments:</span> <span className="font-bold text-green-700 print:text-black">{reportData.data.assessed_properties}</span>
+                        <span>Properties Pending Assessment:</span> <span className="font-bold text-green-600 print:text-black">{reportData.data.unassessed_properties}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {reportType === 'gis-summary' && reportData.type === 'gis-summary' && (
+                  <div className="space-y-8">
+                    <h2 className="text-xl font-bold text-center underline">GIS / TAX MAPPING SUMMARY REPORT</h2>
+                    <p className="text-center">As of {new Date().toLocaleDateString()}</p>
+
+                    <div className="mt-8 space-y-2 text-lg">
+                      <div className="grid grid-cols-2 gap-4 ml-4">
+                        <span>Total Mapped Properties:</span> <span className="font-bold">{reportData.data.total_mapped_properties}</span>
+                        <span>Mapped Lots:</span> <span className="font-bold">{reportData.data.mapped_lots}</span>
+                        <span>Mapped Buildings:</span> <span className="font-bold">{reportData.data.mapped_buildings}</span>
+                        <br />
+                        <span>Unmapped Properties (Missing Coordinates):</span> <span className="font-bold text-green-600 print:text-black">{reportData.data.unmapped_properties}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {reportType === 'assessed-value' && reportData.type === 'assessed-value' && (
+                  <div className="space-y-8">
+                    <h2 className="text-xl font-bold text-center underline">ASSESSED VALUE REPORT</h2>
+                    <p className="text-center">As of {new Date().toLocaleDateString()}</p>
+                    <div className="mt-8">
+                      <table className="w-full text-sm border-collapse border border-gray-400">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-800 print:bg-transparent">
+                            <th className="border border-gray-400 p-2 text-left">Property ID</th>
+                            <th className="border border-gray-400 p-2 text-left">Owner</th>
+                            <th className="border border-gray-400 p-2 text-left">Type/Class</th>
+                            <th className="border border-gray-400 p-2 text-left">Location</th>
+                            <th className="border border-gray-400 p-2 text-right">Market Value</th>
+                            <th className="border border-gray-400 p-2 text-right">Assessed Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportData.data?.map((r: any, idx: number) => (
+                            <tr key={idx}>
+                              <td className="border border-gray-400 p-2">{r.property_id}</td>
+                              <td className="border border-gray-400 p-2">{r.owner_name}</td>
+                              <td className="border border-gray-400 p-2">{r.property_type} - {r.classification}</td>
+                              <td className="border border-gray-400 p-2">{r.location}</td>
+                              <td className="border border-gray-400 p-2 text-right">₱{Number(r.market_value).toLocaleString()}</td>
+                              <td className="border border-gray-400 p-2 text-right">₱{Number(r.assessed_value).toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {reportType === 'new-assessments' && reportData.type === 'new-assessments' && (
+                  <div className="space-y-8">
+                    <h2 className="text-xl font-bold text-center underline">NEW ASSESSMENT REPORT</h2>
+                    <p className="text-center">As of {new Date().toLocaleDateString()}</p>
+                    <div className="mt-8">
+                      <table className="w-full text-sm border-collapse border border-gray-400">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-800 print:bg-transparent">
+                            <th className="border border-gray-400 p-2 text-left">Property ID</th>
+                            <th className="border border-gray-400 p-2 text-left">Owner</th>
+                            <th className="border border-gray-400 p-2 text-left">Barangay</th>
+                            <th className="border border-gray-400 p-2 text-left">Assessor</th>
+                            <th className="border border-gray-400 p-2 text-right">Assessed Value</th>
+                            <th className="border border-gray-400 p-2 text-right">Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportData.data?.map((r: any, idx: number) => (
+                            <tr key={idx}>
+                              <td className="border border-gray-400 p-2">{r.property_id}</td>
+                              <td className="border border-gray-400 p-2">{r.owner_name}</td>
+                              <td className="border border-gray-400 p-2">{r.barangay}</td>
+                              <td className="border border-gray-400 p-2">{r.assessor_name}</td>
+                              <td className="border border-gray-400 p-2 text-right">₱{Number(r.assessed_value).toLocaleString()}</td>
+                              <td className="border border-gray-400 p-2 text-right">{new Date(r.assessment_date).toLocaleDateString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {reportType === 'cancellation-modification' && reportData.type === 'cancellation-modification' && (
+                  <div className="space-y-8">
+                    <h2 className="text-xl font-bold text-center underline">CANCELLATION AND MODIFICATION REPORT</h2>
+                    <p className="text-center">As of {new Date().toLocaleDateString()}</p>
+                    <div className="mt-8">
+                      <table className="w-full text-sm border-collapse border border-gray-400">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-800 print:bg-transparent">
+                            <th className="border border-gray-400 p-2 text-left">Property ID</th>
+                            <th className="border border-gray-400 p-2 text-left">Owner</th>
+                            <th className="border border-gray-400 p-2 text-left">Action</th>
+                            <th className="border border-gray-400 p-2 text-left">Performed By</th>
+                            <th className="border border-gray-400 p-2 text-left">Status</th>
+                            <th className="border border-gray-400 p-2 text-right">Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportData.data?.map((r: any, idx: number) => (
+                            <tr key={idx}>
+                              <td className="border border-gray-400 p-2">{r.property_id}</td>
+                              <td className="border border-gray-400 p-2">{r.owner_name}</td>
+                              <td className="border border-gray-400 p-2">{r.action_type}</td>
+                              <td className="border border-gray-400 p-2">{r.performed_by}</td>
+                              <td className="border border-gray-400 p-2">{r.approval_status}</td>
+                              <td className="border border-gray-400 p-2 text-right">{new Date(r.date).toLocaleDateString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {reportType === 'appeals' && reportData.type === 'appeals' && (
+                  <div className="space-y-8">
+                    <h2 className="text-xl font-bold text-center underline">ASSESSMENT APPEAL REPORT</h2>
+                    <p className="text-center">As of {new Date().toLocaleDateString()}</p>
+                    <div className="mt-8">
+                      <table className="w-full text-sm border-collapse border border-gray-400">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-800 print:bg-transparent">
+                            <th className="border border-gray-400 p-2 text-left">Property ID</th>
+                            <th className="border border-gray-400 p-2 text-left">Owner</th>
+                            <th className="border border-gray-400 p-2 text-left">Reason</th>
+                            <th className="border border-gray-400 p-2 text-left">Status</th>
+                            <th className="border border-gray-400 p-2 text-left">Officer</th>
+                            <th className="border border-gray-400 p-2 text-right">Filed</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportData.data?.map((r: any, idx: number) => (
+                            <tr key={idx}>
+                              <td className="border border-gray-400 p-2">{r.property_id}</td>
+                              <td className="border border-gray-400 p-2">{r.owner_name}</td>
+                              <td className="border border-gray-400 p-2">{r.reason}</td>
+                              <td className="border border-gray-400 p-2">{r.current_status}</td>
+                              <td className="border border-gray-400 p-2">{r.responsible_officer || '-'}</td>
+                              <td className="border border-gray-400 p-2 text-right">{new Date(r.date_filed).toLocaleDateString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Signatures */}
+                <div className="mt-24 grid grid-cols-2 gap-8 text-center text-lg">
+                  <div>
+                    <p>Prepared by:</p>
+                    <br /><br />
+                    <p className="font-bold uppercase underline decoration-black dark:decoration-white underline-offset-4">{currentUser ? `${currentUser.first_name} ${currentUser.last_name}` : '______________________'}</p>
+                    <p>Municipal Assessor</p>
+                    <p className="text-sm mt-2">Date: {new Date().toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <p>Submitted to:</p>
+                    <br /><br />
+                    <p className="font-bold uppercase">Municipal Mayor</p>
+                    <p>& Sangguniang Bayan</p>
                   </div>
                 </div>
               </div>
-            ))}
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                <FileText size={64} className="mb-4 opacity-50" />
+                <p>Select a report type and click "Generate Report" to preview.</p>
+              </div>
+            )}
           </div>
         </div>
-      </div>
-
-      {/* Detailed Report Inventory */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <div className="border-b border-gray-200 pb-4 mb-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Detailed Report Inventory - Current Queue</h3>
-            <span className="text-sm text-gray-600">Last synced: 4 minutes ago</span>
-          </div>
+      ) : (
+        <div className="glass-panel p-6 rounded-2xl print:hidden">
+          <DataTable
+            columns={[
+              { key: 'report_id', label: 'Report ID' },
+              { key: 'report_type', label: 'Report Type' },
+              { key: 'reporting_period', label: 'Period' },
+              { key: 'record_count', label: 'Records' },
+              { key: 'status', label: 'Status' },
+              { key: 'generated_date', label: 'Generated Date', render: (val) => new Date(val).toLocaleString() },
+              { key: 'first_name', label: 'Generated By', render: (_, row) => `${row.first_name} ${row.last_name}` }
+            ]}
+            data={historyData}
+          />
         </div>
-        <DataTable
-          columns={reportColumns}
-          data={detailedReports}
-          onView={(record) => setModal({ mode: 'view', record })}
-          onEdit={(record) => setModal({ mode: 'edit', record })}
-          onDelete={(record) => { showConfirm(`Are you sure you want to delete ${record.name}?`, () => setDetailedReports(items => items.filter(item => item.id !== record.id))); }}
-          showActions={true}
-        />
-        {modal && <CrudModal title={`${modal.mode === 'create' ? 'Create' : modal.mode === 'edit' ? 'Edit' : 'View'} Report`} fields={reportFields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={saveReport} />}
-      </div>
+      )}
     </div>
   );
 };

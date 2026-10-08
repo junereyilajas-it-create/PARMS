@@ -29,7 +29,7 @@ async function getOrInsertBarangay(connection, municipalityId, barangayName) {
   return result.insertId
 }
 
-router.post('/properties/unified', authenticate, allowRoles('admin', 'assessor', 'staff'), async (req, res, next) => {
+router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff', 'super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     const data = req.body

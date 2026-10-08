@@ -20,10 +20,13 @@ export const PropertyOwnershipTransfer: React.FC = () => {
   const [owners, setOwners] = useState<Owner[]>([]);
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
   const [query, setQuery] = useState('');
+  const [userRole, setUserRole] = useState('');
 
   const load = async () => {
     try {
       await ensureSession();
+      const profileRes = await api.get('/profile');
+      setUserRole(profileRes.data.role);
       const { data } = await api.get('/owners');
       setOwners(data);
     } catch {
@@ -80,10 +83,12 @@ export const PropertyOwnershipTransfer: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Owner Directory</h1>
           <p className="text-gray-600 mt-1">Manage legal records and contact information for registered owners.</p>
         </div>
-        <button onClick={() => setModal({ mode: 'create' })} className="flex items-center gap-2 px-4 py-2 bg-green-800 text-white rounded-lg hover:bg-green-900 transition">
-          <Plus size={20} />
-          Register Owner
-        </button>
+        {!['admin'].includes(userRole) && (
+          <button onClick={() => setModal({ mode: 'create' })} className="flex items-center gap-2 px-4 py-2 bg-green-800 text-white rounded-lg hover:bg-green-900 transition">
+            <Plus size={20} />
+            Register Owner
+          </button>
+        )}
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow">
@@ -94,8 +99,8 @@ export const PropertyOwnershipTransfer: React.FC = () => {
         columns={columns}
         data={displayedOwners}
         onView={(record) => setModal({ mode: 'view', record })}
-        onEdit={(record) => setModal({ mode: 'edit', record })}
-        onDelete={remove}
+        onEdit={!['admin'].includes(userRole) ? (record) => setModal({ mode: 'edit', record }) : undefined}
+        onDelete={!['admin'].includes(userRole) ? remove : undefined}
         showActions={true}
       />
 
