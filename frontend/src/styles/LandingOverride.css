@@ -1,3 +1,21 @@
 .lp-root { width: 100%; }
 .lp-root main { margin-left: 0; width: 100%; }
-.lp-header .lp-nav { margin-left: auto; flex: 0 0 auto; }
+.lp-header {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: nowrap !important;
+}
+.lp-header .lp-nav {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  gap: 16px !important;
+  margin-left: auto !important;
+  flex: 0 0 auto !important;
+}
+.lp-nav button {
+  white-space: nowrap !important;
+}

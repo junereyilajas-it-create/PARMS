@@ -13,23 +13,35 @@ function Shell({ children, register = false }: { children: React.ReactNode; regi
       <section className="auth-card">
         <div className="auth-panel">
           <div className="auth-brand">
-            <SystemLogo className="w-12 h-12 object-contain shrink-0" navigateTo="/" /><strong>Accessor Office</strong>
+            <SystemLogo className="w-10 h-10 object-contain shrink-0" navigateTo="/" />
+            <div>
+              <span className="auth-brand-title">PARMS</span>
+              <span className="auth-brand-subtitle">Office of the Municipal Assessor · Lagonglong</span>
+            </div>
           </div>
           {children}
         </div>
         <aside className="auth-image">
+          <div className="auth-image-overlay" />
           <div className="auth-image-copy">
             {register ? (
               <>
-                <div className="stars">★★★★★</div>
-                <strong>“Accessor Office has completely transformed our municipal property valuation process. It brings stability, transparency, and increased accuracy to Lagonglong.”</strong>
-                <span>Lagonglong Municipal Assessor<br/>Lagonglong, Misamis Oriental</span>
+                <div className="auth-image-tag">REGISTRATION PORTAL</div>
+                <h2>Join the Municipal Property System</h2>
+                <p>Create an account to track your land declarations, submit assessment requests, and inspect registered property records online.</p>
+                <div className="auth-image-sub">Municipality of Lagonglong · Misamis Oriental</div>
               </>
             ) : (
               <>
-                <SystemLogo className="w-12 h-12 object-contain shrink-0 mb-4" clickable={false} />
-                <h2>Accessor Office</h2>
-                <p>Supporting fair and accurate property valuation in Lagonglong, Misamis Oriental.</p>
+                <div className="auth-image-tag">OFFICIAL MUNICIPAL PLATFORM</div>
+                <h2>Property Assessment & Records Management System</h2>
+                <p>Empowering fair, transparent, and accurate municipal property valuation, cadastral mapping, and certified tax documentation.</p>
+                <div className="auth-image-badges">
+                  <span>✓ Verified Cadastral Parcels</span>
+                  <span>✓ Interactive GIS Mapping</span>
+                  <span>✓ Certified Tax Declarations</span>
+                </div>
+                <div className="auth-image-sub">Municipality of Lagonglong · Office of the Municipal Assessor</div>
               </>
             )}
           </div>
@@ -145,7 +157,7 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
         <form className="auth-form" onSubmit={submit} autoComplete="off" noValidate>
           <div className="auth-heading">
             <h1>Welcome Back</h1>
-            <p>Please enter your credentials to access the assessor portal.</p>
+            <p>Sign in to access the property assessment system.</p>
           </div>
         
         <label>
@@ -206,8 +218,8 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
         </p>
         
         <footer>
-          Secure Access System for City Hall Staff.<br/>
-          © 2024 Municipal Solutions Group.
+          Official Government Access Portal.<br/>
+          © {new Date().getFullYear()} Municipal Assessor's Office · Lagonglong.
         </footer>
       </form>
     </Shell>
