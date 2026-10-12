@@ -136,7 +136,7 @@ export default function CertificateGenerator() {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between no-print mb-4">
-          <button className="flex items-center px-4 py-2 border rounded-md hover:bg-slate-50 transition" onClick={() => setIsPreview(false)}>
+          <button className="flex items-center px-4 py-2 border rounded-md hover:bg-slate-50 dark:hover:bg-gray-800 transition" onClick={() => setIsPreview(false)}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Back to Editor
           </button>
           <button className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition disabled:opacity-50" onClick={handleSaveAndPrint} disabled={isSaving}>
@@ -217,7 +217,7 @@ export default function CertificateGenerator() {
                     {filteredOwners.map(owner => (
                       <div 
                         key={owner.owner_id}
-                        className="px-4 py-2 hover:bg-slate-50 cursor-pointer text-sm"
+                        className="px-4 py-2 hover:bg-slate-50 dark:hover:bg-gray-700 cursor-pointer text-sm"
                         onClick={() => {
                           setSelectedOwner(owner)
                           setSearchTerm('')

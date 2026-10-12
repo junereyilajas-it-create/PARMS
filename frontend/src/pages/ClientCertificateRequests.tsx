@@ -91,10 +91,10 @@ export function ClientCertificateRequests() {
                   <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300 truncate max-w-[200px]">{req.purpose}</td>
                   <td className="px-6 py-4">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium 
-                      ${req.status === 'PENDING' ? 'bg-amber-100 text-amber-800' : 
-                      req.status === 'APPROVED' || req.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 
-                      req.status === 'REJECTED' ? 'bg-red-100 text-red-800' : 
-                      'bg-blue-100 text-blue-800'}`}>
+                      ${req.status === 'PENDING' ? 'bg-amber-100 text-amber-800' :
+                        req.status === 'APPROVED' || req.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+                          req.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                            'bg-blue-100 text-blue-800'}`}>
                       {req.status}
                     </span>
                     {req.rejection_reason && <p className="text-xs text-red-500 mt-1">Reason: {req.rejection_reason}</p>}
@@ -118,10 +118,10 @@ export function ClientCertificateRequests() {
               <button onClick={() => setIsFormOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"><X size={20} /></button>
             </div>
             <form onSubmit={submit} className="p-6 space-y-4">
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Certificate Type</label>
-                <select className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.certificate_type} onChange={e => setForm({...form, certificate_type: e.target.value})} required>
+                <select className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.certificate_type} onChange={e => setForm({ ...form, certificate_type: e.target.value })} required>
                   <option value="Certificate of Property Ownership">Certificate of Property Ownership</option>
                   <option value="Certificate of Property Holdings">Certificate of Property Holdings</option>
                   <option value="Certificate of Assessment">Certificate of Assessment</option>
@@ -132,7 +132,7 @@ export function ClientCertificateRequests() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Property (Optional for some certificates)</label>
-                <select className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.property_id} onChange={e => setForm({...form, property_id: e.target.value})}>
+                <select className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.property_id} onChange={e => setForm({ ...form, property_id: e.target.value })}>
                   <option value="">-- Select a property --</option>
                   {properties.map(p => (
                     <option key={p.property_id} value={p.property_id}>{p.property_type} - {p.location}</option>
@@ -142,12 +142,12 @@ export function ClientCertificateRequests() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Purpose</label>
-                <input className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.purpose} onChange={e => setForm({...form, purpose: e.target.value})} placeholder="e.g. Bank Loan, Business Permit" required />
+                <input className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.purpose} onChange={e => setForm({ ...form, purpose: e.target.value })} placeholder="e.g. Bank Loan, Business Permit" required />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Remarks (Optional)</label>
-                <textarea className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm min-h-[100px]" value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} placeholder="Any additional information..." />
+                <textarea className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm min-h-[100px]" value={form.remarks} onChange={e => setForm({ ...form, remarks: e.target.value })} placeholder="Any additional information..." />
               </div>
 
               <div className="pt-4 flex justify-end gap-3 border-t border-gray-100 dark:border-gray-800 mt-6">

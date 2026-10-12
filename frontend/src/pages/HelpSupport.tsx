@@ -7,7 +7,7 @@ export function HelpSupport() {
   const { showSuccess, showError } = useModal()
   const [activeTab, setActiveTab] = useState<'faq' | 'tickets' | 'manage'>('faq')
   const userRole = localStorage.getItem('accessor_role') || ''
-  
+
   // FAQs
   const [searchQuery, setSearchQuery] = useState('')
   const allFaqs = [
@@ -18,10 +18,10 @@ export function HelpSupport() {
     { question: 'How does the GIS map work?', answer: 'Navigate to the GIS Map section. It displays property parcels geographically. Click on a parcel to see its details.', tags: ['gis', 'map', 'property'] },
     { question: 'How do I request a certificate?', answer: 'For clients, go to Certificate Requests and submit a new request. For staff, use the Generate Certificate feature.', tags: ['certificate', 'request'] },
   ]
-  
-  const filteredFaqs = allFaqs.filter(faq => 
-    searchQuery === '' || 
-    faq.question.toLowerCase().includes(searchQuery.toLowerCase()) || 
+
+  const filteredFaqs = allFaqs.filter(faq =>
+    searchQuery === '' ||
+    faq.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
     faq.tags.some(tag => tag.includes(searchQuery.toLowerCase()))
   )
 
@@ -31,7 +31,7 @@ export function HelpSupport() {
   const [form, setForm] = useState({ subject: '', category: 'General Inquiry', priority: 'Low', description: '' })
   const [submitting, setSubmitting] = useState(false)
   const [selectedTicket, setSelectedTicket] = useState<any>(null)
-  
+
   // Ticket Messages
   const [messages, setMessages] = useState<any[]>([])
   const [newMessage, setNewMessage] = useState('')
@@ -98,7 +98,7 @@ export function HelpSupport() {
       setMessageBusy(false)
     }
   }
-  
+
   const updateTicketStatus = async (status: string) => {
     if (!selectedTicket) return
     try {
@@ -119,20 +119,20 @@ export function HelpSupport() {
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-gray-800">
-        <button 
+        <button
           className={`px-4 py-2 font-medium text-sm transition-colors border-b-2 ${activeTab === 'faq' ? 'border-green-600 text-green-700 dark:text-green-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
           onClick={() => setActiveTab('faq')}
         >
           <div className="flex items-center gap-2"><LifeBuoy size={16} /> FAQ & Help Center</div>
         </button>
-        <button 
+        <button
           className={`px-4 py-2 font-medium text-sm transition-colors border-b-2 ${activeTab === 'tickets' ? 'border-green-600 text-green-700 dark:text-green-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
           onClick={() => setActiveTab('tickets')}
         >
           <div className="flex items-center gap-2"><FileText size={16} /> My Support Requests</div>
         </button>
         {(userRole === 'admin' || userRole === 'super_admin') && (
-          <button 
+          <button
             className={`px-4 py-2 font-medium text-sm transition-colors border-b-2 ${activeTab === 'manage' ? 'border-green-600 text-green-700 dark:text-green-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
             onClick={() => setActiveTab('manage')}
           >
@@ -147,16 +147,16 @@ export function HelpSupport() {
             <h3 className="text-lg font-bold dark:text-white mb-2">How can we help you?</h3>
             <div className="max-w-md mx-auto relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="Search for articles, features, e.g., 'GIS', 'password'" 
+              <input
+                type="text"
+                placeholder="Search for articles, features, e.g., 'GIS', 'password'"
                 className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
           </div>
-          
+
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
               <h3 className="font-semibold text-gray-900 dark:text-white">Frequently Asked Questions</h3>
@@ -183,7 +183,7 @@ export function HelpSupport() {
               <form onSubmit={submitTicket} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
-                  <select className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+                  <select className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
                     <option>General Inquiry</option>
                     <option>Technical Issue</option>
                     <option>Feature Request</option>
@@ -192,7 +192,7 @@ export function HelpSupport() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
-                  <select className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.priority} onChange={e => setForm({...form, priority: e.target.value})}>
+                  <select className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>
                     <option>Low</option>
                     <option>Medium</option>
                     <option>High</option>
@@ -201,11 +201,11 @@ export function HelpSupport() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Subject</label>
-                  <input type="text" className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.subject} onChange={e => setForm({...form, subject: e.target.value})} required />
+                  <input type="text" className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm" value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} required />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-                  <textarea rows={4} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm resize-none" value={form.description} onChange={e => setForm({...form, description: e.target.value})} required placeholder="Describe your issue..." />
+                  <textarea rows={4} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm resize-none" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required placeholder="Describe your issue..." />
                 </div>
                 <button type="submit" disabled={submitting} className="w-full flex justify-center items-center gap-2 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-70">
                   <Plus size={16} /> {submitting ? 'Submitting...' : 'Submit Request'}
@@ -213,7 +213,7 @@ export function HelpSupport() {
               </form>
             </div>
           </div>
-          
+
           <div className="lg:col-span-2">
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden h-full flex flex-col">
               <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
@@ -234,8 +234,8 @@ export function HelpSupport() {
                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium uppercase
                             ${ticket.status === 'Open' ? 'bg-green-100 text-green-800' :
                               ticket.status === 'In Progress' ? 'bg-green-100 text-green-800' :
-                              ticket.status === 'Resolved' ? 'bg-green-100 text-green-800' :
-                              'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
+                                ticket.status === 'Resolved' ? 'bg-green-100 text-green-800' :
+                                  'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
                             {ticket.status}
                           </span>
                         </div>
@@ -284,8 +284,8 @@ export function HelpSupport() {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium uppercase
                         ${ticket.status === 'Open' ? 'bg-green-100 text-green-800' :
                           ticket.status === 'In Progress' ? 'bg-green-100 text-green-800' :
-                          ticket.status === 'Resolved' ? 'bg-green-100 text-green-800' :
-                          'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
+                            ticket.status === 'Resolved' ? 'bg-green-100 text-green-800' :
+                              'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
                         {ticket.status}
                       </span>
                     </td>
@@ -306,13 +306,13 @@ export function HelpSupport() {
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
               <div>
                 <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                  {selectedTicket.ticket_id} 
+                  {selectedTicket.ticket_id}
                   <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium uppercase
                         ${selectedTicket.status === 'Open' ? 'bg-green-100 text-green-800' :
-                          selectedTicket.status === 'In Progress' ? 'bg-green-100 text-green-800' :
-                          selectedTicket.status === 'Resolved' ? 'bg-green-100 text-green-800' :
+                      selectedTicket.status === 'In Progress' ? 'bg-green-100 text-green-800' :
+                        selectedTicket.status === 'Resolved' ? 'bg-green-100 text-green-800' :
                           'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
-                        {selectedTicket.status}
+                    {selectedTicket.status}
                   </span>
                 </h3>
                 <p className="text-sm text-gray-500 mt-1">{selectedTicket.subject}</p>
@@ -324,7 +324,7 @@ export function HelpSupport() {
                 <button onClick={() => setSelectedTicket(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">&times;</button>
               </div>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50 dark:bg-gray-950 custom-scrollbar">
               <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 shadow-sm">
                 <div className="flex justify-between items-start mb-2">
@@ -336,11 +336,10 @@ export function HelpSupport() {
 
               {messages.map(msg => (
                 <div key={msg.message_id} className={`flex flex-col ${msg.role === 'admin' || msg.role === 'super_admin' ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[85%] rounded-lg p-3 text-sm shadow-sm ${
-                    msg.role === 'admin' || msg.role === 'super_admin' 
-                      ? 'bg-green-600 text-white' 
+                  <div className={`max-w-[85%] rounded-lg p-3 text-sm shadow-sm ${msg.role === 'admin' || msg.role === 'super_admin'
+                      ? 'bg-green-600 text-white'
                       : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200'
-                  }`}>
+                    }`}>
                     <div className="flex justify-between items-center gap-4 mb-1">
                       <span className={`font-semibold text-xs ${msg.role === 'admin' || msg.role === 'super_admin' ? 'text-green-100' : 'text-gray-500'}`}>{msg.first_name} ({msg.role})</span>
                     </div>
@@ -354,13 +353,13 @@ export function HelpSupport() {
             {selectedTicket.status !== 'Closed' && (
               <form onSubmit={submitMessage} className="p-4 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex gap-3 items-end">
                 <div className="flex-1">
-                  <textarea 
-                    rows={2} 
-                    className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm resize-none" 
-                    placeholder="Type a message..." 
-                    value={newMessage} 
-                    onChange={e => setNewMessage(e.target.value)} 
-                    required 
+                  <textarea
+                    rows={2}
+                    className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2.5 text-sm resize-none"
+                    placeholder="Type a message..."
+                    value={newMessage}
+                    onChange={e => setNewMessage(e.target.value)}
+                    required
                   />
                 </div>
                 <button type="submit" disabled={messageBusy} className="h-[42px] px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-70 flex items-center justify-center">

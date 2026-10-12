@@ -11,7 +11,7 @@ export function ActivityLogsView() {
   const [dateTo, setDateTo] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 20
-  
+
   useEffect(() => {
     api.get('/activity-logs-detailed').then(res => setLogs(res.data)).catch(console.error)
   }, [])
@@ -24,7 +24,7 @@ export function ActivityLogsView() {
       const matchSearch = `${log.first_name || ''} ${log.last_name || ''} ${log.activity} ${log.module_name} ${log.role}`.toLowerCase().includes(search.toLowerCase())
       const matchModule = moduleFilter === 'All' || log.module_name === moduleFilter
       const matchRole = roleFilter === 'All' || log.role === roleFilter
-      
+
       let matchDate = true
       if (dateFrom || dateTo) {
         const logDate = new Date(log.activity_date)
@@ -53,13 +53,13 @@ export function ActivityLogsView() {
           <Activity className="text-blue-500" />
           <h1 className="text-2xl font-bold dark:text-white">Activity Logs</h1>
         </div>
-        
+
         <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="Search logs..." 
+            <input
+              type="text"
+              placeholder="Search logs..."
               value={search}
               onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
               className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
@@ -67,7 +67,7 @@ export function ActivityLogsView() {
           </div>
           <div className="relative">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-            <select 
+            <select
               value={moduleFilter}
               onChange={e => { setModuleFilter(e.target.value); setCurrentPage(1); }}
               className="pl-9 pr-8 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm appearance-none"
@@ -78,7 +78,7 @@ export function ActivityLogsView() {
           </div>
           <div className="relative">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-            <select 
+            <select
               value={roleFilter}
               onChange={e => { setRoleFilter(e.target.value); setCurrentPage(1); }}
               className="pl-9 pr-8 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm appearance-none capitalize"
@@ -88,21 +88,21 @@ export function ActivityLogsView() {
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <input 
+            <input
               type="date"
               value={dateFrom}
               onChange={e => { setDateFrom(e.target.value); setCurrentPage(1); }}
               className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
             />
             <span className="text-gray-500">to</span>
-            <input 
+            <input
               type="date"
               value={dateTo}
               onChange={e => { setDateTo(e.target.value); setCurrentPage(1); }}
               className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
             />
           </div>
-          <button 
+          <button
             onClick={() => { setSearch(''); setModuleFilter('All'); setRoleFilter('All'); setDateFrom(''); setDateTo(''); setCurrentPage(1); }}
             className="px-4 py-2 text-sm text-green-600 hover:text-green-800"
           >
@@ -137,21 +137,21 @@ export function ActivityLogsView() {
             )}
           </tbody>
         </table>
-        
+
         {totalPages > 1 && (
           <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
             <span className="text-sm text-gray-500">
               Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredLogs.length)} of {filteredLogs.length} entries
             </span>
             <div className="flex gap-2">
-              <button 
+              <button
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage(p => p - 1)}
                 className="px-3 py-1 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm disabled:opacity-50"
               >
                 Previous
               </button>
-              <button 
+              <button
                 disabled={currentPage === totalPages}
                 onClick={() => setCurrentPage(p => p + 1)}
                 className="px-3 py-1 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm disabled:opacity-50"

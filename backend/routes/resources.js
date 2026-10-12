@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import { pool } from '../config/db.js'
-import { authenticate, allowRoles } from '../middleware/auth.js'
+import { authenticate, allowRoles, requirePermission, loadPermissions } from '../middleware/auth.js'
 import { logActivity, logPropertyHistory } from '../utils/logger.js'
+import { notifyRole } from '../utils/notifications.js'
 const router = Router()
 // Read models keep relationship data useful to the UI while the individual
 // resources above remain available for normal table-level CRUD.
@@ -32,18 +33,39 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
     l.lot_area, l.lot_status,
     CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner, 
     t.property_type_name AS property_type, c.classification_name,
-    COALESCE(a.market_value, 0) AS market_value, COALESCE(a.assessed_value, 0) AS assessed_value,
-    a.assessment_status
+    COALESCE(lah.market_value, a.market_value, 0) AS market_value, COALESCE(lah.assessed_value, a.assessed_value, 0) AS assessed_value,
+    COALESCE(lah.assessment_status, a.assessment_status) AS assessment_status,
+    (SELECT COUNT(*) > 0 FROM assessment_permission_requests WHERE property_type = 'lot' AND target_id_str = l.lot_id AND request_action = 'MANAGEMENT' AND request_status = 'pending') AS has_pending_changes,
+    aa.assignment_id AS active_assignment_id,
+    aa.assigned_to_user_id AS assigned_assessor_id,
+    CONCAT_WS(' ', au.first_name, au.last_name) AS assigned_assessor_name,
+    au.username AS assigned_assessor_username,
+    au.email AS assigned_assessor_email,
+    aa.assignment_status AS active_assignment_status,
+    aa.due_date AS assignment_due_date,
+    aa.instructions AS assignment_instructions
     FROM properties p 
     JOIN property_owners o ON o.owner_id = p.owner_id 
-    JOIN property_types t ON t.property_type_id = p.property_type_id
+    JOIN property_types t ON t.property_type_id = p.property_type_id 
     JOIN property_classifications c ON c.classification_id = p.classification_id 
     JOIN addresses ad ON ad.address_id = p.address_id
     JOIN barangays br ON br.barangay_id = ad.barangay_id
     JOIN municipalities mu ON mu.municipality_id = br.municipality_id
     JOIN provinces pr ON pr.province_id = mu.province_id
     LEFT JOIN property_lots l ON l.property_id = p.property_id
+    LEFT JOIN lot_assessment_history lah ON lah.lot_assessment_history_id = (
+      SELECT h.lot_assessment_history_id FROM lot_assessment_history h 
+      WHERE h.lot_id = l.lot_id 
+      ORDER BY h.assessment_date DESC, h.lot_assessment_history_id DESC LIMIT 1
+    )
     LEFT JOIN property_assessments a ON a.assessment_id = (SELECT pa.assessment_id FROM property_assessments pa WHERE pa.property_id = p.property_id ORDER BY pa.assessment_date DESC, pa.assessment_id DESC LIMIT 1)
+    LEFT JOIN assessment_assignments aa ON aa.assignment_id = (
+      SELECT a2.assignment_id FROM assessment_assignments a2 
+      WHERE a2.property_type = 'lot' AND (a2.target_id_int = l.lot_id OR a2.target_id_str = l.lot_number)
+      AND a2.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted')
+      ORDER BY a2.assignment_id DESC LIMIT 1
+    )
+    LEFT JOIN users au ON aa.assigned_to_user_id = au.user_id
     ORDER BY p.property_id DESC`)
   res.json(rows)
 } catch (e) { next(e) } })
@@ -197,6 +219,7 @@ router.delete('/properties/:id', authenticate, allowRoles('super_admin'), async 
 // Custom endpoints for Buildings to include assessments
 router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'), async (req, res, next) => {
   try {
+    const currentUserId = req.user?.id || req.user?.user_id;
     const [rows] = await pool.query(`
       SELECT b.*, 
         p.property_id, p.property_status,
@@ -207,7 +230,25 @@ router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'),
         TRIM(CONCAT(o.first_name, ' ', IFNULL(o.middle_name, ''), ' ', o.last_name)) as owner,
         COALESCE(bah.market_value, 0) AS market_value,
         COALESCE(bah.assessed_value, 0) AS assessed_value,
-        bah.assessment_status
+        bah.assessment_status,
+        bah.rejection_reason,
+        bah.property_photo,
+        bah.building_assessment_history_id,
+        (SELECT COUNT(*) > 0 FROM assessment_permission_requests WHERE property_type = 'building' AND target_id_str = b.building_id AND request_action = 'MANAGEMENT' AND request_status = 'pending') AS has_pending_changes,
+        (SELECT COUNT(*) > 0 FROM assessment_permission_requests apr 
+         WHERE apr.property_type = 'building' 
+           AND (apr.target_id_int = b.building_id OR apr.target_id_str = b.building_name OR apr.target_id_str = CONCAT('BLDG-', b.building_id)) 
+           AND apr.requested_by_user_id = ? 
+           AND apr.request_status = 'approved'
+        ) AS is_permitted_for_user,
+        aa.assignment_id AS active_assignment_id,
+        aa.assigned_to_user_id AS assigned_assessor_id,
+        CONCAT_WS(' ', au.first_name, au.last_name) AS assigned_assessor_name,
+        au.username AS assigned_assessor_username,
+        au.email AS assigned_assessor_email,
+        aa.assignment_status AS active_assignment_status,
+        aa.due_date AS assignment_due_date,
+        aa.instructions AS assignment_instructions
       FROM property_buildings b
       JOIN properties p ON b.property_id = p.property_id
       LEFT JOIN property_owners o ON p.owner_id = o.owner_id
@@ -221,13 +262,23 @@ router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'),
         WHERE h.building_id = b.building_id 
         ORDER BY h.assessment_date DESC, h.building_assessment_history_id DESC LIMIT 1
       )
+      LEFT JOIN assessment_assignments aa ON aa.assignment_id = (
+        SELECT a2.assignment_id FROM assessment_assignments a2 
+        WHERE a2.property_type = 'building' AND (a2.target_id_int = b.building_id OR a2.target_id_str = b.building_name)
+        AND a2.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted')
+        ORDER BY a2.assignment_id DESC LIMIT 1
+      )
+      LEFT JOIN users au ON aa.assigned_to_user_id = au.user_id
       ORDER BY b.building_id DESC
-    `)
+    `, [currentUserId])
     res.json(rows)
   } catch (e) { next(e) }
 })
 
-router.post('/buildings', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
+router.post('/buildings', authenticate, loadPermissions, async (req, res, next) => {
+  if (req.user.role !== 'super_admin' && !req.user.permissions?.includes('CREATE_BUILDING')) {
+     return res.status(403).json({ message: 'Insufficient permissions' })
+  }
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -262,10 +313,20 @@ router.post('/buildings', authenticate, allowRoles('staff', 'super_admin'), asyn
     }
     const buildingIdStr = `LBP-${purokStr}-A${nextBldgSeq}`;
 
+    const finalStatus = req.user.role === 'staff' ? 'pending' : (building_status || 'active');
     await connection.query(
       'INSERT INTO property_buildings (building_id, property_id, building_name, building_type, floor_area, floor_count, construction_type, year_constructed, building_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [buildingIdStr, property_id, building_name, building_type, floor_area || null, floor_count || null, construction_type || null, year_constructed || null, building_status || 'active']
+      [buildingIdStr, property_id, building_name, building_type, floor_area || null, floor_count || null, construction_type || null, year_constructed || null, finalStatus]
     )
+
+    if (req.user.role === 'staff') {
+      await connection.query(`
+        INSERT INTO assessment_permission_requests 
+        (property_type, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
+        VALUES (?, ?, ?, 'ADDITION', ?, 'pending')
+      `, ['building', buildingIdStr, req.user.id, JSON.stringify({ building_id: buildingIdStr, ...req.body })]);
+      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval for a new building.`, 'PERMISSION_REQUEST', buildingIdStr);
+    }
 
     if (Number(market_value) > 0 || Number(assessed_value) > 0) {
       await connection.query(
@@ -284,13 +345,27 @@ router.post('/buildings', authenticate, allowRoles('staff', 'super_admin'), asyn
   }
 })
 
-router.put('/buildings/:id', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
+router.put('/buildings/:id', authenticate, loadPermissions, async (req, res, next) => {
+  if (req.user.role !== 'super_admin' && !req.user.permissions?.includes('EDIT_BUILDING')) {
+     return res.status(403).json({ message: 'Insufficient permissions' })
+  }
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
     const id = req.params.id
     const { property_id, building_name, building_type, floor_area, floor_count, construction_type, year_constructed, building_status, market_value, assessed_value } = req.body
     
+    if (req.user.role === 'staff') {
+      await connection.query(`
+        INSERT INTO assessment_permission_requests 
+        (property_type, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
+        VALUES (?, ?, ?, 'MANAGEMENT', ?, 'pending')
+      `, ['building', id, req.user.id, JSON.stringify(req.body)]);
+      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval to edit Building ${id}.`, 'PERMISSION_REQUEST', id);
+      await connection.commit();
+      return res.json({ message: 'Change requested successfully. Pending Admin approval.' });
+    }
+
     if (property_id) {
       const [propCheck] = await connection.query('SELECT 1 FROM properties WHERE property_id = ?', [property_id])
       if (!propCheck.length) {
@@ -348,7 +423,10 @@ router.delete('/buildings/:id', authenticate, allowRoles('super_admin'), async (
 })
 
 // Custom endpoints for Lots to handle GIS locations
-router.post('/lots', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
+router.post('/lots', authenticate, loadPermissions, async (req, res, next) => {
+  if (req.user.role !== 'super_admin' && !req.user.permissions?.includes('CREATE_LOT')) {
+     return res.status(403).json({ message: 'Insufficient permissions' })
+  }
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -372,10 +450,20 @@ router.post('/lots', authenticate, allowRoles('staff', 'super_admin'), async (re
     }
     const lotId = `LP-${purokStr}-L${nextLotSeq}`;
 
+    const finalLotStatus = req.user.role === 'staff' ? 'pending' : (lot_status || 'active');
     const [lotRes] = await connection.query(
       'INSERT INTO property_lots (lot_id, property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?, ?)',
-      [lotId, property_id, lot_number, title_number || null, lot_area || null, lot_status || 'active']
+      [lotId, property_id, lot_number, title_number || null, lot_area || null, finalLotStatus]
     )
+
+    if (req.user.role === 'staff') {
+      await connection.query(`
+        INSERT INTO assessment_permission_requests 
+        (property_type, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
+        VALUES (?, ?, ?, 'ADDITION', ?, 'pending')
+      `, ['lot', lotId, req.user.id, JSON.stringify({ lot_id: lotId, ...req.body })]);
+      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval for a new lot.`, 'PERMISSION_REQUEST', lotId);
+    }
 
 
     await connection.commit()
@@ -388,13 +476,27 @@ router.post('/lots', authenticate, allowRoles('staff', 'super_admin'), async (re
   }
 })
 
-router.put('/lots/:id', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
+router.put('/lots/:id', authenticate, loadPermissions, async (req, res, next) => {
+  if (req.user.role !== 'super_admin' && !req.user.permissions?.includes('EDIT_LOT')) {
+     return res.status(403).json({ message: 'Insufficient permissions' })
+  }
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
     const id = req.params.id
     const { property_id, lot_number, title_number, lot_area, lot_status, latitude, longitude } = req.body
     
+    if (req.user.role === 'staff') {
+      await connection.query(`
+        INSERT INTO assessment_permission_requests 
+        (property_type, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
+        VALUES (?, ?, ?, 'MANAGEMENT', ?, 'pending')
+      `, ['lot', id, req.user.id, JSON.stringify(req.body)]);
+      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval to edit Lot ${id}.`, 'PERMISSION_REQUEST', id);
+      await connection.commit();
+      return res.json({ message: 'Change requested successfully. Pending Admin approval.' });
+    }
+
     if (property_id) {
       const [propCheck] = await connection.query('SELECT 1 FROM properties WHERE property_id = ?', [property_id])
       if (!propCheck.length) {
@@ -423,7 +525,10 @@ router.put('/lots/:id', authenticate, allowRoles('staff', 'super_admin'), async 
   }
 })
 
-router.delete('/lots/:id', authenticate, allowRoles('super_admin'), async (req, res, next) => {
+router.delete('/lots/:id', authenticate, loadPermissions, async (req, res, next) => {
+  if (req.user.role !== 'super_admin' && !req.user.permissions?.includes('DELETE_LOT')) {
+     return res.status(403).json({ message: 'Insufficient permissions' })
+  }
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -445,7 +550,10 @@ router.delete('/lots/:id', authenticate, allowRoles('super_admin'), async (req, 
   }
 })
 
-router.delete('/buildings/:id', authenticate, allowRoles('super_admin'), async (req, res, next) => {
+router.delete('/buildings/:id', authenticate, loadPermissions, async (req, res, next) => {
+  if (req.user.role !== 'super_admin' && !req.user.permissions?.includes('DELETE_BUILDING')) {
+     return res.status(403).json({ message: 'Insufficient permissions' })
+  }
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -468,7 +576,10 @@ router.delete('/buildings/:id', authenticate, allowRoles('super_admin'), async (
   }
 })
 
-router.delete('/properties/:id', authenticate, allowRoles('super_admin'), async (req, res, next) => {
+router.delete('/properties/:id', authenticate, loadPermissions, async (req, res, next) => {
+  if (req.user.role !== 'super_admin' && !req.user.permissions?.includes('DELETE_LOT') && !req.user.permissions?.includes('DELETE_BUILDING')) {
+     return res.status(403).json({ message: 'Insufficient permissions' })
+  }
   const connection = await pool.getConnection()
   try {
     await connection.beginTransaction()
@@ -567,6 +678,28 @@ for (const [path, { table, columns, idColumn }] of Object.entries(config)) {
     res.status(201).json({ record: rows[0], message: 'Record created' })
   } catch (e) { next(e) } })
   router.put(`/${path}/:id`, authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => { try {
+    if ((path === 'lots' || path === 'buildings') && req.user.role === 'staff') {
+      const typeStr = path === 'lots' ? 'lot' : 'building';
+      const targetIdStr = String(req.params.id);
+      const proposedData = JSON.stringify(req.body);
+      
+      // Check if there is already a pending management request for this item
+      const [existing] = await pool.query(
+        `SELECT request_id FROM assessment_permission_requests WHERE property_type = ? AND target_id_str = ? AND request_action = 'MANAGEMENT' AND request_status = 'pending'`,
+        [typeStr, targetIdStr]
+      );
+      if (existing.length > 0) {
+        return res.status(409).json({ message: 'A pending update request already exists for this record.' });
+      }
+
+      const [insertResult] = await pool.query(
+        `INSERT INTO assessment_permission_requests (property_type, target_id_str, requested_by_user_id, request_action, proposed_data, reason, request_status) VALUES (?, ?, ?, 'MANAGEMENT', ?, 'Staff submitted update for approval', 'pending')`,
+        [typeStr, targetIdStr, req.user.id, proposedData]
+      );
+      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name || 'member'} requested approval to update ${typeStr} ${targetIdStr}.`, 'PERMISSION_REQUEST', targetIdStr);
+      return res.status(202).json({ message: 'Update submitted for admin approval.', request_id: insertResult.insertId });
+    }
+
     const values = [...columns.map(c => req.body[c] === '' ? null : req.body[c]), req.params.id]
     
     if (columns.includes('property_id') && req.body.property_id) {

@@ -38,10 +38,10 @@ export function AdminCertificateRequests() {
         rejection_reason: statusInput === 'REJECTED' ? rejectionReason : null
       })
       setSelected(null)
-      
+
       setSuccessMessage('Certification request updated successfully.')
       setTimeout(() => setSuccessMessage(''), 1000)
-      
+
       load()
     } catch (e: any) {
       showError(e.response?.data?.message || 'Failed to update request status')
@@ -53,9 +53,9 @@ export function AdminCertificateRequests() {
   }
 
   const filteredRequests = useMemo(() => {
-    return requests.filter(r => 
-      String(r.request_id).includes(search) || 
-      r.client_name?.toLowerCase().includes(search.toLowerCase()) || 
+    return requests.filter(r =>
+      String(r.request_id).includes(search) ||
+      r.client_name?.toLowerCase().includes(search.toLowerCase()) ||
       r.certificate_type.toLowerCase().includes(search.toLowerCase())
     )
   }, [requests, search])
@@ -83,9 +83,9 @@ export function AdminCertificateRequests() {
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-          <input 
-            type="text" 
-            placeholder="Search requests..." 
+          <input
+            type="text"
+            placeholder="Search requests..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="pl-9 pr-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm w-64"
@@ -115,29 +115,29 @@ export function AdminCertificateRequests() {
                   <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300 truncate max-w-[200px]">{req.location || 'N/A'}</td>
                   <td className="px-6 py-4">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium 
-                      ${req.status === 'PENDING' ? 'bg-amber-100 text-amber-800' : 
-                      req.status === 'UNDER_REVIEW' ? 'bg-purple-100 text-purple-800' :
-                      req.status === 'APPROVED' || req.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 
-                      req.status === 'REJECTED' ? 'bg-red-100 text-red-800' : 
-                      'bg-blue-100 text-blue-800'}`}>
+                      ${req.status === 'PENDING' ? 'bg-amber-100 text-amber-800' :
+                        req.status === 'UNDER_REVIEW' ? 'bg-purple-100 text-purple-800' :
+                          req.status === 'APPROVED' || req.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+                            req.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                              'bg-blue-100 text-blue-800'}`}>
                       {req.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right flex justify-end gap-3 items-center">
                     {req.status === 'APPROVED' && (
-                      <button 
+                      <button
                         onClick={() => handleGenerate(req)}
                         className="text-sm text-green-600 hover:text-green-800 font-medium flex items-center gap-1"
                         title="Generate Certificate"
                       >
-                        <FileDown size={15}/> Generate
+                        <FileDown size={15} /> Generate
                       </button>
                     )}
-                    <button 
-                      onClick={() => { setSelected(req); setStatusInput(req.status); setRejectionReason(req.rejection_reason || ''); }} 
+                    <button
+                      onClick={() => { setSelected(req); setStatusInput(req.status); setRejectionReason(req.rejection_reason || ''); }}
                       className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
                     >
-                      <Search size={15}/> Review
+                      <Search size={15} /> Review
                     </button>
                   </td>
                 </tr>
@@ -155,7 +155,7 @@ export function AdminCertificateRequests() {
           <div className="bg-white dark:bg-gray-900 rounded-xl max-w-lg w-full shadow-2xl border border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                <FileText size={20} className="text-gray-500"/>
+                <FileText size={20} className="text-gray-500" />
                 Review Request REQ-{String(selected.request_id).padStart(5, '0')}
               </h2>
               <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"><X size={20} /></button>
@@ -172,7 +172,7 @@ export function AdminCertificateRequests() {
               <form onSubmit={updateStatus} className="pt-2 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Update Status</label>
-                  <select 
+                  <select
                     className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm"
                     value={statusInput}
                     onChange={e => setStatusInput(e.target.value)}
@@ -186,12 +186,12 @@ export function AdminCertificateRequests() {
                     <option value="CANCELLED">CANCELLED</option>
                   </select>
                 </div>
-                
+
                 {statusInput === 'REJECTED' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rejection Reason</label>
-                    <textarea 
-                      required 
+                    <textarea
+                      required
                       className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm"
                       value={rejectionReason}
                       onChange={e => setRejectionReason(e.target.value)}
@@ -202,7 +202,7 @@ export function AdminCertificateRequests() {
 
                 <div className="flex justify-between items-center mt-6">
                   {selected.status === 'APPROVED' ? (
-                    <button type="button" onClick={() => handleGenerate(selected)} className="px-4 py-2 text-sm font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 rounded-lg transition-colors flex items-center gap-1"><Printer size={16}/> Print Certificate</button>
+                    <button type="button" onClick={() => handleGenerate(selected)} className="px-4 py-2 text-sm font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 rounded-lg transition-colors flex items-center gap-1"><Printer size={16} /> Print Certificate</button>
                   ) : <div></div>}
                   <div className="flex gap-3">
                     <button type="button" onClick={() => setSelected(null)} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors border border-gray-300 dark:border-gray-700">Cancel</button>

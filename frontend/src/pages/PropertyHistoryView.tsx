@@ -4,7 +4,7 @@ import { History } from 'lucide-react'
 
 export function PropertyHistoryView() {
   const [history, setHistory] = useState<any[]>([])
-  
+
   useEffect(() => {
     // Assuming backend endpoint /property_history can be fetched (Wait, I need to create this in resources.js or stats.js)
     api.get('/stats/assessor').then(res => setHistory(res.data.recentUpdates)).catch(console.error)

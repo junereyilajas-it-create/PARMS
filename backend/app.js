@@ -16,10 +16,18 @@ import assessmentAssignmentsRoutes from './routes/assessment-assignments.js'
 import reportsRoutes from './routes/reports.js'
 import systemSettingsRoutes from './routes/systemSettings.js'
 import supportTicketsRoutes from './routes/supportTickets.js'
+import notificationsRoutes from './routes/notifications.js'
+import rolesRoutes from './routes/roles.js'
+import scannerRoutes from './routes/scanner.js'
 dotenv.config({ path: new URL('./.env', import.meta.url) })
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 app.use(cors({ origin: [process.env.CLIENT_URL || 'http://localhost:5173', 'http://localhost:5174'] }))
 app.use(express.json())
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }))
 app.use('/api', authRoutes)
 app.use('/api', propertiesUnifiedRoutes)
@@ -36,6 +44,9 @@ app.use('/api', gisRoutes)
 app.use('/api', reportsRoutes)
 app.use('/api', systemSettingsRoutes)
 app.use('/api', supportTicketsRoutes)
+app.use('/api', notificationsRoutes)
+app.use('/api', rolesRoutes)
+app.use('/api', scannerRoutes)
 app.use((err, _, res, __) => {
   console.error(err)
   if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'A record with that unique ID or reference already exists.' })

@@ -1,4 +1,4 @@
-import { ClipboardCheck, Building2, FileText, Home, LayoutDashboard, Map, PanelLeftClose, Settings, Users, SquareDashed, Shield, User, HelpCircle } from 'lucide-react'
+import { ClipboardCheck, Building2, FileText, Home, LayoutDashboard, Map, PanelLeftClose, Settings, Users, SquareDashed, Shield, ScanLine } from 'lucide-react'
 import { SystemLogo } from '../common/SystemLogo'
 
 const ALL_NAV_GROUPS = [
@@ -9,7 +9,7 @@ const ALL_NAV_GROUPS = [
       { label: 'My Properties', icon: Building2, roles: ['owner', 'client'] },
       { label: 'My GIS Property', icon: Map, roles: ['owner', 'client'] },
       { label: 'My Assessments', icon: ClipboardCheck, roles: ['owner', 'client'] },
-      { label: 'Reports', icon: FileText, roles: ['super_admin', 'admin'] }
+      { label: 'Reports', icon: FileText, roles: ['admin'] }
     ]
   },
   {
@@ -22,11 +22,12 @@ const ALL_NAV_GROUPS = [
   {
     title: 'Properties',
     items: [
-      { label: 'Lots', icon: SquareDashed, roles: ['admin'] },
-      { label: 'Buildings', icon: Building2, roles: ['admin'] },
+      { label: 'Lots', icon: SquareDashed, roles: ['admin', 'staff'] },
+      { label: 'Buildings', icon: Building2, roles: ['admin', 'staff'] },
       { label: 'Owners', icon: Users, roles: ['admin', 'staff'] },
       { label: 'Assigned Properties', icon: Building2, roles: ['assessor'] },
-      { label: 'GIS Map', icon: Map, roles: ['admin', 'assessor'] }
+      { label: 'GIS Map', icon: Map, roles: ['admin', 'assessor', 'staff'] },
+      { label: 'Blueprint Scanner', icon: ScanLine, roles: ['admin', 'staff'] }
     ]
   },
   {
@@ -35,7 +36,7 @@ const ALL_NAV_GROUPS = [
       { label: 'Assessments', icon: ClipboardCheck, roles: ['admin', 'assessor'] },
       { label: 'Assessment Assignments', icon: ClipboardCheck, roles: ['admin', 'super_admin'] },
       { label: 'Permission Requests', icon: FileText, roles: ['admin', 'super_admin', 'assessor'] },
-      { label: 'Certificates', icon: FileText, roles: ['admin', 'staff'] },
+      { label: 'Certificates', icon: FileText, roles: ['super_admin', 'admin', 'staff'] },
       { label: 'Certificate Requests', icon: FileText, roles: ['owner', 'client'] },
       { label: 'Assigned Tasks', icon: ClipboardCheck, roles: ['staff'] }
     ]
@@ -44,9 +45,7 @@ const ALL_NAV_GROUPS = [
     title: 'System',
     items: [
       { label: 'Activity Logs', icon: FileText, roles: ['super_admin'] },
-      { label: 'System Settings', icon: Settings, roles: ['super_admin', 'admin', 'assessor', 'staff'] },
-      { label: 'Account Settings', icon: User, roles: ['super_admin', 'admin', 'assessor', 'staff', 'owner', 'client'] },
-      { label: 'Help & Support', icon: HelpCircle, roles: ['super_admin', 'admin', 'assessor', 'staff', 'owner', 'client'] }
+      { label: 'System Settings', icon: Settings, roles: ['super_admin', 'admin', 'assessor', 'staff'] }
     ]
   }
 ];
@@ -63,9 +62,9 @@ export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, 
     <aside className={`fixed inset-y-0 left-0 md:sticky md:top-0 h-screen z-40 bg-white dark:bg-gray-900 transition-all duration-300 flex flex-col shrink-0 ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${collapsed ? 'w-20' : 'w-64'}`}>
       <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-800 shrink-0">
         <div className="flex items-center gap-3 overflow-hidden">
-          <SystemLogo 
-            className="w-8 h-8 shrink-0 object-contain" 
-            onClick={() => onNavigate('Dashboard')} 
+          <SystemLogo
+            className="w-8 h-8 shrink-0 object-contain"
+            onClick={() => onNavigate('Dashboard')}
           />
           {!collapsed && (
             <div className="flex flex-col whitespace-nowrap">

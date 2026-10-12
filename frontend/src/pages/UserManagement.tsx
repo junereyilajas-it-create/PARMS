@@ -11,19 +11,19 @@ export function UserManagement() {
   const [roleFilter, setRoleFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [modalState, setModalState] = useState<{ mode: 'create' | 'edit'; record?: any } | null>(null)
-  
+
   const filteredUsers = users.filter(u => {
     const matchesSearch = `${u.first_name} ${u.last_name} ${u.username} ${u.email} ${u.role} ${u.status}`.toLowerCase().includes(search.toLowerCase())
     const matchesRole = roleFilter ? u.role === roleFilter : true
     const matchesStatus = statusFilter ? u.status === statusFilter : true
     return matchesSearch && matchesRole && matchesStatus
   })
-  
+
   const loadUsers = async () => {
     try {
       const { data } = await api.get('/users')
       setUsers(data)
-    } catch(e) { console.error('Could not load users', e) }
+    } catch (e) { console.error('Could not load users', e) }
   }
 
   useEffect(() => { loadUsers() }, [])
@@ -39,7 +39,7 @@ export function UserManagement() {
       }
       setModalState(null)
       loadUsers()
-    } catch(e: any) { 
+    } catch (e: any) {
       const msg = e.response?.data?.message || 'Failed to save user. Please check your inputs.'
       showError(msg)
     }
@@ -51,7 +51,7 @@ export function UserManagement() {
         await api.delete(`/users/${id}`)
         showSuccess('User successfully deleted.')
         loadUsers()
-      } catch(e: any) { 
+      } catch (e: any) {
         const msg = e.response?.data?.message || 'Failed to delete user.'
         showError(msg)
       }
@@ -63,16 +63,16 @@ export function UserManagement() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold dark:text-white">User Management</h1>
         <button onClick={() => setModalState({ mode: 'create' })} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 whitespace-nowrap">
-          <Plus size={18}/> Add User
+          <Plus size={18} /> Add User
         </button>
       </div>
-      
+
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-          <input 
-            type="text" 
-            placeholder="Search users..." 
+          <input
+            type="text"
+            placeholder="Search users..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
@@ -118,8 +118,8 @@ export function UserManagement() {
                   </span>
                 </td>
                 <td className="p-4 text-sm flex gap-2">
-                  <button onClick={() => setModalState({ mode: 'edit', record: u })} className="text-blue-600 hover:text-blue-800"><Edit2 size={16}/></button>
-                  <button onClick={() => handleDelete(u.user_id)} className="text-red-600 hover:text-red-800"><Trash2 size={16}/></button>
+                  <button onClick={() => setModalState({ mode: 'edit', record: u })} className="text-blue-600 hover:text-blue-800"><Edit2 size={16} /></button>
+                  <button onClick={() => handleDelete(u.user_id)} className="text-red-600 hover:text-red-800"><Trash2 size={16} /></button>
                 </td>
               </tr>
             )) : (
@@ -130,7 +130,7 @@ export function UserManagement() {
       </div>
 
       {modalState && (
-        <CrudModal 
+        <CrudModal
           title={modalState.mode === 'create' ? 'Add User' : 'Edit User'}
           fields={[
             { key: 'first_name', label: 'First Name' },

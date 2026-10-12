@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { FormEvent } from 'react'
-import { ArrowRight, Building2, Eye, EyeOff, Landmark, LockKeyhole, Mail } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react'
 import { useModal } from '../contexts/ModalContext'
 import { useFormValidation, validateRequired, validateEmail, validatePassword } from '../lib/validation'
 import api from '../lib/api'
@@ -9,7 +9,7 @@ import '../styles/AuthPages.css'
 
 function Shell({ children, register = false }: { children: React.ReactNode; register?: boolean }) {
   return (
-    <main className={`auth-page ${register ? 'auth-register' : ''}`}>
+    <main className={`auth-page theme-isolated ${register ? 'auth-register' : ''}`} data-theme="light">
       <section className="auth-card">
         <div className="auth-panel">
           <div className="auth-brand">
@@ -130,14 +130,14 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
     <>
       {loginSuccess && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 flex flex-col items-center shadow-2xl animate-in zoom-in-95 duration-300">
-            <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-green-600 rounded-full flex items-center justify-center mb-4">
+          <div className="bg-white rounded-2xl p-8 flex flex-col items-center shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4">
               <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Login Successful</h2>
-            <p className="text-gray-500 dark:text-gray-400">Welcome back!</p>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Login Successful</h2>
+            <p className="text-gray-500">Welcome back!</p>
           </div>
         </div>
       )}
@@ -153,6 +153,7 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
           <div className={`auth-input ${getUClass()}`}>
             <Mail size={15}/>
             <input 
+              id="login-username"
               value={username} 
               onChange={e => {
                 setUsername(e.target.value)
@@ -171,6 +172,7 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
           <div className={`auth-input ${getPClass()}`}>
             <LockKeyhole size={15}/>
             <input 
+              id="login-password"
               type={show ? 'text' : 'password'} 
               value={password} 
               onChange={e => {
@@ -195,7 +197,7 @@ export function LoginPage({ onNavigate }: { onNavigate: (page: string) => void }
           <button type="button" onClick={() => onNavigate('ForgotPassword')} style={{background: 'none', border: 'none', color: '#10b981', fontSize: '12px', cursor: 'pointer', padding: 0}}>Forgot Password?</button>
         </div>
         
-        <button className="auth-submit" disabled={busy}>
+        <button id="login-submit-btn" className="auth-submit" disabled={busy}>
           {busy ? 'Signing in…' : <>Sign In <ArrowRight size={16}/></>}
         </button>
         

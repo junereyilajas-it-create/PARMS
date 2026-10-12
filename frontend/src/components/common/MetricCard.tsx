@@ -29,9 +29,8 @@ export const MetricCard: React.FC<MetricCardProps> = ({
             <h3 className="text-2xl font-bold text-gray-900">{value}</h3>
             {trend && (
               <div
-                className={`flex items-center gap-1 text-sm font-medium ${
-                  trend.isPositive ? 'text-green-600' : 'text-red-600'
-                }`}
+                className={`flex items-center gap-1 text-sm font-medium ${trend.isPositive ? 'text-green-600' : 'text-red-600'
+                  }`}
               >
                 {trend.isPositive ? (
                   <TrendingUp size={16} />

@@ -118,20 +118,21 @@ export function PropertyMapView() {
                 if (positions.length === 0) return null
                 
                 const isBuilding = f.type === 'building'
-                const color = isBuilding ? '#8b5cf6' : '#10b981'
+                const isPending = f.status === 'pending'
+                const color = isPending ? '#f59e0b' : (isBuilding ? '#8b5cf6' : '#10b981')
 
                 return (
                   <Polygon 
                     key={`${f.type}-${f.id}`} 
                     positions={positions}
-                    pathOptions={{ color, fillColor: color, fillOpacity: 0.4 }}
+                    pathOptions={{ color, fillColor: color, fillOpacity: isPending ? 0.7 : 0.4, dashArray: isPending ? '5, 5' : undefined }}
                     eventHandlers={{
                       click: () => setSelectedFeature(f)
                     }}
                   >
                     <Popup>
                       <div style={{fontSize: '12px', lineHeight: '1.4'}}>
-                        <strong>{f.title}</strong><br/>
+                        <strong>{f.title}</strong> {isPending && <span style={{ color: '#d97706', fontSize: '10px', marginLeft: '4px' }}>(Pending)</span>}<br/>
                         Owner: {f.owner}<br/>
                         Type: {f.type === 'lot' ? 'Land/Lot' : 'Building'}<br/>
                         GIS Area: {f.area_sqm} sqm<br/>
@@ -144,9 +145,10 @@ export function PropertyMapView() {
             </MapContainer>
           </div>
 
-          <div className="map-legend" style={{ display: 'flex', gap: '16px', padding: '12px', background: 'var(--card-bg)', borderTop: '1px solid var(--border)' }}>
+          <div className="map-legend" style={{ display: 'flex', gap: '16px', padding: '12px', background: 'var(--card-bg)', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
             <span><i className="res" style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#10b981', marginRight: '6px' }}/>Lots</span>
             <span><i className="com" style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#8b5cf6', marginRight: '6px' }}/>Buildings</span>
+            <span><i className="pend" style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#f59e0b', border: '2px dashed #d97706', marginRight: '6px' }}/>Pending Approval</span>
             <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>{filteredFeatures.filter(r => r.coordinates).length} mapped features shown</span>
           </div>
         </section>

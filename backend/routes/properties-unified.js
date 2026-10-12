@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { pool } from '../config/db.js'
 import { authenticate, allowRoles } from '../middleware/auth.js'
 import { logActivity, logPropertyHistory } from '../utils/logger.js'
+import { notifyRole } from '../utils/notifications.js'
 
 const router = Router()
 
@@ -29,7 +30,7 @@ async function getOrInsertBarangay(connection, municipalityId, barangayName) {
   return result.insertId
 }
 
-router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff', 'super_admin'), async (req, res, next) => {
+router.post('/properties/unified', authenticate, allowRoles('admin', 'staff', 'super_admin'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     const data = req.body
@@ -71,7 +72,7 @@ router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff',
     const propMunId = await getOrInsertMunicipality(connection, propProvId, 'Lagonglong')
     const propBrgyId = await getOrInsertBarangay(connection, propMunId, data.propertyBarangay || 'Unknown')
     const propStreet = [data.propertyPurok, data.propertyStreet].filter(Boolean).join(', ')
-    
+
     const [propAddrResult] = await connection.query(
       'INSERT INTO addresses (house_number, street, barangay_id, postal_code) VALUES (NULL, ?, ?, NULL)',
       [propStreet || null, propBrgyId]
@@ -122,9 +123,10 @@ router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff',
     const propertyId = `LP-${purokStr}-A${nextPropSeq}`;
 
     // Create Property
+    const initialStatus = req.user.role === 'staff' ? 'pending' : 'active';
     await connection.query(
       'INSERT INTO properties (property_id, owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, ?, ?, ?, ?)',
-      [propertyId, ownerId, propertyAddressId, propertyTypeId, classificationId, 'active']
+      [propertyId, ownerId, propertyAddressId, propertyTypeId, classificationId, initialStatus]
     )
 
     // 6 & 7. Create LOT or BUILDING
@@ -144,7 +146,7 @@ router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff',
 
       const lotNumber = data.lotNumber?.trim() || `LOT-${propertyId}`
       const lotArea = Number(data.lotArea)
-      
+
       await connection.query(
         'INSERT INTO property_lots (lot_id, property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?, ?)',
         [
@@ -153,7 +155,7 @@ router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff',
           lotNumber,
           data.titleNumber?.trim() || null,
           Number.isFinite(lotArea) ? lotArea : null,
-          (data.lotStatus || 'active').toLowerCase()
+          req.user.role === 'staff' ? 'pending' : (data.lotStatus || 'active').toLowerCase()
         ]
       )
 
@@ -167,7 +169,7 @@ router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff',
       const bldgName = data.buildingName?.trim() || `BLDG-${propertyId}`
       const floorArea = Number(data.floorArea)
       const floorCount = Number(data.floorCount)
-      
+
       const getVal = (val, other) => val === 'Other' ? (other || null) : (val || null);
 
       // Generate Building ID
@@ -181,7 +183,7 @@ router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff',
         if (match) nextBldgSeq = parseInt(match[1]) + 1;
       }
       buildingIdStr = `LBP-${purokStr}-A${nextBldgSeq}`;
-      
+
       await connection.query(
         `INSERT INTO property_buildings (
           building_id, property_id, building_name, building_type, floor_area, floor_count, 
@@ -197,7 +199,7 @@ router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff',
           Number.isFinite(floorCount) ? floorCount : null,
           getVal(data.structuralFrame, data.structuralFrameOther),
           data.yearConstructed || null,
-          (data.buildingStatus || 'active').toLowerCase(),
+          req.user.role === 'staff' ? 'pending' : (data.buildingStatus || 'active').toLowerCase(),
           getVal(data.foundation, data.foundationOther),
           getVal(data.structuralFrame, data.structuralFrameOther),
           getVal(data.exteriorWalls, data.exteriorWallsOther),
@@ -209,7 +211,7 @@ router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff',
           data.buildingUse || null
         ]
       )
-      
+
       // If there's an assessed/market value provided
       if (Number(data.marketValue) > 0 || Number(data.assessedValue) > 0) {
         await connection.query(
@@ -230,10 +232,20 @@ router.post('/properties/unified', authenticate, allowRoles('assessor', 'staff',
     await logActivity(connection, req, 'CREATE', 'Properties', `Property ID ${propertyId}`, `Registered unified property for ${data.ownerFirstName} ${data.ownerLastName}`)
     await logPropertyHistory(connection, req, propertyId, 'Property Created', null, { owner: `${data.ownerFirstName} ${data.ownerLastName}`, type: data.propertyType })
 
+    if (req.user.role === 'staff') {
+      const targetStr = data.propertyType === 'LOT' ? lotId : buildingIdStr;
+      await connection.query(`
+        INSERT INTO assessment_permission_requests 
+        (property_type, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
+        VALUES (?, ?, ?, 'ADDITION', ?, 'pending')
+      `, [data.propertyType.toLowerCase(), targetStr, req.user.id, JSON.stringify(data)]);
+      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval for a new ${data.propertyType.toLowerCase()}.`, 'PERMISSION_REQUEST', targetStr);
+    }
+
     // 11. Commit transaction
     await connection.commit()
-    res.status(201).json({ 
-      id: propertyId, 
+    res.status(201).json({
+      id: propertyId,
       buildingId: buildingIdStr,
       message: 'Property successfully added.',
       record: {

@@ -71,9 +71,9 @@ export function SuperAdminDashboard() {
         {['super_admin', 'admin', 'assessor', 'staff', 'client'].map((role) => {
           const roleStat = stats?.users?.find((u: any) => u.role === role)
           const roleColor = role === 'super_admin' ? 'text-purple-500' :
-                            role === 'admin' ? 'text-red-500' :
-                            role === 'assessor' ? 'text-orange-500' :
-                            role === 'staff' ? 'text-blue-500' : 'text-teal-500';
+            role === 'admin' ? 'text-red-500' :
+              role === 'assessor' ? 'text-orange-500' :
+                role === 'staff' ? 'text-blue-500' : 'text-teal-500';
           return (
             <div key={role} className="glass-panel p-5 rounded-2xl flex flex-col justify-center">
               <span className={`text-xs font-bold uppercase tracking-wider mb-1 ${roleColor}`}>{role.replace('_', ' ')}s</span>
