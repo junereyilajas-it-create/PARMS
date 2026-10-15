@@ -22,12 +22,12 @@ const ALL_NAV_GROUPS = [
   {
     title: 'Properties',
     items: [
-      { label: 'Lots', icon: SquareDashed, roles: ['admin', 'staff'] },
-      { label: 'Buildings', icon: Building2, roles: ['admin', 'staff'] },
-      { label: 'Owners', icon: Users, roles: ['admin', 'staff'] },
-      { label: 'Assigned Properties', icon: Building2, roles: ['assessor'] },
-      { label: 'GIS Map', icon: Map, roles: ['admin', 'assessor', 'staff'] },
-      { label: 'Blueprint Scanner', icon: ScanLine, roles: ['admin', 'staff'] }
+      { label: 'Lots', icon: SquareDashed, roles: ['admin', 'staff', 'super_admin'] },
+      { label: 'Buildings', icon: Building2, roles: ['admin', 'staff', 'super_admin'] },
+      { label: 'Owners', icon: Users, roles: ['admin', 'staff', 'super_admin'] },
+      { label: 'Properties', icon: Building2, roles: ['assessor'] },
+      { label: 'GIS Map', icon: Map, roles: ['admin', 'assessor', 'staff', 'super_admin'] },
+      { label: 'Blueprint Scanner', icon: ScanLine, roles: ['admin', 'staff', 'super_admin'] }
     ]
   },
   {
@@ -35,7 +35,8 @@ const ALL_NAV_GROUPS = [
     items: [
       { label: 'Assessments', icon: ClipboardCheck, roles: ['admin', 'assessor'] },
       { label: 'Assessment Assignments', icon: ClipboardCheck, roles: ['admin', 'super_admin'] },
-      { label: 'Permission Requests', icon: FileText, roles: ['admin', 'super_admin', 'assessor'] },
+      { label: 'Permission Requests', icon: FileText, roles: ['admin', 'super_admin'] },
+      { label: 'My Requests', icon: FileText, roles: ['assessor'] },
       { label: 'Certificates', icon: FileText, roles: ['super_admin', 'admin', 'staff'] },
       { label: 'Certificate Requests', icon: FileText, roles: ['owner', 'client'] },
       { label: 'Assigned Tasks', icon: ClipboardCheck, roles: ['staff'] }

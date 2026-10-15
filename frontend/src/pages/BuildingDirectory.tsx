@@ -18,7 +18,7 @@ export const BuildingDirectory: React.FC = () => {
 
   const { showSuccess, showError, showConfirm } = useModal();
   const [buildingData, setBuildingData] = useState<any[]>([]);
-  const [userRole, setUserRole] = useState('');
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('accessor_role') || '');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [assignmentProperty, setAssignmentProperty] = useState<SelectedPropertyAssignment | null>(null);
   const [assessmentTarget, setAssessmentTarget] = useState<AssessmentTarget | null>(null);
@@ -88,10 +88,11 @@ export const BuildingDirectory: React.FC = () => {
       const { data } = await api.post('/properties/unified', values);
       await load();
       setShowAddProperty(false);
-      showSuccess(`Property Created Successfully. Property ID: ${data.id} Building ID: ${data.buildingId}`);
-    } catch {
-      showError('Unable to save property. Please check the required information and try again.');
-      throw new Error('Property could not be saved');
+      showSuccess(`Property Created Successfully. Property ID: ${data.id}${data.buildingId ? ` Building ID: ${data.buildingId}` : ''}`);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Unable to save property. Please check the required information and try again.';
+      showError(msg);
+      throw new Error(msg);
     }
   };
 
@@ -227,9 +228,9 @@ export const BuildingDirectory: React.FC = () => {
               : 'Manage structural assets and linked properties.'}
           </p>
         </div>
-        {!['admin', 'assessor'].includes(userRole) && (
-          <button onClick={() => setShowAddProperty(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
-            Add Property
+        {['admin', 'staff', 'super_admin'].includes(userRole) && (
+          <button id="add-property-btn" onClick={() => setShowAddProperty(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium shadow-sm cursor-pointer">
+            <Plus size={18} /> Add Property
           </button>
         )}
       </div>
@@ -413,7 +414,13 @@ export const BuildingDirectory: React.FC = () => {
       )}
 
       {modal && <CrudModal title="Building Record" fields={fields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={save} />}
-      {showAddProperty && <AddPropertyWorkflow close={() => setShowAddProperty(false)} onSave={createProperty} />}
+      {showAddProperty && (
+        <AddPropertyWorkflow
+          close={() => setShowAddProperty(false)}
+          onSave={createProperty}
+          initialType="BUILDING"
+        />
+      )}
 
       {/* Assign Assessor Modal */}
       <AssignAssessorModal

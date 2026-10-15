@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Search, Filter, Edit3, RotateCcw, AlertTriangle } from 'lucide-react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Search, Filter, Edit3, RotateCcw, AlertTriangle, XCircle, CheckCircle, Clock, ShieldAlert, X, FileText, UserCheck } from 'lucide-react';
 import { DataTable } from '../components/common/DataTable';
 import api, { ensureSession } from '../lib/api';
 import { useModal } from '../contexts/ModalContext';
+import { useSearchParams } from 'react-router-dom';
 
-type PermissionRequest = {
+export type PermissionRequest = {
   request_id: number;
   property_type: string;
   target_id_str: string;
@@ -25,6 +26,9 @@ type PermissionRequest = {
   reviewer_first_name?: string;
   reviewer_last_name?: string;
   owner_name?: string;
+  property_address?: string;
+  property_or_lot_number?: string;
+  barangay?: string;
   assignment_id?: number;
   assignment_status?: string;
   assigned_to_user_id?: number;
@@ -41,20 +45,35 @@ type AssessorOption = {
 };
 
 export const AssessmentPermissionRequests: React.FC = () => {
-  const [requests, setRequests] = useState<PermissionRequest[]>([]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('accessor_role') || '');
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+
+  // Tabs state: 'my' or 'all'
+  const initialTab = searchParams.get('tab') === 'all_requests' ? 'all' : 'my';
+  const [activeTab, setActiveTab] = useState<'my' | 'all'>(initialTab);
+
+  // Data
+  const [myRequests, setMyRequests] = useState<PermissionRequest[]>([]);
+  const [allRequests, setAllRequests] = useState<PermissionRequest[]>([]);
+  const [canViewAll, setCanViewAll] = useState<boolean>(true);
   const [assessors, setAssessors] = useState<AssessorOption[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Search & Filters
+  const initialStatus = searchParams.get('status') || '';
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
+  const [typeFilter, setTypeFilter] = useState('');
+
   const { showSuccess, showError, showConfirm } = useModal();
-  const [userRole, setUserRole] = useState('');
 
-  const [internalSearch, setInternalSearch] = useState('');
-  const [filters, setFilters] = useState({ type: '', status: '' });
+  // Modals
+  const [cancelTarget, setCancelTarget] = useState<PermissionRequest | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
 
-  // Modal states
   const [editRequest, setEditRequest] = useState<PermissionRequest | null>(null);
-  const [revokeRequest, setRevokeRequest] = useState<PermissionRequest | null>(null);
-
-  // Edit form state
   const [editFormData, setEditFormData] = useState({
     property_type: 'lot',
     target_id_str: '',
@@ -65,27 +84,58 @@ export const AssessmentPermissionRequests: React.FC = () => {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState('');
 
-  // Revoke form state
+  const [revokeRequest, setRevokeRequest] = useState<PermissionRequest | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
   const [revokeReturnTo, setRevokeReturnTo] = useState<'pending' | 'revoked'>('pending');
   const [isSavingRevoke, setIsSavingRevoke] = useState(false);
   const [revokeError, setRevokeError] = useState('');
 
-  const load = async () => {
+  // Sync URL search params with state
+  useEffect(() => {
+    const urlTab = searchParams.get('tab');
+    if (urlTab === 'all_requests') {
+      setActiveTab('all');
+    } else if (urlTab === 'my_requests') {
+      setActiveTab('my');
+    }
+
+    const urlStatus = searchParams.get('status');
+    if (urlStatus) {
+      setStatusFilter(urlStatus);
+    }
+  }, [searchParams]);
+
+  const loadData = async () => {
     setLoading(true);
     try {
       await ensureSession();
       const profile = await api.get('/profile');
       setUserRole(profile.data.role);
+      setCurrentUserId(profile.data.id || profile.data.user_id);
 
-      const [requestsRes, assessorsRes] = await Promise.all([
-        api.get('/assessments/requests'),
-        api.get('/assessments/assessors').catch(() => ({ data: [] }))
-      ]);
+      // Fetch My Requests
+      const myRes = await api.get('/assessments/requests?scope=my');
+      setMyRequests(Array.isArray(myRes.data) ? myRes.data : []);
 
-      setRequests(Array.isArray(requestsRes.data) ? requestsRes.data : []);
-      if (Array.isArray(assessorsRes.data)) {
-        setAssessors(assessorsRes.data);
+      // Fetch All Requests (if authorized)
+      try {
+        const allRes = await api.get('/assessments/requests?scope=all');
+        setAllRequests(Array.isArray(allRes.data) ? allRes.data : []);
+        setCanViewAll(true);
+      } catch (allErr: any) {
+        if (allErr.response?.status === 403 || allErr.response?.data?.unauthorized) {
+          setCanViewAll(false);
+          setAllRequests([]);
+        } else {
+          console.warn('Error fetching all requests:', allErr);
+        }
+      }
+
+      if (['admin', 'super_admin'].includes(profile.data.role)) {
+        const assessorsRes = await api.get('/assessments/assessors').catch(() => ({ data: [] }));
+        if (Array.isArray(assessorsRes.data)) {
+          setAssessors(assessorsRes.data);
+        }
       }
     } catch (e: any) {
       console.error('Error loading requests:', e);
@@ -95,22 +145,93 @@ export const AssessmentPermissionRequests: React.FC = () => {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  const displayedRequests = requests.filter(r => {
-    const sMatch = !internalSearch || `${r.target_id_str} ${r.first_name} ${r.last_name} ${r.owner_name || ''}`.toLowerCase().includes(internalSearch.toLowerCase());
-    const tMatch = !filters.type || (r.property_type && r.property_type.toLowerCase() === filters.type.toLowerCase());
-    const stMatch = !filters.status || r.request_status.toLowerCase() === filters.status.toLowerCase();
-    return sMatch && tMatch && stMatch;
-  });
+  const handleTabChange = (tab: 'my' | 'all') => {
+    setActiveTab(tab);
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set('tab', tab === 'my' ? 'my_requests' : 'all_requests');
+    setSearchParams(newParams);
+  };
 
+  const handleClearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('');
+    setTypeFilter('');
+    const newParams = new URLSearchParams();
+    if (activeTab === 'all') newParams.set('tab', 'all_requests');
+    setSearchParams(newParams);
+  };
+
+  // Filter requests for current tab
+  const activeDataset = activeTab === 'my' ? myRequests : allRequests;
+
+  const filteredRequests = useMemo(() => {
+    return activeDataset.filter(r => {
+      // Partial text search across fields
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesTarget = String(r.target_id_str || '').toLowerCase().includes(q);
+        const matchesOwner = String(r.owner_name || '').toLowerCase().includes(q);
+        const matchesType = String(r.property_type || '').toLowerCase().includes(q);
+        const matchesAddr = String(r.property_address || '').toLowerCase().includes(q);
+        const matchesBarangay = String(r.barangay || '').toLowerCase().includes(q);
+        const matchesLot = String(r.property_or_lot_number || '').toLowerCase().includes(q);
+        const matchesAssessor = `${r.first_name || ''} ${r.last_name || ''} ${r.requester_username || ''}`.toLowerCase().includes(q);
+        const matchesReason = String(r.reason || '').toLowerCase().includes(q);
+        const matchesId = String(r.request_id).includes(q);
+
+        if (!matchesTarget && !matchesOwner && !matchesType && !matchesAddr && !matchesBarangay && !matchesLot && !matchesAssessor && !matchesReason && !matchesId) {
+          return false;
+        }
+      }
+
+      // Type filter
+      if (typeFilter && String(r.property_type || '').toLowerCase() !== typeFilter.toLowerCase()) {
+        return false;
+      }
+
+      // Status filter
+      if (statusFilter && String(r.request_status || '').toLowerCase() !== statusFilter.toLowerCase()) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [activeDataset, searchQuery, typeFilter, statusFilter]);
+
+  // Request Cancel Handler
+  const handleConfirmCancel = async () => {
+    if (!cancelTarget) return;
+
+    setIsCancelling(true);
+    setCancelError('');
+
+    try {
+      await ensureSession();
+      const res = await api.post(`/assessments/requests/${cancelTarget.request_id}/cancel`);
+      showSuccess(res.data?.message || `Request #${cancelTarget.request_id} was successfully cancelled.`, 'Request Cancelled');
+      setCancelTarget(null);
+      await loadData();
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Failed to cancel the request. Please try again.';
+      setCancelError(msg);
+      showError(msg);
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  // Admin Actions
   const approveRequest = async (id: number) => {
     showConfirm('Approve this request? This will create an active assessment assignment.', async () => {
       try {
         await ensureSession();
         await api.post(`/assessments/requests/${id}/approve`);
         showSuccess('Request approved successfully.');
-        await load();
+        await loadData();
       } catch (err: any) {
         showError(err.response?.data?.message || 'Failed to approve request.');
       }
@@ -128,23 +249,10 @@ export const AssessmentPermissionRequests: React.FC = () => {
       await ensureSession();
       await api.post(`/assessments/requests/${id}/reject`, { reason });
       showSuccess('Request rejected.');
-      await load();
+      await loadData();
     } catch (err: any) {
       showError(err.response?.data?.message || 'Failed to reject request.');
     }
-  };
-
-  const cancelRequest = async (id: number) => {
-    showConfirm('Cancel this request?', async () => {
-      try {
-        await ensureSession();
-        await api.post(`/assessments/requests/${id}/cancel`);
-        showSuccess('Request cancelled successfully.');
-        await load();
-      } catch (err: any) {
-        showError(err.response?.data?.message || 'Failed to cancel request.');
-      }
-    });
   };
 
   const resubmitRequest = async (id: number) => {
@@ -153,7 +261,7 @@ export const AssessmentPermissionRequests: React.FC = () => {
         await ensureSession();
         await api.post(`/assessments/requests/${id}/resubmit`);
         showSuccess('Request resubmitted successfully.');
-        await load();
+        await loadData();
       } catch (err: any) {
         showError(err.response?.data?.message || 'Failed to resubmit request.');
       }
@@ -193,7 +301,7 @@ export const AssessmentPermissionRequests: React.FC = () => {
       await api.put(`/assessments/requests/${editRequest.request_id}`, editFormData);
       showSuccess('Assessment request updated successfully.');
       setEditRequest(null);
-      await load();
+      await loadData();
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Failed to update request.';
       setEditError(msg);
@@ -230,7 +338,7 @@ export const AssessmentPermissionRequests: React.FC = () => {
       });
       showSuccess(res.data.message || 'Approval revoked successfully.');
       setRevokeRequest(null);
-      await load();
+      await loadData();
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Failed to revoke approval.';
       setRevokeError(msg);
@@ -241,52 +349,98 @@ export const AssessmentPermissionRequests: React.FC = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    const s = String(status).toUpperCase();
+    const s = String(status || '').toUpperCase();
     let style = 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300';
+    let icon = null;
+
     if (s === 'APPROVED') {
-      style = 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 font-semibold';
+      style = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800';
+      icon = <CheckCircle size={12} className="inline mr-1" />;
     } else if (s === 'PENDING') {
-      style = 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 font-semibold';
+      style = 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800';
+      icon = <Clock size={12} className="inline mr-1" />;
     } else if (s === 'REJECTED') {
-      style = 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 font-semibold';
-    } else if (s === 'REVOKED' || s === 'CANCELLED') {
-      style = 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 font-semibold';
+      style = 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 border border-red-300 dark:border-red-800';
+      icon = <XCircle size={12} className="inline mr-1" />;
+    } else if (s === 'CANCELLED' || s === 'REVOKED') {
+      style = 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-300 dark:border-gray-700';
+      icon = <X size={12} className="inline mr-1" />;
     }
-    return <span className={`px-2.5 py-1 rounded-full text-xs uppercase tracking-wide ${style}`}>{status}</span>;
+
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${style}`}>
+        {icon}
+        {status}
+      </span>
+    );
   };
 
-  const columns = [
-    { key: 'request_id', label: 'REQUEST ID', render: (id: number) => <span className="font-mono text-xs font-semibold text-gray-700 dark:text-gray-300">#{id}</span> },
-    { 
-      key: 'target_id_str', 
-      label: 'PROPERTY ID', 
+  const isAdminOrSuper = ['admin', 'super_admin'].includes(userRole);
+
+  // Tab A: My Requests Columns
+  const myRequestsColumns = [
+    {
+      key: 'request_id',
+      label: 'REQUEST ID',
+      render: (id: number) => (
+        <span className="font-mono text-xs font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+          #{id}
+        </span>
+      )
+    },
+    {
+      key: 'target_id_str',
+      label: 'PROPERTY ID',
       render: (v: string, r: PermissionRequest) => (
         <div className="flex flex-col">
           <span className="font-semibold text-gray-900 dark:text-white">{v}</span>
-          <span className="text-[11px] text-gray-500 uppercase tracking-wider">{r.property_type}</span>
+          <span className="text-[11px] text-gray-500 dark:text-gray-400 capitalize">
+            {r.property_type || 'Property'}
+          </span>
         </div>
       )
     },
-    { key: 'owner_name', label: 'OWNER', render: (v: string) => <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{v || '-'}</span> },
-    { key: 'request_action', label: 'ACTION', render: (v: string) => <span className="text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">{(v || 'ASSESSMENT').replace('_', ' ')}</span> },
-    { 
-      key: 'first_name', 
-      label: 'ASSESSOR / STAFF', 
-      render: (_: any, r: PermissionRequest) => {
-        const name = r.assessor_first_name ? `${r.assessor_first_name} ${r.assessor_last_name}` : `${r.first_name} ${r.last_name}`;
-        return (
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{name}</span>
-            {r.requester_username && <span className="text-[11px] text-gray-500">@{r.requester_username}</span>}
-          </div>
-        );
-      }
-    },
-    { 
-      key: 'reason', 
-      label: 'REASON / DETAILS', 
+    {
+      key: 'property_or_lot_number',
+      label: 'LOT / BLDG #',
       render: (v: string, r: PermissionRequest) => (
-        <div className="max-w-[220px] truncate" title={v || r.rejection_reason || ''}>
+        <span className="text-xs text-gray-700 dark:text-gray-300 font-mono">
+          {v || r.target_id_str || '-'}
+        </span>
+      )
+    },
+    {
+      key: 'owner_name',
+      label: 'OWNER',
+      render: (v: string) => (
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {v || 'Unassigned'}
+        </span>
+      )
+    },
+    {
+      key: 'property_address',
+      label: 'ADDRESS',
+      render: (v: string) => (
+        <span className="text-xs text-gray-600 dark:text-gray-400 max-w-[200px] truncate block" title={v}>
+          {v || 'Address not yet mapped'}
+        </span>
+      )
+    },
+    {
+      key: 'created_at',
+      label: 'DATE REQUESTED',
+      render: (v: string) => (
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {v ? new Date(v).toLocaleDateString() : '-'}
+        </span>
+      )
+    },
+    {
+      key: 'reason',
+      label: 'REASON',
+      render: (v: string, r: PermissionRequest) => (
+        <div className="max-w-[180px] truncate" title={v || r.rejection_reason || ''}>
           <span className="text-xs text-gray-700 dark:text-gray-300">{v || '-'}</span>
           {r.rejection_reason && (
             <p className="text-[11px] text-red-500 dark:text-red-400 truncate mt-0.5" title={r.rejection_reason}>
@@ -296,37 +450,171 @@ export const AssessmentPermissionRequests: React.FC = () => {
         </div>
       )
     },
-    { key: 'request_status', label: 'STATUS', render: (v: string) => getStatusBadge(v) },
-    { key: 'created_at', label: 'DATE', render: (v: string) => <span className="text-xs text-gray-500">{v ? new Date(v).toLocaleDateString() : '-'}</span> }
+    {
+      key: 'request_status',
+      label: 'STATUS',
+      render: (v: string) => getStatusBadge(v)
+    }
   ];
 
-  const isAdminOrSuper = ['admin', 'super_admin'].includes(userRole);
+  // Tab B: All Requests Columns
+  const allRequestsColumns = [
+    {
+      key: 'request_id',
+      label: 'REQUEST ID',
+      render: (id: number) => (
+        <span className="font-mono text-xs font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+          #{id}
+        </span>
+      )
+    },
+    {
+      key: 'first_name',
+      label: 'REQUESTING ASSESSOR',
+      render: (_: any, r: PermissionRequest) => (
+        <div className="flex flex-col">
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {r.first_name} {r.last_name}
+          </span>
+          {r.requester_username && (
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">
+              @{r.requester_username}
+            </span>
+          )}
+        </div>
+      )
+    },
+    {
+      key: 'target_id_str',
+      label: 'PROPERTY ID',
+      render: (v: string, r: PermissionRequest) => (
+        <div className="flex flex-col">
+          <span className="font-semibold text-gray-900 dark:text-white">{v}</span>
+          <span className="text-[11px] text-gray-500 dark:text-gray-400 capitalize">
+            {r.property_type || 'Property'}
+          </span>
+        </div>
+      )
+    },
+    {
+      key: 'owner_name',
+      label: 'OWNER',
+      render: (v: string) => (
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {v || 'Unassigned'}
+        </span>
+      )
+    },
+    {
+      key: 'property_address',
+      label: 'ADDRESS',
+      render: (v: string) => (
+        <span className="text-xs text-gray-600 dark:text-gray-400 max-w-[200px] truncate block" title={v}>
+          {v || 'Address not yet mapped'}
+        </span>
+      )
+    },
+    {
+      key: 'created_at',
+      label: 'DATE REQUESTED',
+      render: (v: string) => (
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {v ? new Date(v).toLocaleDateString() : '-'}
+        </span>
+      )
+    },
+    {
+      key: 'request_status',
+      label: 'STATUS',
+      render: (v: string) => getStatusBadge(v)
+    }
+  ];
 
   return (
     <div className="space-y-6 fade-in">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">Assessment Requests</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Review, assign, edit, and manage property assessment requests.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+            {userRole === 'assessor' ? 'My Requests' : 'Permission Requests'}
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
+            {userRole === 'assessor'
+              ? 'Track, submit, and manage your property assessment permission requests.'
+              : 'Review, assign, and manage property assessment requests across all assessors.'}
+          </p>
         </div>
       </div>
 
-      <div className="glass-panel p-4 rounded-xl flex flex-col sm:flex-row gap-4 items-center flex-wrap">
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800">
+        <button
+          id="tab-my-requests-btn"
+          data-testid="tab-my-requests-btn"
+          onClick={() => handleTabChange('my')}
+          className={`px-4 py-3 font-semibold text-sm border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'my'
+              ? 'border-green-600 text-green-700 dark:text-green-400 dark:border-green-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+          }`}
+        >
+          <FileText size={16} />
+          My Requests
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            activeTab === 'my'
+              ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+              : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+          }`}>
+            {myRequests.length}
+          </span>
+        </button>
+
+        <button
+          id="tab-all-requests-btn"
+          data-testid="tab-all-requests-btn"
+          onClick={() => handleTabChange('all')}
+          className={`px-4 py-3 font-semibold text-sm border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'all'
+              ? 'border-green-600 text-green-700 dark:text-green-400 dark:border-green-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+          }`}
+        >
+          <UserCheck size={16} />
+          All Requests
+          {canViewAll && (
+            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+              activeTab === 'all'
+                ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+                : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+            }`}>
+              {allRequests.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Search and Filters Bar */}
+      <div className="glass-panel p-4 rounded-xl flex flex-col sm:flex-row gap-4 items-center flex-wrap bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm">
         <div className="flex-1 min-w-[250px] flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700">
           <Search size={18} className="text-gray-500" />
           <input
+            id="requests-search-input"
+            data-testid="requests-search-input"
             type="text"
-            value={internalSearch}
-            onChange={(e) => setInternalSearch(e.target.value)}
-            placeholder="Search by Property ID, Owner, or Assessor name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by Property ID, Lot #, Owner, Address, or Status..."
             className="bg-transparent border-none outline-none w-full text-sm text-gray-900 dark:text-white"
           />
         </div>
+
         <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700">
           <Filter size={16} className="text-gray-500" />
           <select
-            value={filters.type}
-            onChange={(e) => setFilters(f => ({ ...f, type: e.target.value }))}
+            id="requests-type-filter"
+            data-testid="requests-type-filter"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
             className="bg-transparent border-none text-sm outline-none dark:text-white dark:bg-gray-800 cursor-pointer"
           >
             <option value="">All Types</option>
@@ -335,118 +623,272 @@ export const AssessmentPermissionRequests: React.FC = () => {
             <option value="property">Property</option>
           </select>
         </div>
+
         <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700">
           <select
-            value={filters.status}
-            onChange={(e) => setFilters(f => ({ ...f, status: e.target.value }))}
+            id="requests-status-filter"
+            data-testid="requests-status-filter"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
             className="bg-transparent border-none text-sm outline-none dark:text-white dark:bg-gray-800 cursor-pointer"
           >
             <option value="">All Statuses</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
-            <option value="revoked">Revoked</option>
+            <option value="cancelled">Cancelled</option>
           </select>
         </div>
-      </div>
 
-      <div className="glass-panel p-6 rounded-2xl">
-        {loading ? (
-          <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">Loading permission requests...</div>
-        ) : (
-          <DataTable 
-            columns={columns} 
-            data={displayedRequests} 
-            onView={() => {}} 
-            showActions={true}
-          customActions={(record: PermissionRequest) => (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {/* Admin Actions for Pending */}
-              {isAdminOrSuper && record.request_status === 'pending' && (
-                <>
-                  <button 
-                    onClick={() => approveRequest(record.request_id)} 
-                    className="px-2.5 py-1 bg-green-100 hover:bg-green-200 text-green-700 dark:bg-green-900/40 dark:text-green-300 rounded text-xs font-semibold transition"
-                    title="Approve Request"
-                  >
-                    Approve
-                  </button>
-                  <button 
-                    onClick={() => rejectRequest(record.request_id)} 
-                    className="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/40 dark:text-red-300 rounded text-xs font-semibold transition"
-                    title="Reject Request"
-                  >
-                    Reject
-                  </button>
-                  <button 
-                    onClick={() => openEditModal(record)} 
-                    className="px-2.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded text-xs font-semibold transition flex items-center gap-1"
-                    title="Edit Request Information"
-                  >
-                    <Edit3 size={13} />
-                    Edit
-                  </button>
-                </>
-              )}
-
-              {/* Admin Actions for Approved: Edit or Revoke Approval */}
-              {isAdminOrSuper && record.request_status === 'approved' && (
-                <>
-                  <button 
-                    onClick={() => openEditModal(record)} 
-                    className="px-2.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded text-xs font-semibold transition flex items-center gap-1"
-                    title="Edit Request Information"
-                  >
-                    <Edit3 size={13} />
-                    Edit
-                  </button>
-                  <button 
-                    onClick={() => openRevokeModal(record)} 
-                    className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 rounded text-xs font-semibold transition flex items-center gap-1"
-                    title="Cancel or Revoke this Approval"
-                  >
-                    <RotateCcw size={13} />
-                    Revoke Approval
-                  </button>
-                </>
-              )}
-
-              {/* Admin Actions for Revoked / Rejected: Can still Edit to correct */}
-              {isAdminOrSuper && ['revoked', 'rejected'].includes(record.request_status) && (
-                <button 
-                  onClick={() => openEditModal(record)} 
-                  className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 rounded text-xs font-semibold transition flex items-center gap-1"
-                  title="Edit and Correct Request"
-                >
-                  <Edit3 size={13} />
-                  Edit
-                </button>
-              )}
-
-              {/* Requester Actions */}
-              {['staff', 'assessor'].includes(userRole) && record.request_status === 'pending' && (
-                <button 
-                  onClick={() => cancelRequest(record.request_id)} 
-                  className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 rounded text-xs font-semibold transition"
-                >
-                  Cancel
-                </button>
-              )}
-              {['staff', 'assessor'].includes(userRole) && record.request_status === 'rejected' && (
-                <button 
-                  onClick={() => resubmitRequest(record.request_id)} 
-                  className="px-2.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded text-xs font-semibold transition"
-                >
-                  Resubmit
-                </button>
-              )}
-            </div>
-          )}
-        />
+        {(searchQuery || typeFilter || statusFilter) && (
+          <button
+            onClick={handleClearFilters}
+            className="px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 underline cursor-pointer"
+          >
+            Clear Filters
+          </button>
         )}
       </div>
 
-      {/* ---------------- EDIT REQUEST MODAL ---------------- */}
+      {/* Content Area */}
+      <div className="glass-panel p-6 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm">
+        {loading ? (
+          <div className="p-12 text-center text-sm text-gray-500 dark:text-gray-400 flex flex-col items-center justify-center gap-2">
+            <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+            <span>Loading requests...</span>
+          </div>
+        ) : activeTab === 'all' && !canViewAll ? (
+          /* Tab B: Access Restricted */
+          <div className="p-10 text-center flex flex-col items-center justify-center gap-3">
+            <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+              <ShieldAlert size={28} />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+              Access Restricted
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md">
+              You do not have administrative permission (<span className="font-mono text-xs">VIEW_PERMISSION_REQUEST</span>) to view requests submitted by other assessors. Please use the <strong className="text-green-600 dark:text-green-400">My Requests</strong> tab to track and manage your own permission requests.
+            </p>
+            <button
+              onClick={() => handleTabChange('my')}
+              className="mt-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm cursor-pointer"
+            >
+              Go to My Requests
+            </button>
+          </div>
+        ) : filteredRequests.length === 0 ? (
+          /* Empty state */
+          <div className="p-12 text-center text-gray-500 dark:text-gray-400">
+            <p className="text-base font-semibold text-gray-800 dark:text-gray-200">No requests found</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {searchQuery || typeFilter || statusFilter
+                ? 'Try adjusting your search query or filter options.'
+                : activeTab === 'my'
+                  ? 'You have not submitted any permission requests yet.'
+                  : 'There are no permission requests from other assessors.'}
+            </p>
+          </div>
+        ) : (
+          /* Request Table */
+          <DataTable
+            columns={activeTab === 'my' ? myRequestsColumns : allRequestsColumns}
+            data={filteredRequests}
+            onView={() => {}}
+            showActions={true}
+            customActions={(record: PermissionRequest) => {
+              const isOwner = record.requested_by_user_id === currentUserId;
+              const isPending = record.request_status === 'pending';
+
+              return (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* Assessor Cancel Request Button (Only for Pending requests owned by logged-in user) */}
+                  {isPending && isOwner && (
+                    <button
+                      id={`cancel-request-btn-${record.request_id}`}
+                      data-testid={`cancel-request-btn-${record.request_id}`}
+                      onClick={() => {
+                        setCancelTarget(record);
+                        setCancelError('');
+                      }}
+                      className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 dark:text-rose-300 rounded text-xs font-semibold border border-rose-200 dark:border-rose-800 transition flex items-center gap-1 cursor-pointer"
+                      title="Cancel this pending request"
+                    >
+                      <XCircle size={13} />
+                      Cancel Request
+                    </button>
+                  )}
+
+                  {/* Resubmit if rejected and user is owner */}
+                  {record.request_status === 'rejected' && isOwner && (
+                    <button
+                      onClick={() => resubmitRequest(record.request_id)}
+                      className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded text-xs font-semibold border border-blue-200 dark:border-blue-800 transition"
+                    >
+                      Resubmit
+                    </button>
+                  )}
+
+                  {/* Admin controls */}
+                  {isAdminOrSuper && isPending && (
+                    <>
+                      <button
+                        onClick={() => approveRequest(record.request_id)}
+                        className="px-2.5 py-1 bg-green-100 hover:bg-green-200 text-green-700 dark:bg-green-900/40 dark:text-green-300 rounded text-xs font-semibold transition"
+                        title="Approve Request"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => rejectRequest(record.request_id)}
+                        className="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/40 dark:text-red-300 rounded text-xs font-semibold transition"
+                        title="Reject Request"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => openEditModal(record)}
+                        className="px-2.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded text-xs font-semibold transition flex items-center gap-1"
+                        title="Edit Request Information"
+                      >
+                        <Edit3 size={13} />
+                        Edit
+                      </button>
+                    </>
+                  )}
+
+                  {isAdminOrSuper && record.request_status === 'approved' && (
+                    <>
+                      <button
+                        onClick={() => openEditModal(record)}
+                        className="px-2.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded text-xs font-semibold transition flex items-center gap-1"
+                        title="Edit Request Information"
+                      >
+                        <Edit3 size={13} />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => openRevokeModal(record)}
+                        className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 rounded text-xs font-semibold transition flex items-center gap-1"
+                        title="Cancel or Revoke this Approval"
+                      >
+                        <RotateCcw size={13} />
+                        Revoke Approval
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            }}
+          />
+        )}
+      </div>
+
+      {/* ---------------- CANCEL REQUEST CONFIRMATION MODAL ---------------- */}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gradient-to-r from-rose-50 to-amber-50 dark:from-rose-950/40 dark:to-gray-900">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-600/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold">
+                  <AlertTriangle size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Cancel Permission Request</h2>
+                  <p className="text-xs text-gray-500">Request #{cancelTarget.request_id} • Status: Pending</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCancelTarget(null)}
+                disabled={isCancelling}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Property Details Card */}
+              <div className="bg-gray-50 dark:bg-gray-800/80 p-4 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2 text-xs">
+                <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-500 dark:text-gray-400 font-medium">Property ID:</span>
+                  <span className="font-bold text-gray-900 dark:text-white font-mono">{cancelTarget.target_id_str}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-500 dark:text-gray-400 font-medium">Property Type:</span>
+                  <span className="font-semibold text-gray-900 dark:text-white capitalize">{cancelTarget.property_type}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-500 dark:text-gray-400 font-medium">Property / Lot #:</span>
+                  <span className="font-semibold text-gray-900 dark:text-white font-mono">{cancelTarget.property_or_lot_number || cancelTarget.target_id_str}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-500 dark:text-gray-400 font-medium">Owner Name:</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{cancelTarget.owner_name || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-500 dark:text-gray-400 font-medium">Property Address:</span>
+                  <span className="font-semibold text-gray-900 dark:text-white text-right max-w-[240px] truncate" title={cancelTarget.property_address}>
+                    {cancelTarget.property_address || 'Address not yet mapped'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-500 dark:text-gray-400 font-medium">Date Requested:</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">
+                    {cancelTarget.created_at ? new Date(cancelTarget.created_at).toLocaleDateString() : '-'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-start pt-1">
+                  <span className="text-gray-500 dark:text-gray-400 font-medium">Reason for Request:</span>
+                  <span className="font-medium text-gray-800 dark:text-gray-200 text-right max-w-[240px]">
+                    {cancelTarget.reason || 'None provided'}
+                  </span>
+                </div>
+              </div>
+
+              {cancelError && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-700 dark:text-red-300">
+                  {cancelError}
+                </div>
+              )}
+
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                Are you sure you want to cancel this permission request? This will mark the request as <strong className="text-rose-600 dark:text-rose-400 uppercase">Cancelled</strong> and close it from further review.
+              </p>
+
+              <div className="pt-4 border-t border-gray-200 dark:border-gray-800 flex justify-end gap-3">
+                <button
+                  type="button"
+                  id="cancel-modal-close-btn"
+                  onClick={() => setCancelTarget(null)}
+                  disabled={isCancelling}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer"
+                >
+                  Keep Request
+                </button>
+                <button
+                  type="button"
+                  id="confirm-cancel-request-btn"
+                  data-testid="confirm-cancel-request-btn"
+                  onClick={handleConfirmCancel}
+                  disabled={isCancelling}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-sm disabled:opacity-50 cursor-pointer"
+                >
+                  {isCancelling ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    'Confirm Cancellation'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- ADMIN EDIT REQUEST MODAL ---------------- */}
       {editRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl max-w-xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -462,7 +904,7 @@ export const AssessmentPermissionRequests: React.FC = () => {
               </div>
               <button 
                 onClick={() => setEditRequest(null)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl font-bold p-1"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl font-bold p-1 cursor-pointer"
               >
                 ✕
               </button>
@@ -558,14 +1000,14 @@ export const AssessmentPermissionRequests: React.FC = () => {
                   type="button"
                   onClick={() => setEditRequest(null)}
                   disabled={isSavingEdit}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingEdit}
-                  className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-sm disabled:opacity-50"
+                  className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-sm disabled:opacity-50 cursor-pointer"
                 >
                   {isSavingEdit ? (
                     <>
@@ -582,7 +1024,7 @@ export const AssessmentPermissionRequests: React.FC = () => {
         </div>
       )}
 
-      {/* ---------------- REVOKE / CANCEL APPROVAL MODAL ---------------- */}
+      {/* ---------------- ADMIN REVOKE / CANCEL APPROVAL MODAL ---------------- */}
       {revokeRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col">
@@ -598,14 +1040,13 @@ export const AssessmentPermissionRequests: React.FC = () => {
               </div>
               <button 
                 onClick={() => setRevokeRequest(null)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl font-bold p-1"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl font-bold p-1 cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             <form onSubmit={handleConfirmRevoke} className="p-6 space-y-4">
-              {/* Property & Request Summary Card */}
               <div className="bg-gray-50 dark:bg-gray-800/80 p-4 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2 text-xs">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 font-medium">Property ID:</span>
@@ -635,7 +1076,6 @@ export const AssessmentPermissionRequests: React.FC = () => {
                 </div>
               )}
 
-              {/* Resolution options */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">Desired Action</label>
                 <div className="space-y-2">
@@ -671,7 +1111,6 @@ export const AssessmentPermissionRequests: React.FC = () => {
                 </div>
               </div>
 
-              {/* Revocation Reason */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                   Reason for Revoking Approval <span className="text-red-500">*</span>
@@ -691,14 +1130,14 @@ export const AssessmentPermissionRequests: React.FC = () => {
                   type="button"
                   onClick={() => setRevokeRequest(null)}
                   disabled={isSavingRevoke}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer"
                 >
                   Keep Approved
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingRevoke}
-                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-sm disabled:opacity-50"
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-sm disabled:opacity-50 cursor-pointer"
                 >
                   {isSavingRevoke ? (
                     <>

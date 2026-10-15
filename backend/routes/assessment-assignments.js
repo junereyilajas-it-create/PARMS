@@ -6,39 +6,221 @@ import { createNotification, notifyRole } from '../utils/notifications.js';
 
 const router = Router();
 
-// GET active eligible assessors (for Admin/Head Assessor assignment)
+// GET available properties for assessment assignment (Search by Lot ID, Building ID, Property ID, Owner Name, Barangay)
+router.get('/assessments/available-properties', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const rawQ = req.query.q ? req.query.q.trim() : '';
+    const qWildcard = `%${rawQ}%`;
+    const numericQ = !isNaN(Number(rawQ)) && rawQ !== '' ? Number(rawQ) : null;
+
+    // 1. Query matching Lots
+    const [lots] = await pool.query(`
+      SELECT 
+        'lot' AS property_type,
+        l.lot_id AS target_id_int,
+        COALESCE(l.lot_number, CONCAT('LOT-', l.lot_id)) AS target_id_str,
+        l.property_id,
+        CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner_name,
+        COALESCE(b.barangay_name, 'Unknown') AS barangay,
+        COALESCE(
+          NULLIF(CONCAT_WS(', ', NULLIF(a.street, ''), b.barangay_name), ''),
+          b.barangay_name,
+          'Lagonglong'
+        ) AS location,
+        CASE 
+          WHEN (SELECT COUNT(*) FROM lot_assessment_history lah WHERE lah.lot_id = l.lot_id AND lah.assessment_status = 'approved') > 0 THEN 'Approved'
+          WHEN (SELECT COUNT(*) FROM lot_assessment_history lah WHERE lah.lot_id = l.lot_id AND lah.assessment_status = 'submitted') > 0 THEN 'Pending Review'
+          WHEN (SELECT COUNT(*) FROM assessment_assignments aa WHERE aa.property_type = 'lot' AND (aa.target_id_int = l.lot_id OR aa.target_id_str = l.lot_number) AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted')) > 0 THEN 'Assigned'
+          ELSE 'Unassessed'
+        END AS assessment_status,
+        (
+          SELECT aa.assignment_id 
+          FROM assessment_assignments aa 
+          WHERE aa.property_type = 'lot' 
+            AND (aa.target_id_int = l.lot_id OR aa.target_id_str = l.lot_number) 
+            AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted') 
+          ORDER BY aa.assignment_id DESC LIMIT 1
+        ) AS active_assignment_id,
+        (
+          SELECT CONCAT_WS(' ', u.first_name, u.last_name) 
+          FROM assessment_assignments aa 
+          JOIN users u ON aa.assigned_to_user_id = u.user_id 
+          WHERE aa.property_type = 'lot' 
+            AND (aa.target_id_int = l.lot_id OR aa.target_id_str = l.lot_number) 
+            AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted') 
+          ORDER BY aa.assignment_id DESC LIMIT 1
+        ) AS active_assessor_name
+      FROM property_lots l
+      JOIN properties p ON l.property_id = p.property_id
+      LEFT JOIN property_owners o ON p.owner_id = o.owner_id
+      LEFT JOIN addresses a ON p.address_id = a.address_id
+      LEFT JOIN barangays b ON a.barangay_id = b.barangay_id
+      WHERE (? = '' OR 
+        l.lot_id = ? OR 
+        l.lot_number LIKE ? OR 
+        l.property_id = ? OR 
+        o.first_name LIKE ? OR 
+        o.last_name LIKE ? OR 
+        CONCAT_WS(' ', o.first_name, o.last_name) LIKE ? OR
+        b.barangay_name LIKE ?
+      )
+      ORDER BY l.lot_id ASC
+      LIMIT 60
+    `, [rawQ, numericQ, qWildcard, numericQ, qWildcard, qWildcard, qWildcard, qWildcard]);
+
+    // 2. Query matching Buildings
+    const [buildings] = await pool.query(`
+      SELECT 
+        'building' AS property_type,
+        bg.building_id AS target_id_int,
+        COALESCE(bg.building_name, CONCAT('BLDG-', bg.building_id)) AS target_id_str,
+        bg.property_id,
+        CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner_name,
+        COALESCE(b.barangay_name, 'Unknown') AS barangay,
+        COALESCE(
+          NULLIF(CONCAT_WS(', ', NULLIF(a.street, ''), b.barangay_name), ''),
+          b.barangay_name,
+          'Lagonglong'
+        ) AS location,
+        CASE 
+          WHEN (SELECT COUNT(*) FROM building_assessment_history bah WHERE bah.building_id = bg.building_id AND bah.assessment_status = 'approved') > 0 THEN 'Approved'
+          WHEN (SELECT COUNT(*) FROM building_assessment_history bah WHERE bah.building_id = bg.building_id AND bah.assessment_status = 'submitted') > 0 THEN 'Pending Review'
+          WHEN (SELECT COUNT(*) FROM assessment_assignments aa WHERE aa.property_type = 'building' AND (aa.target_id_int = bg.building_id OR aa.target_id_str = bg.building_name) AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted')) > 0 THEN 'Assigned'
+          ELSE 'Unassessed'
+        END AS assessment_status,
+        (
+          SELECT aa.assignment_id 
+          FROM assessment_assignments aa 
+          WHERE aa.property_type = 'building' 
+            AND (aa.target_id_int = bg.building_id OR aa.target_id_str = bg.building_name) 
+            AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted') 
+          ORDER BY aa.assignment_id DESC LIMIT 1
+        ) AS active_assignment_id,
+        (
+          SELECT CONCAT_WS(' ', u.first_name, u.last_name) 
+          FROM assessment_assignments aa 
+          JOIN users u ON aa.assigned_to_user_id = u.user_id 
+          WHERE aa.property_type = 'building' 
+            AND (aa.target_id_int = bg.building_id OR aa.target_id_str = bg.building_name) 
+            AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted') 
+          ORDER BY aa.assignment_id DESC LIMIT 1
+        ) AS active_assessor_name
+      FROM property_buildings bg
+      JOIN properties p ON bg.property_id = p.property_id
+      LEFT JOIN property_owners o ON p.owner_id = o.owner_id
+      LEFT JOIN addresses a ON p.address_id = a.address_id
+      LEFT JOIN barangays b ON a.barangay_id = b.barangay_id
+      WHERE (? = '' OR 
+        bg.building_id = ? OR 
+        bg.building_name LIKE ? OR 
+        bg.property_id = ? OR 
+        o.first_name LIKE ? OR 
+        o.last_name LIKE ? OR 
+        CONCAT_WS(' ', o.first_name, o.last_name) LIKE ? OR
+        b.barangay_name LIKE ?
+      )
+      ORDER BY bg.building_id ASC
+      LIMIT 60
+    `, [rawQ, numericQ, qWildcard, numericQ, qWildcard, qWildcard, qWildcard, qWildcard]);
+
+    const results = [...lots, ...buildings].map(item => ({
+      ...item,
+      has_active_assignment: Boolean(item.active_assignment_id)
+    }));
+
+    res.json(results);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET active eligible assessors (for Admin/Head Assessor assignment with live assigned count)
 router.get('/assessments/assessors', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
   try {
-    const q = req.query.q ? `%${req.query.q.trim()}%` : '%';
+    const rawQ = req.query.q ? req.query.q.trim() : '';
+    const q = `%${rawQ}%`;
+    const numericQ = !isNaN(Number(rawQ)) && rawQ !== '' ? Number(rawQ) : null;
     const [rows] = await pool.query(`
-      SELECT user_id, first_name, last_name, username, email, role, status
-      FROM users
-      WHERE role = 'assessor' AND status = 'active'
+      SELECT 
+        u.user_id, 
+        u.first_name, 
+        u.last_name, 
+        u.username, 
+        u.email, 
+        u.role, 
+        u.status,
+        (
+          SELECT COUNT(*) 
+          FROM assessment_assignments aa 
+          WHERE aa.assigned_to_user_id = u.user_id 
+            AND aa.assignment_status IN ('assigned', 'in_progress', 'submitted', 'pending')
+        ) AS active_assignments_count,
+        (
+          SELECT COUNT(*) 
+          FROM assessment_assignments aa 
+          WHERE aa.assigned_to_user_id = u.user_id
+        ) AS total_assignments_count
+      FROM users u
+      WHERE u.role = 'assessor' AND u.status = 'active'
         AND (
-          CONCAT_WS(' ', first_name, last_name) LIKE ?
-          OR first_name LIKE ?
-          OR last_name LIKE ?
-          OR username LIKE ?
-          OR email LIKE ?
+          ? = ''
+          OR u.user_id = ?
+          OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?
+          OR u.first_name LIKE ?
+          OR u.last_name LIKE ?
+          OR u.username LIKE ?
+          OR u.email LIKE ?
         )
-      ORDER BY first_name ASC, last_name ASC
-    `, [q, q, q, q, q]);
+      ORDER BY u.first_name ASC, u.last_name ASC
+    `, [rawQ, numericQ, q, q, q, q, q]);
     res.json(rows);
   } catch (err) {
     next(err);
   }
 });
 
-// GET all assignments (Admin view)
+// GET all assignments (Admin view, enriched with owner & address)
 router.get('/assessments/assignments', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
   try {
     const [rows] = await pool.query(`
       SELECT a.*, 
              u.first_name as assessor_first_name, u.last_name as assessor_last_name,
-             u2.first_name as assigner_first_name, u2.last_name as assigner_last_name
+             u2.first_name as assigner_first_name, u2.last_name as assigner_last_name,
+             COALESCE(
+               NULLIF(TRIM(CONCAT_WS(' ', po_prop.first_name, po_prop.middle_name, po_prop.last_name)), ''),
+               NULLIF(TRIM(CONCAT_WS(' ', po_lot.first_name, po_lot.middle_name, po_lot.last_name)), ''),
+               NULLIF(TRIM(CONCAT_WS(' ', po_bldg.first_name, po_bldg.middle_name, po_bldg.last_name)), ''),
+               'No owner record'
+             ) AS owner_name,
+             COALESCE(
+               br_lot.barangay_name,
+               br_bldg.barangay_name,
+               br_prop.barangay_name,
+               'Lagonglong'
+             ) AS barangay,
+             COALESCE(
+               NULLIF(CONCAT_WS(', ', NULLIF(TRIM(ad_prop.street), ''), br_prop.barangay_name), ''),
+               NULLIF(CONCAT_WS(', ', NULLIF(TRIM(ad_lot.street), ''), br_lot.barangay_name), ''),
+               NULLIF(CONCAT_WS(', ', NULLIF(TRIM(ad_bldg.street), ''), br_bldg.barangay_name), ''),
+               'Address not yet mapped'
+             ) AS property_address
       FROM assessment_assignments a
       JOIN users u ON a.assigned_to_user_id = u.user_id
       JOIN users u2 ON a.assigned_by_user_id = u2.user_id
+      LEFT JOIN properties p ON (a.property_type = 'property' AND (p.property_id = a.target_id_str OR p.property_id = a.target_id_int))
+      LEFT JOIN property_owners po_prop ON p.owner_id = po_prop.owner_id
+      LEFT JOIN addresses ad_prop ON p.address_id = ad_prop.address_id
+      LEFT JOIN barangays br_prop ON ad_prop.barangay_id = br_prop.barangay_id
+      LEFT JOIN property_lots l ON (a.property_type = 'lot' AND (l.lot_id = a.target_id_int OR l.lot_number = a.target_id_str))
+      LEFT JOIN properties p_lot ON l.property_id = p_lot.property_id
+      LEFT JOIN property_owners po_lot ON p_lot.owner_id = po_lot.owner_id
+      LEFT JOIN addresses ad_lot ON p_lot.address_id = ad_lot.address_id
+      LEFT JOIN barangays br_lot ON ad_lot.barangay_id = br_lot.barangay_id
+      LEFT JOIN property_buildings b ON (a.property_type = 'building' AND (b.building_id = a.target_id_int OR b.building_name = a.target_id_str))
+      LEFT JOIN properties p_bldg ON b.property_id = p_bldg.property_id
+      LEFT JOIN property_owners po_bldg ON p_bldg.owner_id = po_bldg.owner_id
+      LEFT JOIN addresses ad_bldg ON p_bldg.address_id = ad_bldg.address_id
+      LEFT JOIN barangays br_bldg ON ad_bldg.barangay_id = br_bldg.barangay_id
       ORDER BY a.created_at DESC
     `);
     res.json(rows);
@@ -176,7 +358,19 @@ router.put('/assessments/assignments/:id/reassign', authenticate, allowRoles('ad
     const [assignment] = await connection.query(`SELECT * FROM assessment_assignments WHERE assignment_id = ?`, [id]);
     if (!assignment[0]) {
       await connection.rollback();
-      return res.status(404).json({ message: 'Assignment not found' });
+      return res.status(404).json({ message: 'Assignment record not found.' });
+    }
+
+    const current = assignment[0];
+
+    if (current.assignment_status === 'cancelled') {
+      await connection.rollback();
+      return res.status(400).json({ message: 'Cannot reassign a cancelled assignment.' });
+    }
+
+    if (current.assignment_status === 'approved') {
+      await connection.rollback();
+      return res.status(400).json({ message: 'Cannot reassign an assessment that has already been approved.' });
     }
 
     // Validate new assessor
@@ -185,7 +379,16 @@ router.put('/assessments/assignments/:id/reassign', authenticate, allowRoles('ad
       await connection.rollback();
       return res.status(400).json({ message: 'Selected user is not an active eligible assessor.' });
     }
-    const old_id = assignment[0].assigned_to_user_id;
+
+    const old_id = current.assigned_to_user_id;
+    if (Number(old_id) === Number(new_assessor_id)) {
+      await connection.rollback();
+      return res.status(400).json({ message: 'The selected assessor is already assigned to this property.' });
+    }
+
+    const [oldAssessorRows] = await connection.query('SELECT first_name, last_name FROM users WHERE user_id = ?', [old_id]);
+    const oldAssessorName = oldAssessorRows[0] ? `${oldAssessorRows[0].first_name} ${oldAssessorRows[0].last_name}`.trim() : `Assessor #${old_id}`;
+    const newAssessorName = `${assessorRows[0].first_name} ${assessorRows[0].last_name}`.trim();
 
     // Mark old as reassigned
     await connection.query(`
@@ -195,18 +398,42 @@ router.put('/assessments/assignments/:id/reassign', authenticate, allowRoles('ad
     `, [id]);
 
     // Create new assignment
+    const reassignInstructions = `Reassigned from ${oldAssessorName}.${reason ? ' Reason: ' + reason : ''}`;
     const [result] = await connection.query(`
       INSERT INTO assessment_assignments (property_type, target_id_int, target_id_str, assigned_to_user_id, assigned_by_user_id, due_date, instructions)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [assignment[0].property_type, assignment[0].target_id_int, assignment[0].target_id_str, new_assessor_id, req.user.id, due_date || null, `Reassigned from Assessor ID ${old_id}.${reason ? ' Reason: ' + reason : ''}`]);
+    `, [current.property_type, current.target_id_int, current.target_id_str, new_assessor_id, req.user.id, due_date || current.due_date || null, reassignInstructions]);
 
-    const name = `${assessorRows[0].first_name} ${assessorRows[0].last_name}`.trim();
+    const adminName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.username;
+    await logActivity(
+      connection, 
+      req, 
+      'REASSIGN', 
+      'Assignments', 
+      `Assignment #${result.insertId} (${current.target_id_str})`, 
+      `Admin ${adminName} reassigned ${current.property_type.toUpperCase()} ${current.target_id_str} from ${oldAssessorName} to ${newAssessorName}.${reason ? ' Reason: ' + reason : ''}`
+    );
 
-    await logActivity(connection, req, 'REASSIGN', 'Assignments', `ID ${id}`, `Admin reassigned ${assignment[0].target_id_str} to ${name}.${reason ? ' Reason: ' + reason : ''}`);
-    await createNotification(new_assessor_id, 'Assessment Reassigned', `You have been reassigned to assess ${assignment[0].target_id_str}.`, 'ASSESSMENT', assignment[0].target_id_str);
+    // Notify new assessor
+    await createNotification(
+      new_assessor_id, 
+      'Assessment Reassigned', 
+      `You have been assigned to assess ${current.target_id_str} (transferred from ${oldAssessorName}).${reason ? ' Reason: ' + reason : ''}`, 
+      'ASSESSMENT', 
+      current.target_id_str
+    );
+
+    // Notify previous assessor
+    await createNotification(
+      old_id, 
+      'Assignment Transferred', 
+      `Your assignment for ${current.target_id_str} has been transferred to ${newAssessorName} by Admin.${reason ? ' Reason: ' + reason : ''}`, 
+      'ASSESSMENT', 
+      current.target_id_str
+    );
 
     await connection.commit();
-    res.json({ message: `Assessment successfully reassigned to ${name}.`, assignment_id: result.insertId });
+    res.json({ message: `Assessment successfully reassigned to ${newAssessorName}.`, assignment_id: result.insertId });
   } catch (err) {
     await connection.rollback();
     next(err);
@@ -218,11 +445,56 @@ router.put('/assessments/assignments/:id/reassign', authenticate, allowRoles('ad
 // POST cancel assignment
 router.post('/assessments/assignments/:id/cancel', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
   const { id } = req.params;
+  const { reason } = req.body || {};
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await connection.query(`UPDATE assessment_assignments SET assignment_status = 'cancelled' WHERE assignment_id = ?`, [id]);
-    await logActivity(connection, req, 'CANCEL', 'Assignments', `ID ${id}`, `Admin cancelled assessment assignment ${id}.`);
+
+    const [assignment] = await connection.query(`SELECT * FROM assessment_assignments WHERE assignment_id = ?`, [id]);
+    if (!assignment[0]) {
+      await connection.rollback();
+      return res.status(404).json({ message: 'Assignment record not found.' });
+    }
+
+    const current = assignment[0];
+    if (current.assignment_status === 'cancelled') {
+      await connection.rollback();
+      return res.status(400).json({ message: 'Assignment is already cancelled.' });
+    }
+
+    if (current.assignment_status === 'approved') {
+      await connection.rollback();
+      return res.status(400).json({ message: 'Cannot cancel an assignment that has already been approved.' });
+    }
+
+    // Preserve cancellation reason and admin audit in instructions/activity_log
+    const cancelNote = reason ? `\n[Cancelled by Admin: ${reason}]` : `\n[Cancelled by Admin]`;
+    await connection.query(
+      `UPDATE assessment_assignments 
+       SET assignment_status = 'cancelled', 
+           instructions = CONCAT(COALESCE(instructions, ''), ?) 
+       WHERE assignment_id = ?`,
+      [cancelNote, id]
+    );
+
+    const adminName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.username;
+    await logActivity(
+      connection, 
+      req, 
+      'CANCEL', 
+      'Assignments', 
+      `Assignment #${id} (${current.target_id_str})`, 
+      `Admin ${adminName} cancelled assignment for ${current.property_type.toUpperCase()} ${current.target_id_str}.${reason ? ' Reason: ' + reason : ''}`
+    );
+
+    await createNotification(
+      current.assigned_to_user_id, 
+      'Assignment Cancelled', 
+      `Your assessment assignment for ${current.target_id_str} was cancelled by Admin.${reason ? ' Reason: ' + reason : ''}`, 
+      'ASSESSMENT', 
+      current.target_id_str
+    );
+
     await connection.commit();
     res.json({ message: 'Assignment cancelled successfully.' });
   } catch (err) {
@@ -236,9 +508,37 @@ router.post('/assessments/assignments/:id/cancel', authenticate, allowRoles('adm
 // GET permission requests
 router.get('/assessments/requests', authenticate, async (req, res, next) => {
   try {
+    const scope = req.query.scope; // 'my' or 'all'
     const isAdmin = ['admin', 'super_admin'].includes(req.user.role);
-    const filter = isAdmin ? '' : 'WHERE r.requested_by_user_id = ?';
-    const params = isAdmin ? [] : [req.user.id];
+
+    // Check if user has permission to view all requests
+    let canViewAll = isAdmin;
+    if (!canViewAll) {
+      const [permRows] = await pool.query(`
+        SELECT 1 FROM user_permissions WHERE user_id = ? AND permission_name = 'VIEW_PERMISSION_REQUEST'
+        UNION
+        SELECT 1 FROM role_permissions WHERE role = ? AND permission_name = 'VIEW_PERMISSION_REQUEST'
+      `, [req.user.id, req.user.role]);
+      canViewAll = permRows.length > 0;
+    }
+
+    if (scope === 'all' && !canViewAll) {
+      return res.status(403).json({ 
+        unauthorized: true, 
+        message: 'You do not have permission to view requests from other assessors.',
+        data: [] 
+      });
+    }
+
+    let filter = '';
+    let params = [];
+
+    if (scope === 'all') {
+      filter = '';
+    } else if (scope === 'my' || !isAdmin) {
+      filter = 'WHERE r.requested_by_user_id = ?';
+      params = [req.user.id];
+    }
 
     const [rows] = await pool.query(`
       SELECT 
@@ -258,7 +558,18 @@ router.get('/assessments/requests', authenticate, async (req, res, next) => {
           NULLIF(TRIM(CONCAT_WS(' ', po_prop.first_name, po_prop.middle_name, po_prop.last_name)), ''),
           NULLIF(TRIM(CONCAT_WS(' ', po_lot.first_name, po_lot.middle_name, po_lot.last_name)), ''),
           NULLIF(TRIM(CONCAT_WS(' ', po_bldg.first_name, po_bldg.middle_name, po_bldg.last_name)), '')
-        ) AS owner_name
+        ) AS owner_name,
+        COALESCE(
+          NULLIF(CONCAT_WS(', ', NULLIF(TRIM(ad_prop.street), ''), br_prop.barangay_name, mu_prop.municipality_name), ''),
+          NULLIF(CONCAT_WS(', ', NULLIF(TRIM(ad_lot.street), ''), br_lot.barangay_name, mu_lot.municipality_name), ''),
+          NULLIF(CONCAT_WS(', ', NULLIF(TRIM(ad_bldg.street), ''), br_bldg.barangay_name, mu_bldg.municipality_name), ''),
+          NULLIF(br_prop.barangay_name, ''),
+          NULLIF(br_lot.barangay_name, ''),
+          NULLIF(br_bldg.barangay_name, ''),
+          'Address not yet mapped'
+        ) AS property_address,
+        COALESCE(l.lot_number, b.building_name, r.target_id_str) AS property_or_lot_number,
+        COALESCE(br_prop.barangay_name, br_lot.barangay_name, br_bldg.barangay_name, '') AS barangay
       FROM assessment_permission_requests r
       JOIN users u ON r.requested_by_user_id = u.user_id
       LEFT JOIN users rev ON r.reviewed_by_user_id = rev.user_id
@@ -268,14 +579,26 @@ router.get('/assessments/requests', authenticate, async (req, res, next) => {
         AND aa.assignment_status NOT IN ('cancelled')
       )
       LEFT JOIN users assessor_u ON aa.assigned_to_user_id = assessor_u.user_id
+      -- Property link
       LEFT JOIN properties p ON (r.property_type = 'property' AND (p.property_id = r.target_id_str OR p.property_id = r.target_id_int))
       LEFT JOIN property_owners po_prop ON p.owner_id = po_prop.owner_id
-      LEFT JOIN property_lots l ON (r.property_type = 'lot' AND (l.lot_id = r.target_id_str OR l.lot_id = r.target_id_int))
+      LEFT JOIN addresses ad_prop ON p.address_id = ad_prop.address_id
+      LEFT JOIN barangays br_prop ON ad_prop.barangay_id = br_prop.barangay_id
+      LEFT JOIN municipalities mu_prop ON br_prop.municipality_id = mu_prop.municipality_id
+      -- Lot link
+      LEFT JOIN property_lots l ON (r.property_type = 'lot' AND (l.lot_id = r.target_id_str OR l.lot_id = r.target_id_int OR l.lot_number = r.target_id_str))
       LEFT JOIN properties p_lot ON l.property_id = p_lot.property_id
       LEFT JOIN property_owners po_lot ON p_lot.owner_id = po_lot.owner_id
-      LEFT JOIN property_buildings b ON (r.property_type = 'building' AND (b.building_id = r.target_id_str OR b.building_id = r.target_id_int))
+      LEFT JOIN addresses ad_lot ON p_lot.address_id = ad_lot.address_id
+      LEFT JOIN barangays br_lot ON ad_lot.barangay_id = br_lot.barangay_id
+      LEFT JOIN municipalities mu_lot ON br_lot.municipality_id = mu_lot.municipality_id
+      -- Building link
+      LEFT JOIN property_buildings b ON (r.property_type = 'building' AND (b.building_id = r.target_id_str OR b.building_id = r.target_id_int OR b.building_name = r.target_id_str))
       LEFT JOIN properties p_bldg ON b.property_id = p_bldg.property_id
       LEFT JOIN property_owners po_bldg ON p_bldg.owner_id = po_bldg.owner_id
+      LEFT JOIN addresses ad_bldg ON p_bldg.address_id = ad_bldg.address_id
+      LEFT JOIN barangays br_bldg ON ad_bldg.barangay_id = br_bldg.barangay_id
+      LEFT JOIN municipalities mu_bldg ON br_bldg.municipality_id = mu_bldg.municipality_id
       ${filter}
       ORDER BY r.created_at DESC
     `, params);
@@ -554,14 +877,28 @@ router.post('/assessments/requests/:id/cancel', authenticate, allowRoles('staff'
   const { id } = req.params;
   const connection = await pool.getConnection();
   try {
-    const [reqRow] = await connection.query(`SELECT requested_by_user_id, request_status FROM assessment_permission_requests WHERE request_id = ?`, [id]);
-    if (!reqRow[0]) return res.status(404).json({ message: 'Request not found' });
-    if (reqRow[0].requested_by_user_id !== req.user.id) return res.status(403).json({ message: 'Unauthorized to cancel this request.' });
-    if (reqRow[0].request_status !== 'pending') return res.status(400).json({ message: 'Can only cancel pending requests.' });
+    await connection.beginTransaction();
+    const [reqRow] = await connection.query(`SELECT requested_by_user_id, request_status, target_id_str, property_type FROM assessment_permission_requests WHERE request_id = ?`, [id]);
+    if (!reqRow[0]) {
+      await connection.rollback();
+      return res.status(404).json({ message: 'Request not found' });
+    }
+    if (reqRow[0].requested_by_user_id !== req.user.id) {
+      await connection.rollback();
+      return res.status(403).json({ message: 'Unauthorized to cancel this request. You can only cancel your own requests.' });
+    }
+    if (reqRow[0].request_status !== 'pending') {
+      await connection.rollback();
+      return res.status(400).json({ message: `Cannot cancel request. Only pending requests can be cancelled (current status: ${reqRow[0].request_status}).` });
+    }
 
-    await connection.query(`DELETE FROM assessment_permission_requests WHERE request_id = ?`, [id]);
+    await connection.query(`UPDATE assessment_permission_requests SET request_status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE request_id = ?`, [id]);
+    await logActivity(connection, req, 'CANCEL', 'Permission Requests', `PR-${id}`, `Assessor ${req.user.first_name || ''} ${req.user.last_name || ''} cancelled permission request PR-${id} for ${reqRow[0].target_id_str}.`);
+    await connection.commit();
+
     res.json({ message: 'Request cancelled successfully.' });
   } catch (err) {
+    await connection.rollback();
     next(err);
   } finally {
     connection.release();

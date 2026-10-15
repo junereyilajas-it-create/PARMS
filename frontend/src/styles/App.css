@@ -897,3 +897,25 @@ main {
   [data-theme='dark'] .print\:bg-white,
   [data-theme='dark'] .print\:bg-white * { background: #fff !important; color: #111 !important; }
 }
+
+/* Dark mode table row hover & contrast enhancement */
+html.dark table tbody tr:hover,
+[data-theme='dark'] table tbody tr:hover {
+  background-color: rgba(30, 41, 59, 0.7) !important;
+}
+
+html.dark table tbody tr.cursor-pointer:hover,
+[data-theme='dark'] table tbody tr.cursor-pointer:hover {
+  background-color: rgba(34, 197, 94, 0.15) !important;
+}
+
+html.dark td.sticky,
+[data-theme='dark'] td.sticky {
+  background-color: #1f2937 !important;
+}
+
+html.dark tr:hover > td.sticky,
+[data-theme='dark'] tr:hover > td.sticky {
+  background-color: #1e293b !important;
+}
+

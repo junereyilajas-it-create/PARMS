@@ -40,7 +40,7 @@ export function PropertyLotManagement() {
   const { showSuccess, showError, showConfirm } = useModal();
   const [internalSearch, setInternalSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [lots, setLots] = useState<Lot[]>([]); const [filters, setFilters] = useState({ barangay: '', classification: '', propertyType: '', status: '' }); const [modal, setModal] = useState<{ mode: 'edit' | 'view'; record?: Lot } | null>(null); const [showAddProperty, setShowAddProperty] = useState(false); const [userRole, setUserRole] = useState('');
+  const [lots, setLots] = useState<Lot[]>([]); const [filters, setFilters] = useState({ barangay: '', classification: '', propertyType: '', status: '' }); const [modal, setModal] = useState<{ mode: 'edit' | 'view'; record?: Lot } | null>(null); const [showAddProperty, setShowAddProperty] = useState(false); const [userRole, setUserRole] = useState(() => localStorage.getItem('accessor_role') || '');
   const [assignmentProperty, setAssignmentProperty] = useState<SelectedPropertyAssignment | null>(null);
 
   useEffect(() => {
@@ -60,7 +60,19 @@ export function PropertyLotManagement() {
   }), [lots, filters, debouncedSearch])
 
   const updateLot = async (values: Record<string, string>) => { try { await ensureSession(); if (modal?.record) await api.put(`/lots/${modal.record.lot_id}`, values); setModal(null); await load(); showSuccess(`Lot was successfully updated.`); } catch { showError('Unable to save the lot. Check required IDs and database constraints.'); throw new Error('Lot could not be updated') } }
-  const createProperty = async (values: UnifiedPropertyRegistration) => { try { await ensureSession(); const { data } = await api.post('/properties/unified', values); await load(); setShowAddProperty(false); showSuccess(`Property Created Successfully. Property ID: ${data.id}`); } catch { showError('Unable to save property. Please check the required information and try again.'); throw new Error('Property could not be saved') } }
+  const createProperty = async (values: UnifiedPropertyRegistration) => {
+    try {
+      await ensureSession();
+      const { data } = await api.post('/properties/unified', values);
+      await load();
+      setShowAddProperty(false);
+      showSuccess(`Property Created Successfully. Property ID: ${data.id}`);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Unable to save property. Please check the required information and try again.';
+      showError(msg);
+      throw new Error(msg);
+    }
+  };
   const remove = async (record: Lot) => { showConfirm(`Delete ${record.lot_number}?`, async () => { try { await ensureSession(); await api.delete(`/lots/${record.lot_id}`); await load(); showSuccess(`Lot ${record.lot_number} was successfully deleted from the database.`) } catch { showError('This lot cannot be deleted while it has related records.') } }) }
 
   const handleRequestPermission = async (record: Lot) => {
@@ -167,9 +179,9 @@ export function PropertyLotManagement() {
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Lots</h1>
           <p className="mt-1 text-gray-600 dark:text-gray-400">Manage all registered lot properties.</p>
         </div>
-        {!['admin'].includes(userRole) && (
-          <button onClick={() => setShowAddProperty(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
-            Add Property
+        {['admin', 'staff', 'super_admin'].includes(userRole) && (
+          <button id="add-property-btn" onClick={() => setShowAddProperty(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium shadow-sm cursor-pointer">
+            <Plus size={18} /> Add Property
           </button>
         )}
       </div>
@@ -275,7 +287,13 @@ export function PropertyLotManagement() {
 
       {modal?.mode === 'view' && <CrudModal title="Lot Record" fields={fields} record={modal.record} readOnly onClose={() => setModal(null)} onSave={updateLot} />}
       {modal?.mode === 'edit' && modal.record && <LotRegistrationModal title="Edit Property Lot" initialValues={modal.record} close={() => setModal(null)} onSave={updateLot} />}
-      {showAddProperty && <AddPropertyWorkflow close={() => setShowAddProperty(false)} onSave={createProperty} />}
+      {showAddProperty && (
+        <AddPropertyWorkflow
+          close={() => setShowAddProperty(false)}
+          onSave={createProperty}
+          initialType="LOT"
+        />
+      )}
 
       {/* Assign Assessor Modal */}
       <AssignAssessorModal

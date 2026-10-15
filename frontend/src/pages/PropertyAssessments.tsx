@@ -31,7 +31,7 @@ export const PropertyAssessments: React.FC = () => {
   const [pendingAssessments, setPendingAssessments] = useState<Assessment[]>([]);
   const [query, setQuery] = useState('');
   const [userRole, setUserRole] = useState('');
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const filterStatus = searchParams.get('status');
 
   // Modals
@@ -70,7 +70,17 @@ export const PropertyAssessments: React.FC = () => {
   useEffect(() => { load(); }, []);
 
   const displayedAssessments = useMemo(() => assessments.filter(a => {
-    if (filterStatus && a.assessment_status !== filterStatus) return false;
+    if (filterStatus) {
+      const statusLower = filterStatus.toLowerCase();
+      if (statusLower === 'pending') {
+        const isPending = ['submitted', 'assigned', 'in_progress', 'returned', 'returned_for_correction'].includes(a.assessment_status?.toLowerCase());
+        if (!isPending) return false;
+      } else if (statusLower === 'completed' || statusLower === 'approved') {
+        if (a.assessment_status?.toLowerCase() !== 'approved' && a.assessment_status?.toLowerCase() !== 'completed') return false;
+      } else if (a.assessment_status?.toLowerCase() !== statusLower) {
+        return false;
+      }
+    }
     if (query && !String(a.target_id).toLowerCase().includes(query.toLowerCase())) return false;
     return true;
   }), [assessments, query, filterStatus]);
@@ -266,9 +276,23 @@ export const PropertyAssessments: React.FC = () => {
       )}
 
       <div className="glass-panel p-6 rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm">
-        <h2 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">
-          {userRole === 'assessor' ? 'My Submitted Assessments' : 'All Assessments Database'}
-        </h2>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+            {userRole === 'assessor' ? 'My Submitted Assessments' : 'All Assessments Database'}
+          </h2>
+          {filterStatus && (
+            <div className="inline-flex items-center gap-2 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 px-3 py-1 rounded-lg text-xs font-medium text-green-800 dark:text-green-300">
+              <span>Filter: <strong className="uppercase">{filterStatus}</strong></span>
+              <button
+                onClick={() => setSearchParams({})}
+                className="hover:text-green-900 dark:hover:text-green-100 underline ml-1 cursor-pointer"
+                title="Clear filter"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400 text-sm">Loading assessments...</div>
         ) : (

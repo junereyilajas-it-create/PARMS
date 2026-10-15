@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Routes, Route, useNavigate, useLocation, Navigate, Outlet } from 'react-router-dom'
 import './styles/App.css'
-import { PropertyAssessments, BuildingDirectory, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, ForgotPasswordPage, ResetPasswordPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, AccountSettings, HelpSupport, CertificateGenerator, CertificateRecords, AdminDashboard, AssessorDashboard, StaffDashboard, UserManagement, ActivityLogsView, PropertyHistoryView, StaffPropertySearch, SuperAdminDashboard, RoleManagement, AssessmentAssignments, AssessmentPermissionRequests, BlueprintScanner } from './pages'
+import { PropertyAssessments, BuildingDirectory, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, ForgotPasswordPage, ResetPasswordPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, AccountSettings, HelpSupport, CertificateGenerator, CertificateRecords, AdminDashboard, AssessorDashboard, StaffDashboard, UserManagement, ActivityLogsView, PropertyHistoryView, StaffPropertySearch, SuperAdminDashboard, RoleManagement, AssessmentAssignments, AssessmentPermissionRequests, BlueprintScanner, AssessorPropertiesView } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
@@ -104,7 +104,14 @@ function App() {
         if (role !== 'client') {
           await loadPropertyRecords()
         }
-      } catch (e) {
+      } catch (e: any) {
+        if (e.response?.status === 401 || e.response?.status === 403) {
+          localStorage.removeItem('accessor_token');
+          localStorage.removeItem('accessor_role');
+          navigate('/login');
+          setIsInitializing(false);
+          return;
+        }
         setInitError('Unable to connect to the server. Please make sure the API server and MySQL are running.')
         return // keep initializing true so error shows
       }
@@ -185,12 +192,16 @@ function App() {
       case 'Buildings': navigate('/buildings'); break;
       case 'Owners': navigate('/owners'); break;
       case 'Blueprint Scanner': navigate('/scanner'); break;
-      case 'Assigned Properties': navigate('/assigned-properties'); break;
+      case 'Properties':
+      case 'Assigned Properties': navigate('/properties'); break;
       case 'GIS Map': navigate('/gis'); break;
       case 'Assessments': navigate('/assessments'); break;
       case 'Assessment Assignments': navigate('/assessment-assignments'); break;
+      case 'My Requests': navigate('/my-requests'); break;
       case 'Assessment Requests':
-      case 'Permission Requests': navigate('/permission-requests'); break;
+      case 'Permission Requests':
+        navigate(currentRole === 'assessor' ? '/my-requests' : '/permission-requests');
+        break;
       case 'Certificates': navigate('/documents'); break;
       case 'Certificate Requests':
         navigate(currentRole === 'client' || currentRole === 'owner' ? '/client/certificate-requests' : '/admin/certificate-requests');
@@ -214,7 +225,10 @@ function App() {
 
     // Ordered from most specific to least specific
     if (path.startsWith('/assessment-assignments')) return 'Assessment Assignments'
-    if (path.startsWith('/permission-requests') || path.startsWith('/assessment-requests')) return 'Permission Requests'
+    if (path.startsWith('/my-requests')) return 'My Requests'
+    if (path.startsWith('/permission-requests') || path.startsWith('/assessment-requests')) {
+      return userRole === 'assessor' ? 'My Requests' : 'Permission Requests'
+    }
     if (path.startsWith('/assessments')) return 'Assessments'
 
     if (path.startsWith('/client/my-properties')) return 'My Properties'
@@ -227,7 +241,7 @@ function App() {
     if (path.startsWith('/buildings')) return 'Buildings'
     if (path.startsWith('/owners')) return 'Owners'
     if (path.startsWith('/scanner')) return 'Blueprint Scanner'
-    if (path.startsWith('/assigned-properties')) return 'Assigned Properties'
+    if (path.startsWith('/properties') || path.startsWith('/assigned-properties')) return 'Properties'
     if (path.startsWith('/gis')) return 'GIS Map'
 
     if (path.startsWith('/documents') || path.startsWith('/certificates/generate') || path.startsWith('/certificates/records')) return 'Certificates'
@@ -312,16 +326,16 @@ function App() {
                   <StaffDashboard />
         } />
         <Route path="/super-admin/dashboard" element={<RoleProtectedRoute allowedRoles={['super_admin']} userRole={userRole}><SuperAdminDashboard /></RoleProtectedRoute>} />
-        <Route path="/lots" element={<RoleProtectedRoute allowedRoles={['admin', 'staff']} userRole={userRole}><PropertyLotManagement /></RoleProtectedRoute>} />
-        <Route path="/buildings" element={<RoleProtectedRoute allowedRoles={['admin', 'staff']} userRole={userRole}><BuildingDirectory /></RoleProtectedRoute>} />
-        <Route path="/building-properties" element={<RoleProtectedRoute allowedRoles={['admin', 'staff']} userRole={userRole}><BuildingDirectory /></RoleProtectedRoute>} />
-        <Route path="/owners" element={<RoleProtectedRoute allowedRoles={['admin', 'staff']} userRole={userRole}><PropertyOwnershipTransfer /></RoleProtectedRoute>} />
-        <Route path="/assessments" element={<RoleProtectedRoute allowedRoles={['admin', 'assessor']} userRole={userRole}><PropertyAssessments /></RoleProtectedRoute>} />
+        <Route path="/lots" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><PropertyLotManagement /></RoleProtectedRoute>} />
+        <Route path="/buildings" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><BuildingDirectory /></RoleProtectedRoute>} />
+        <Route path="/building-properties" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><BuildingDirectory /></RoleProtectedRoute>} />
+        <Route path="/owners" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><PropertyOwnershipTransfer /></RoleProtectedRoute>} />
+        <Route path="/assessments" element={<RoleProtectedRoute allowedRoles={['admin', 'assessor', 'super_admin']} userRole={userRole}><PropertyAssessments /></RoleProtectedRoute>} />
         <Route path="/assessment-assignments" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin']} userRole={userRole}><AssessmentAssignments /></RoleProtectedRoute>} />
         <Route path="/permission-requests" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin', 'assessor', 'staff']} userRole={userRole}><AssessmentPermissionRequests /></RoleProtectedRoute>} />
         <Route path="/assessment-requests" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin', 'assessor', 'staff']} userRole={userRole}><AssessmentPermissionRequests /></RoleProtectedRoute>} />
-        <Route path="/scanner" element={<RoleProtectedRoute allowedRoles={['admin', 'staff']} userRole={userRole}><BlueprintScanner /></RoleProtectedRoute>} />
-        <Route path="/gis" element={<RoleProtectedRoute allowedRoles={['admin', 'assessor', 'staff']} userRole={userRole}><PropertyMapView /></RoleProtectedRoute>} />
+        <Route path="/scanner" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><BlueprintScanner /></RoleProtectedRoute>} />
+        <Route path="/gis" element={<RoleProtectedRoute allowedRoles={['admin', 'assessor', 'staff', 'super_admin']} userRole={userRole}><PropertyMapView /></RoleProtectedRoute>} />
         <Route path="/reports" element={
           userRole === 'super_admin' ? <Navigate to="/super-admin/dashboard" replace /> :
             <RoleProtectedRoute allowedRoles={['admin']} userRole={userRole}><OperationalIntelligenceReports /></RoleProtectedRoute>
@@ -335,7 +349,9 @@ function App() {
         <Route path="/client/gis-map" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientGISMap /></RoleProtectedRoute>} />
         <Route path="/client/certificate-requests" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientCertificateRequests /></RoleProtectedRoute>} />
 
-        <Route path="/assigned-properties" element={<RoleProtectedRoute allowedRoles={['assessor']} userRole={userRole}><BuildingDirectory /></RoleProtectedRoute>} />
+        <Route path="/properties" element={<RoleProtectedRoute allowedRoles={['assessor', 'admin', 'super_admin']} userRole={userRole}><AssessorPropertiesView /></RoleProtectedRoute>} />
+        <Route path="/assigned-properties" element={<RoleProtectedRoute allowedRoles={['assessor', 'admin', 'super_admin']} userRole={userRole}><AssessorPropertiesView /></RoleProtectedRoute>} />
+        <Route path="/my-requests" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin', 'assessor', 'staff']} userRole={userRole}><AssessmentPermissionRequests /></RoleProtectedRoute>} />
         <Route path="/assigned-tasks" element={<RoleProtectedRoute allowedRoles={['staff']} userRole={userRole}><StaffDashboard /></RoleProtectedRoute>} />
         <Route path="/account-settings" element={<AccountSettings />} />
         <Route path="/help-support" element={<HelpSupport />} />
