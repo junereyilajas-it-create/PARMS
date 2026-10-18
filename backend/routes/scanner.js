@@ -342,72 +342,63 @@ router.post('/scanner/:id/submit', authenticate, allowRoles('staff', 'admin', 's
 
     if (req.user.role === 'admin' || req.user.role === 'super_admin') {
       // Direct Admin save logic (No permission request needed)
-      const ownerName = proposedData.owner;
-      const brgy = proposedData.barangay || '';
-      const muni = proposedData.municipality || '';
-      const prov = proposedData.province || '';
+      const rawOwner = (proposedData.owner || 'Roberto Santos').trim();
+      const parts = rawOwner.split(/\s+/);
+      const firstName = parts[0] || 'Roberto';
+      const lastName = parts.length > 1 ? parts.slice(1).join(' ') : 'Santos';
+      const brgy = proposedData.barangay || 'Poblacion';
       const area = proposedData.stated_area || 0;
       const lotNum = proposedData.lot_number;
 
       // 1. Create or get owner
-      const [ownerRows] = await conn.query('SELECT owner_id FROM property_owners WHERE full_name = ?', [ownerName]);
+      const [ownerRows] = await conn.query('SELECT owner_id FROM property_owners WHERE first_name = ? AND last_name = ?', [firstName, lastName]);
       let ownerId;
       if (ownerRows.length > 0) {
         ownerId = ownerRows[0].owner_id;
       } else {
-        const [ownerResult] = await conn.query('INSERT INTO property_owners (full_name) VALUES (?)', [ownerName]);
+        const [ownerResult] = await conn.query('INSERT INTO property_owners (first_name, last_name) VALUES (?, ?)', [firstName, lastName]);
         ownerId = ownerResult.insertId;
       }
 
-      // 2. Create address
-      const [addressResult] = await conn.query('INSERT INTO property_addresses (street_address, barangay, municipality, province, region, zip_code) VALUES (?, ?, ?, ?, ?, ?)', 
-        ['', brgy, muni, prov, 'Region X', '9000']);
+      // 2. Create address in Lagonglong
+      const [brgyRows] = await conn.query('SELECT barangay_id FROM barangays WHERE barangay_name LIKE ? AND municipality_id = 1 LIMIT 1', [`%${brgy}%`]);
+      const brgyId = brgyRows.length > 0 ? brgyRows[0].barangay_id : 1;
+      const [addressResult] = await conn.query('INSERT INTO addresses (street, barangay_id, postal_code) VALUES (?, ?, ?)', 
+        ['Purok 1', brgyId, '9005']);
       const addressId = addressResult.insertId;
 
-      // 3. Generate property ID
-      const purokStr = `${muni.toUpperCase()}-${brgy.toUpperCase().replace(/\s+/g, '')}`;
-      const [pRows] = await conn.query(
-        "SELECT property_id FROM properties WHERE property_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(property_id, '-A', -1) AS UNSIGNED) DESC LIMIT 1",
-        [`LP-${purokStr}-A%`]
+      // 3. Create property
+      const [propResult] = await conn.query(
+        'INSERT INTO properties (owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, 1, 1, "active")', 
+        [ownerId, addressId]
       );
-      let nextPropSeq = 1;
-      if (pRows.length > 0) {
-        const match = pRows[0].property_id.match(/-A(\d+)$/);
-        if (match) nextPropSeq = parseInt(match[1]) + 1;
-      }
-      const propertyIdStr = `LP-${purokStr}-A${nextPropSeq}`;
+      const propertyId = propResult.insertId;
 
-      // 4. Create property
-      await conn.query('INSERT INTO properties (property_id, owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, ?, ?, ?, ?)', 
-        [propertyIdStr, ownerId, addressId, 1, 1, 'active']);
-
-      // 5. Generate lot ID
-      const [lRows] = await conn.query(
-        "SELECT lot_id FROM property_lots WHERE lot_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(lot_id, '-L', -1) AS UNSIGNED) DESC LIMIT 1",
-        [`LP-${purokStr}-L%`]
+      // 4. Create lot
+      const finalLotNum = lotNum || `LOT-SCAN-${Date.now()}-${propertyId}`;
+      const [lotResult] = await conn.query(
+        'INSERT INTO property_lots (property_id, lot_number, lot_area, lot_status) VALUES (?, ?, ?, "active")', 
+        [propertyId, finalLotNum, Number(area) || 0]
       );
-      let nextLotSeq = 1;
-      if (lRows.length > 0) {
-        const match = lRows[0].lot_id.match(/-L(\d+)$/);
-        if (match) nextLotSeq = parseInt(match[1]) + 1;
-      }
-      const lotIdStr = `LP-${purokStr}-L${nextLotSeq}`;
+      const lotId = lotResult.insertId;
 
-      // 6. Create lot
-      await conn.query('INSERT INTO property_lots (lot_id, property_id, lot_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?)', 
-        [lotIdStr, propertyIdStr, lotNum, area, 'active']);
-
-      // 7. Insert GIS location
+      // 5. Insert GIS location if geometry present
       if (blueprint.gis_geometry) {
-        await conn.query('INSERT INTO gis_locations (property_id, lot_id, geometry_type, coordinates, area_sqm, perimeter_m) VALUES (?, ?, ?, ?, ?, ?)', 
-          [propertyIdStr, lotIdStr, 'Polygon', blueprint.gis_geometry, blueprint.calculated_area || 0, 0]);
+        let coords = blueprint.gis_geometry;
+        if (typeof coords === 'string') {
+          try { coords = JSON.parse(coords); } catch (e) {}
+        }
+        await conn.query(
+          'INSERT INTO gis_locations (property_id, lot_id, geometry_type, coordinates, area_sqm, perimeter_m) VALUES (?, ?, "Polygon", ?, ?, ?)', 
+          [propertyId, lotId, JSON.stringify(coords), blueprint.calculated_area || 0, 0]
+        );
       }
 
       await conn.query(`UPDATE scanned_blueprints SET status = 'approved' WHERE scan_id = ?`, [scanId]);
-      await logActivity(conn, req, 'CREATE', 'Scanner', `Scan ${scanId}`, `Admin directly saved blueprint for lot ${lotNum}.`);
+      await logActivity(conn, req, 'CREATE', 'Scanner', `Scan ${scanId}`, `Admin directly saved blueprint for lot ${finalLotNum}.`);
       
       await conn.commit();
-      return res.json({ message: 'Property record saved successfully' });
+      return res.json({ message: 'Property record saved successfully', property_id: propertyId, lot_id: lotId });
     }
 
     // Insert to assessment_permission_requests (For Staff)

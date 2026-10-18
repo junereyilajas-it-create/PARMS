@@ -285,7 +285,7 @@ export function BuildingRegistrationModal({ close, onSave }: { close: () => void
                     value={values.occupant} 
                     onChange={event => setValue('occupant', event.target.value)}
                     onBlur={() => setFieldTouched('occupant')}
-                    placeholder="e.g., Acme Corp or John Doe"
+                    placeholder="e.g., Acme Corp or Juan Dela Cruz"
                   />
                 </label>
                 <label>

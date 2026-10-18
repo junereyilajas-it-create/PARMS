@@ -3,6 +3,7 @@ import { Plus, Info, Palette, ShieldAlert } from 'lucide-react';
 import { DataTable } from '../components/common/DataTable';
 import { CrudModal, type CrudField } from '../components/common/CrudModal';
 import { useModal } from '../contexts/ModalContext';
+import { useTheme } from '../contexts/ThemeContext';
 import api, { ensureSession } from '../lib/api';
 
 type TabId = 'general' | 'systemInfo' | 'appearance' | 'maintenance' | 'propertyTypes' | 'classifications';
@@ -22,6 +23,7 @@ const crudConfig: Record<string, { title: string; endpoint: string; idField: str
 
 export const SystemSettings: React.FC = () => {
   const { showSuccess, showError, showConfirm } = useModal();
+  const { setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<TabId>('general');
   const [data, setData] = useState<any[]>([]);
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
@@ -115,7 +117,13 @@ export const SystemSettings: React.FC = () => {
         <select
           className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm"
           value={setting.setting_value}
-          onChange={(e) => saveSetting(setting.setting_key, e.target.value)}
+          onChange={(e) => {
+            const val = e.target.value;
+            saveSetting(setting.setting_key, val);
+            if (val === 'light' || val === 'dark') {
+              setTheme(val);
+            }
+          }}
           disabled={busy}
         >
           <option value="light">Light</option>

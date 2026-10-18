@@ -40,7 +40,7 @@ const upload = multer({
 
 const router = Router()
 
-// Upload property photo (optional lot or building photo)
+// Upload single property photo (optional lot or building photo) - backward compatibility
 router.post('/properties/upload-photo', authenticate, allowRoles('admin', 'staff', 'super_admin', 'assessor'), (req, res) => {
   upload.single('photo')(req, res, (err) => {
     if (err) {
@@ -50,8 +50,47 @@ router.post('/properties/upload-photo', authenticate, allowRoles('admin', 'staff
       return res.status(400).json({ message: 'No photo file uploaded.' })
     }
     const photoUrl = `/uploads/properties/${req.file.filename}`
-    return res.json({ success: true, url: photoUrl, filename: req.file.filename })
+    return res.json({ success: true, url: photoUrl, filename: req.file.filename, size: req.file.size, mimetype: req.file.mimetype })
   })
+})
+
+// Upload multiple property photos (optional lot or building photos)
+router.post('/properties/upload-photos', authenticate, allowRoles('admin', 'staff', 'super_admin', 'assessor'), (req, res) => {
+  upload.array('photos', 20)(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ message: err.message || 'Error uploading property photos.' })
+    }
+    const files = req.files || (req.file ? [req.file] : [])
+    if (!files || files.length === 0) {
+      return res.status(400).json({ message: 'No photo files uploaded.' })
+    }
+    const uploadedPhotos = files.map((f, idx) => ({
+      url: `/uploads/properties/${f.filename}`,
+      filename: f.originalname || f.filename,
+      savedFilename: f.filename,
+      size: f.size,
+      mimetype: f.mimetype,
+      isPrimary: idx === 0
+    }))
+    return res.json({ success: true, count: uploadedPhotos.length, photos: uploadedPhotos })
+  })
+})
+
+// Fetch all photos for a specific property, lot, or building
+router.get('/properties/:propertyId/photos', authenticate, async (req, res, next) => {
+  try {
+    const id = req.params.propertyId
+    const [rows] = await pool.query(
+      `SELECT photo_id, property_id, lot_id, building_id, file_path, file_name, file_size, mime_type, is_primary, created_at
+       FROM property_photos 
+       WHERE property_id = ? OR lot_id = ? OR building_id = ? 
+       ORDER BY is_primary DESC, photo_id ASC`,
+      [id, id, id]
+    )
+    res.json(rows)
+  } catch (err) {
+    next(err)
+  }
 })
 
 async function getOrInsertProvince(connection, provinceName) {
@@ -185,8 +224,16 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'staff', 's
       classificationId = classRows[0].classification_id;
     }
 
-    // Extract optional property photo
-    const photoPath = data.propertyPhoto ? String(data.propertyPhoto).trim() : null;
+    // Extract optional property photos (multiple or single)
+    let photosList = [];
+    if (Array.isArray(data.propertyPhotos) && data.propertyPhotos.length > 0) {
+      photosList = data.propertyPhotos;
+    } else if (data.propertyPhoto && String(data.propertyPhoto).trim()) {
+      photosList = [{ url: String(data.propertyPhoto).trim() }];
+    }
+
+    const firstItem = photosList[0];
+    const photoPath = firstItem ? (typeof firstItem === 'string' ? firstItem : firstItem.url) : null;
 
     // Create Property
     const initialStatus = req.user.role === 'staff' ? 'pending' : 'active';
@@ -284,6 +331,24 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'staff', 's
       }
     }
 
+    // Persist all uploaded photos to property_photos table
+    if (photosList.length > 0) {
+      for (let i = 0; i < photosList.length; i++) {
+        const item = photosList[i];
+        const filePath = typeof item === 'string' ? item : item.url;
+        if (!filePath) continue;
+        const fileName = (typeof item === 'object' && item.filename) ? item.filename : path.basename(filePath);
+        const fileSize = (typeof item === 'object' && item.size) ? Number(item.size) : null;
+        const mimeType = (typeof item === 'object' && item.mimetype) ? item.mimetype : null;
+        const isPrimary = i === 0 ? 1 : 0;
+        await connection.query(
+          `INSERT INTO property_photos (property_id, lot_id, building_id, file_path, file_name, file_size, mime_type, is_primary)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [propertyId, lotId, buildingId, filePath, fileName, fileSize, mimeType, isPrimary]
+        );
+      }
+    }
+
     // Log Activity & History
     await logActivity(connection, req, 'CREATE', 'Properties', `Property #${propertyId}`, `Registered ${data.propertyType} property for ${data.ownerFirstName} ${data.ownerLastName}`);
     await logPropertyHistory(connection, req, propertyId, 'Property Created', null, { owner: `${data.ownerFirstName} ${data.ownerLastName}`, type: data.propertyType });
@@ -359,7 +424,7 @@ router.get('/properties/overview', authenticate, allowRoles('assessor', 'admin',
         p.property_id,
         p.property_status,
         p.property_photo,
-        CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner_name,
+        CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name, NULLIF(o.suffix, '')) AS owner_name,
         COALESCE(
           CONCAT_WS(', ', NULLIF(ad.street, ''), br.barangay_name, mu.municipality_name),
           ad.street,
@@ -503,7 +568,7 @@ router.get('/properties/overview', authenticate, allowRoles('assessor', 'admin',
       LEFT JOIN property_classifications pc ON p.classification_id = pc.classification_id
       LEFT JOIN property_lots l ON l.property_id = p.property_id
       LEFT JOIN property_buildings b ON b.property_id = p.property_id
-      GROUP BY p.property_id, p.property_status, o.first_name, o.middle_name, o.last_name, ad.street, br.barangay_name, mu.municipality_name, pt.property_type_name, pc.classification_name
+      GROUP BY p.property_id, p.property_status, o.first_name, o.middle_name, o.last_name, o.suffix, ad.street, br.barangay_name, mu.municipality_name, pt.property_type_name, pc.classification_name
       ORDER BY p.property_id ASC
     `, [currentUserId, currentUserId]);
 

@@ -31,7 +31,7 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
     CONCAT_WS(', ', NULLIF(ad.street, ''), br.barangay_name, mu.municipality_name, pr.province_name) AS location, 
     ad.street AS purok, br.barangay_name AS barangay, mu.municipality_name AS municipality, pr.province_name AS province,
     l.lot_area, l.lot_status,
-    CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner, 
+    CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name, NULLIF(o.suffix, '')) AS owner, 
     t.property_type_name AS property_type, c.classification_name,
     COALESCE(l.property_photo, p.property_photo, lah.property_photo) AS property_photo,
     COALESCE(lah.market_value, a.market_value, 0) AS market_value, COALESCE(lah.assessed_value, a.assessed_value, 0) AS assessed_value,
@@ -228,7 +228,7 @@ router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'),
         br.barangay_name as barangay,
         m.municipality_name as municipality,
         pr.province_name as province,
-        TRIM(CONCAT(o.first_name, ' ', IFNULL(o.middle_name, ''), ' ', o.last_name)) as owner,
+        CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name, NULLIF(o.suffix, '')) as owner,
         COALESCE(bah.market_value, 0) AS market_value,
         COALESCE(bah.assessed_value, 0) AS assessed_value,
         bah.assessment_status,
@@ -439,36 +439,24 @@ router.post('/lots', authenticate, loadPermissions, async (req, res, next) => {
       return res.status(400).json({ message: 'The linked Property ID does not exist.' })
     }
 
-    const purokStr = property_id.split('-')[1] || 'P0';
-    const [lRows] = await connection.query(
-      "SELECT lot_id FROM property_lots WHERE lot_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(lot_id, '-L', -1) AS UNSIGNED) DESC LIMIT 1",
-      [`LP-${purokStr}-L%`]
-    );
-    let nextLotSeq = 1;
-    if (lRows.length > 0) {
-      const match = lRows[0].lot_id.match(/-L(\d+)$/);
-      if (match) nextLotSeq = parseInt(match[1]) + 1;
-    }
-    const lotId = `LP-${purokStr}-L${nextLotSeq}`;
-
     const finalLotStatus = req.user.role === 'staff' ? 'pending' : (lot_status || 'active');
     const [lotRes] = await connection.query(
-      'INSERT INTO property_lots (lot_id, property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?, ?)',
-      [lotId, property_id, lot_number, title_number || null, lot_area || null, finalLotStatus]
+      'INSERT INTO property_lots (property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?)',
+      [property_id, lot_number, title_number || null, lot_area || null, finalLotStatus]
     )
+    const lotId = lotRes.insertId;
 
     if (req.user.role === 'staff') {
       await connection.query(`
         INSERT INTO assessment_permission_requests 
         (property_type, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
         VALUES (?, ?, ?, 'ADDITION', ?, 'pending')
-      `, ['lot', lotId, req.user.id, JSON.stringify({ lot_id: lotId, ...req.body })]);
-      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval for a new lot.`, 'PERMISSION_REQUEST', lotId);
+      `, ['lot', String(lotId), req.user.id, JSON.stringify({ lot_id: lotId, ...req.body })]);
+      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval for a new lot.`, 'PERMISSION_REQUEST', String(lotId));
     }
 
-
     await connection.commit()
-    res.status(201).json({ id: lotRes.insertId, message: 'Lot created' })
+    res.status(201).json({ id: lotId, lot_id: lotId, message: 'Lot created' })
   } catch (e) {
     await connection.rollback()
     next(e)

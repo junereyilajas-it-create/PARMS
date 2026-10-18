@@ -20,7 +20,8 @@ const LOT_GIS_QUERY = `
     pt.property_type_name,
     COALESCE(l.property_photo, p.property_photo, lah.property_photo) AS property_photo,
     o.owner_id,
-    CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner,
+    CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name, NULLIF(o.suffix, '')) AS owner,
+    o.suffix AS owner_suffix,
     o.contact_number AS owner_contact,
     o.email AS owner_email,
     CONCAT_WS(', ', NULLIF(oad.street, ''), obr.barangay_name, omu.municipality_name, opr.province_name) AS owner_address,
@@ -35,7 +36,13 @@ const LOT_GIS_QUERY = `
     g.coordinates,
     g.area_sqm,
     g.perimeter_m,
+    COALESCE(g.mapping_status, 'verified') AS mapping_status,
     COALESCE(lah.assessment_status, pa.assessment_status, 'unassessed') AS assessment_status,
+    CASE 
+      WHEN COALESCE(lah.assessment_status, pa.assessment_status, 'unassessed') NOT IN ('unassessed', 'pending') 
+           OR COALESCE(lah.assessed_value, pa.assessed_value, 0) > 0 THEN 1 
+      ELSE 0 
+    END AS is_assessed,
     COALESCE(lah.assessor_level, pa.assessor_level) AS assessor_level,
     COALESCE(lah.market_value, pa.market_value, 0) AS market_value,
     COALESCE(lah.assessed_value, pa.assessed_value, 0) AS assessed_value,
@@ -104,7 +111,8 @@ const BLDG_GIS_QUERY = `
     pt.property_type_name,
     COALESCE(b.property_photo, p.property_photo, bah.property_photo) AS property_photo,
     o.owner_id,
-    CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner,
+    CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name, NULLIF(o.suffix, '')) AS owner,
+    o.suffix AS owner_suffix,
     o.contact_number AS owner_contact,
     o.email AS owner_email,
     CONCAT_WS(', ', NULLIF(oad.street, ''), obr.barangay_name, omu.municipality_name, opr.province_name) AS owner_address,
@@ -119,7 +127,13 @@ const BLDG_GIS_QUERY = `
     g.coordinates,
     g.area_sqm,
     g.perimeter_m,
+    COALESCE(g.mapping_status, 'verified') AS mapping_status,
     COALESCE(bah.assessment_status, pa.assessment_status, 'unassessed') AS assessment_status,
+    CASE 
+      WHEN COALESCE(bah.assessment_status, pa.assessment_status, 'unassessed') NOT IN ('unassessed', 'pending') 
+           OR COALESCE(bah.assessed_value, pa.assessed_value, 0) > 0 THEN 1 
+      ELSE 0 
+    END AS is_assessed,
     COALESCE(bah.assessor_level, pa.assessor_level) AS assessor_level,
     COALESCE(bah.market_value, pa.market_value, 0) AS market_value,
     COALESCE(bah.assessed_value, pa.assessed_value, 0) AS assessed_value,
@@ -204,13 +218,37 @@ router.get('/gis/property/:id', authenticate, allowRoles('admin', 'assessor', 's
     // Check if it's a lot
     const [lotRows] = await pool.query(`${LOT_GIS_QUERY} WHERE l.lot_id = ? OR l.property_id = ? OR l.lot_number = ? LIMIT 1`, [id, id, id])
     if (lotRows.length > 0) {
-      return res.json({ ...lotRows[0], type: 'lot' })
+      const lot = lotRows[0]
+      // Privacy check: client or owner can only view their own properties
+      if (['client', 'owner'].includes(req.user.role) && req.user.owner_id && lot.owner_id !== req.user.owner_id) {
+        return res.status(403).json({ message: 'Unauthorized to access this property record' })
+      }
+      const [photoRows] = await pool.query(
+        `SELECT photo_id, property_id, lot_id, building_id, file_path, file_name, file_size, is_primary, created_at
+         FROM property_photos 
+         WHERE property_id = ? OR lot_id = ? 
+         ORDER BY is_primary DESC, photo_id ASC`,
+        [lot.property_id, lot.lot_id]
+      )
+      return res.json({ ...lot, type: 'lot', photos: photoRows })
     }
 
     // Check if it's a building
     const [bldgRows] = await pool.query(`${BLDG_GIS_QUERY} WHERE b.building_id = ? OR b.property_id = ? OR b.building_name = ? LIMIT 1`, [id, id, id])
     if (bldgRows.length > 0) {
-      return res.json({ ...bldgRows[0], type: 'building' })
+      const bldg = bldgRows[0]
+      // Privacy check: client or owner can only view their own properties
+      if (['client', 'owner'].includes(req.user.role) && req.user.owner_id && bldg.owner_id !== req.user.owner_id) {
+        return res.status(403).json({ message: 'Unauthorized to access this property record' })
+      }
+      const [photoRows] = await pool.query(
+        `SELECT photo_id, property_id, lot_id, building_id, file_path, file_name, file_size, is_primary, created_at
+         FROM property_photos 
+         WHERE property_id = ? OR building_id = ? 
+         ORDER BY is_primary DESC, photo_id ASC`,
+        [bldg.property_id, bldg.building_id]
+      )
+      return res.json({ ...bldg, type: 'building', photos: photoRows })
     }
 
     return res.status(404).json({ message: 'Property not found' })
@@ -220,11 +258,12 @@ router.get('/gis/property/:id', authenticate, allowRoles('admin', 'assessor', 's
 })
 
 // Save Lot GIS
-router.post('/gis/lots/:lotId', authenticate, allowRoles('admin', 'assessor', 'super_admin'), async (req, res, next) => {
+router.post('/gis/lots/:lotId', authenticate, allowRoles('admin', 'assessor', 'super_admin', 'staff'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     const lot_id = req.params.lotId
-    let { coordinates, area_sqm, perimeter_m, property_id } = req.body
+    let { coordinates, area_sqm, perimeter_m, property_id, mapping_status } = req.body
+    const statusToSave = mapping_status || 'verified'
     
     if (!coordinates || !property_id) {
       return res.status(400).json({ message: 'Coordinates and property_id are required' })
@@ -233,6 +272,14 @@ router.post('/gis/lots/:lotId', authenticate, allowRoles('admin', 'assessor', 's
     let coordJson = coordinates
     if (typeof coordJson === 'string') {
       try { coordJson = JSON.parse(coordJson) } catch (e) {}
+    }
+
+    // Normalize coordinates to array if GeoJSON object provided
+    let cleanCoords = coordJson
+    if (coordJson?.geometry?.coordinates) {
+      cleanCoords = coordJson.geometry.coordinates
+    } else if (coordJson?.coordinates && !Array.isArray(coordJson)) {
+      cleanCoords = coordJson.coordinates
     }
 
     await connection.beginTransaction()
@@ -244,25 +291,28 @@ router.post('/gis/lots/:lotId', authenticate, allowRoles('admin', 'assessor', 's
       return res.status(404).json({ message: 'Lot not found' })
     }
 
-    // Prevent duplicates: Check if GIS already exists for this lot
-    const [existingGis] = await connection.query('SELECT gis_id FROM gis_locations WHERE lot_id = ?', [lot_id])
+    // Prevent duplicates: Check if GIS already exists for this lot or property
+    const [existingGis] = await connection.query(
+      'SELECT gis_id FROM gis_locations WHERE lot_id = ? OR (property_id = ? AND lot_id IS NULL AND building_id IS NULL)',
+      [lot_id, property_id]
+    )
     if (existingGis.length > 0) {
       await connection.query(`
         UPDATE gis_locations 
-        SET property_id = ?, geometry_type = 'Polygon', coordinates = ?, area_sqm = ?, perimeter_m = ?
-        WHERE lot_id = ?
-      `, [property_id, JSON.stringify(coordJson), Number(area_sqm) || 0, Number(perimeter_m) || 0, lot_id])
+        SET property_id = ?, lot_id = ?, building_id = NULL, geometry_type = 'Polygon', coordinates = ?, area_sqm = ?, perimeter_m = ?, mapping_status = ?
+        WHERE gis_id = ?
+      `, [property_id, lot_id, JSON.stringify(cleanCoords), Number(area_sqm) || 0, Number(perimeter_m) || 0, statusToSave, existingGis[0].gis_id])
     } else {
       await connection.query(`
-        INSERT INTO gis_locations (property_id, lot_id, geometry_type, coordinates, area_sqm, perimeter_m) 
-        VALUES (?, ?, 'Polygon', ?, ?, ?)
-      `, [property_id, lot_id, JSON.stringify(coordJson), Number(area_sqm) || 0, Number(perimeter_m) || 0])
+        INSERT INTO gis_locations (property_id, lot_id, geometry_type, coordinates, area_sqm, perimeter_m, mapping_status) 
+        VALUES (?, ?, 'Polygon', ?, ?, ?, ?)
+      `, [property_id, lot_id, JSON.stringify(cleanCoords), Number(area_sqm) || 0, Number(perimeter_m) || 0, statusToSave])
     }
     
     await logActivity(connection, req, 'CREATE', 'GIS', `Lot ${lot_id}`, `Updated GIS boundary for Lot ${lot_id}`)
     
     await connection.commit()
-    res.status(201).json({ message: 'Lot GIS saved successfully' })
+    res.status(201).json({ message: 'Lot GIS saved successfully', lot_id, property_id, mapping_status: statusToSave })
   } catch (e) {
     await connection.rollback()
     next(e)
@@ -272,11 +322,12 @@ router.post('/gis/lots/:lotId', authenticate, allowRoles('admin', 'assessor', 's
 })
 
 // Save Building GIS
-router.post('/gis/buildings/:buildingId', authenticate, allowRoles('admin', 'assessor', 'super_admin'), async (req, res, next) => {
+router.post('/gis/buildings/:buildingId', authenticate, allowRoles('admin', 'assessor', 'super_admin', 'staff'), async (req, res, next) => {
   const connection = await pool.getConnection()
   try {
     const building_id = req.params.buildingId
-    let { coordinates, area_sqm, perimeter_m, property_id } = req.body
+    let { coordinates, area_sqm, perimeter_m, property_id, mapping_status } = req.body
+    const statusToSave = mapping_status || 'verified'
     
     if (!coordinates || !property_id) {
       return res.status(400).json({ message: 'Coordinates and property_id are required' })
@@ -285,6 +336,14 @@ router.post('/gis/buildings/:buildingId', authenticate, allowRoles('admin', 'ass
     let coordJson = coordinates
     if (typeof coordJson === 'string') {
       try { coordJson = JSON.parse(coordJson) } catch (e) {}
+    }
+
+    // Normalize coordinates to array if GeoJSON object provided
+    let cleanCoords = coordJson
+    if (coordJson?.geometry?.coordinates) {
+      cleanCoords = coordJson.geometry.coordinates
+    } else if (coordJson?.coordinates && !Array.isArray(coordJson)) {
+      cleanCoords = coordJson.coordinates
     }
 
     await connection.beginTransaction()
@@ -296,25 +355,28 @@ router.post('/gis/buildings/:buildingId', authenticate, allowRoles('admin', 'ass
       return res.status(404).json({ message: 'Building not found' })
     }
 
-    // Prevent duplicates: Check if GIS already exists for this building
-    const [existingGis] = await connection.query('SELECT gis_id FROM gis_locations WHERE building_id = ?', [building_id])
+    // Prevent duplicates: Check if GIS already exists for this building or property
+    const [existingGis] = await connection.query(
+      'SELECT gis_id FROM gis_locations WHERE building_id = ? OR (property_id = ? AND lot_id IS NULL AND building_id IS NULL)',
+      [building_id, property_id]
+    )
     if (existingGis.length > 0) {
       await connection.query(`
         UPDATE gis_locations 
-        SET property_id = ?, geometry_type = 'Polygon', coordinates = ?, area_sqm = ?, perimeter_m = ?
-        WHERE building_id = ?
-      `, [property_id, JSON.stringify(coordJson), Number(area_sqm) || 0, Number(perimeter_m) || 0, building_id])
+        SET property_id = ?, building_id = ?, lot_id = NULL, geometry_type = 'Polygon', coordinates = ?, area_sqm = ?, perimeter_m = ?, mapping_status = ?
+        WHERE gis_id = ?
+      `, [property_id, building_id, JSON.stringify(cleanCoords), Number(area_sqm) || 0, Number(perimeter_m) || 0, statusToSave, existingGis[0].gis_id])
     } else {
       await connection.query(`
-        INSERT INTO gis_locations (property_id, building_id, geometry_type, coordinates, area_sqm, perimeter_m) 
-        VALUES (?, ?, 'Polygon', ?, ?, ?)
-      `, [property_id, building_id, JSON.stringify(coordJson), Number(area_sqm) || 0, Number(perimeter_m) || 0])
+        INSERT INTO gis_locations (property_id, building_id, geometry_type, coordinates, area_sqm, perimeter_m, mapping_status) 
+        VALUES (?, ?, 'Polygon', ?, ?, ?, ?)
+      `, [property_id, building_id, JSON.stringify(cleanCoords), Number(area_sqm) || 0, Number(perimeter_m) || 0, statusToSave])
     }
     
     await logActivity(connection, req, 'CREATE', 'GIS', `Building ${building_id}`, `Updated GIS boundary for Building ${building_id}`)
     
     await connection.commit()
-    res.status(201).json({ message: 'Building GIS saved successfully' })
+    res.status(201).json({ message: 'Building GIS saved successfully', building_id, property_id })
   } catch (e) {
     await connection.rollback()
     next(e)

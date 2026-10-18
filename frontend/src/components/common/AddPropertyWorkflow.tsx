@@ -20,12 +20,23 @@ import {
   UploadCloud,
   Trash2,
   RefreshCw,
-  Edit
+  Edit,
+  Plus,
+  Maximize2
 } from 'lucide-react';
 import { OwnerAutocomplete } from './OwnerAutocomplete';
-import { GISDrawMap } from './GISDrawMap';
+import { GISBoundaryDrawingModule } from '../gis/GISBoundaryDrawingModule';
 import { getProvinces, getMunicipalities, getBarangays, getZipCode } from '../../lib/ph_locations';
 import api from '../../lib/api';
+
+export interface LotPhotoItem {
+  id: string;
+  file?: File;
+  previewUrl: string;
+  name: string;
+  size: number;
+  uploadedUrl?: string;
+}
 
 export interface UnifiedPropertyRegistration {
   ownerId?: number | null;
@@ -96,6 +107,7 @@ export interface UnifiedPropertyRegistration {
 
   // Media
   propertyPhoto?: string;
+  propertyPhotos?: Array<string | { url: string; filename?: string; size?: number; mimetype?: string }>;
 }
 
 export interface AddPropertyWorkflowProps {
@@ -130,58 +142,137 @@ export function AddPropertyWorkflow({ close, onSave, initialType = 'LOT' }: AddP
   const [showMapModal, setShowMapModal] = useState(false);
   const [ownerMode, setOwnerMode] = useState<'search' | 'manual'>('search');
 
-  // Photo Upload State
-  const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null);
-  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string>('');
+  // Multiple Photo Upload State
+  const [photoList, setPhotoList] = useState<LotPhotoItem[]>([]);
+  const [activePhotoModal, setActivePhotoModal] = useState<LotPhotoItem | null>(null);
   const [photoError, setPhotoError] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceIndexRef = useRef<number | null>(null);
 
-  // Revoke object URL on unmount to prevent memory leaks
+  // Revoke object URLs on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
-      if (photoPreviewUrl && photoPreviewUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(photoPreviewUrl);
-      }
+      photoList.forEach(p => {
+        if (p.previewUrl && p.previewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(p.previewUrl);
+        }
+      });
     };
-  }, [photoPreviewUrl]);
+  }, [photoList]);
 
-  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle multiple photos selection or replacing a specific photo
+  const handlePhotoFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPhotoError('');
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     const validMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
     const validExtensions = /\.(jpg|jpeg|png|webp)$/i;
+    const filesArray = Array.from(files);
 
-    if (!validMimes.includes(file.type.toLowerCase()) && !file.name.match(validExtensions)) {
-      setPhotoError('Invalid image format. Please select a JPG, PNG, or WebP photo.');
+    // If replacing an existing photo
+    if (replaceIndexRef.current !== null) {
+      const targetIdx = replaceIndexRef.current;
+      replaceIndexRef.current = null;
+      const file = filesArray[0];
+
+      if (!validMimes.includes(file.type.toLowerCase()) && !file.name.match(validExtensions)) {
+        setPhotoError('Invalid image format. Please select a JPG, PNG, or WebP photo.');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        setPhotoError(`"${file.name}" exceeds the 10MB limit per image.`);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
+      setPhotoList(prev => {
+        const next = [...prev];
+        if (next[targetIdx] && next[targetIdx].previewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(next[targetIdx].previewUrl);
+        }
+        next[targetIdx] = {
+          id: `${Date.now()}-${Math.random()}`,
+          file,
+          previewUrl: URL.createObjectURL(file),
+          name: file.name,
+          size: file.size
+        };
+        return next;
+      });
+
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      setPhotoError('Image file size exceeds the 10MB limit. Please choose a smaller photo.');
+    // Adding multiple photos
+    for (const file of filesArray) {
+      if (!validMimes.includes(file.type.toLowerCase()) && !file.name.match(validExtensions)) {
+        setPhotoError(`"${file.name}" is not a valid format. Please select JPG, PNG, or WebP images.`);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        setPhotoError(`"${file.name}" exceeds the 10MB individual limit. Please select smaller photos.`);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+    }
+
+    // Check total upload limit (max 15 photos or max 40MB total)
+    const currentTotalSize = photoList.reduce((acc, p) => acc + p.size, 0);
+    const addedTotalSize = filesArray.reduce((acc, f) => acc + f.size, 0);
+    if (currentTotalSize + addedTotalSize > 40 * 1024 * 1024) {
+      setPhotoError('Total photo upload size exceeds 40MB. Please select fewer or smaller images.');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
-    if (photoPreviewUrl && photoPreviewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(photoPreviewUrl);
+    if (photoList.length + filesArray.length > 15) {
+      setPhotoError('Maximum limit of 15 photos reached per property. Please remove some photos first.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
     }
 
-    setSelectedPhotoFile(file);
-    const localPreview = URL.createObjectURL(file);
-    setPhotoPreviewUrl(localPreview);
+    const newItems: LotPhotoItem[] = filesArray.map(file => ({
+      id: `${Date.now()}-${Math.random()}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+      name: file.name,
+      size: file.size
+    }));
+
+    setPhotoList(prev => [...prev, ...newItems]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleRemovePhoto = () => {
-    if (photoPreviewUrl && photoPreviewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(photoPreviewUrl);
-    }
-    setSelectedPhotoFile(null);
-    setPhotoPreviewUrl('');
+  const handleRemovePhoto = (id: string) => {
+    setPhotoList(prev => {
+      const target = prev.find(p => p.id === id);
+      if (target && target.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return prev.filter(p => p.id !== id);
+    });
     setPhotoError('');
-    setFormData(prev => ({ ...prev, propertyPhoto: '' }));
+  };
+
+  const handleTriggerReplacePhoto = (index: number) => {
+    replaceIndexRef.current = index;
+    fileInputRef.current?.click();
+  };
+
+  const handleClearAllPhotos = () => {
+    photoList.forEach(p => {
+      if (p.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(p.previewUrl);
+      }
+    });
+    setPhotoList([]);
+    setPhotoError('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -421,30 +512,53 @@ export function AddPropertyWorkflow({ close, onSave, initialType = 'LOT' }: AddP
 
     setIsSaving(true);
     try {
-      let finalPhotoPath = formData.propertyPhoto || '';
+      // Prepare all photos to save
+      let allFinalPhotos: Array<{ url: string; filename?: string; size?: number; mimetype?: string }> = [];
 
-      // Upload photo if a new file is attached
-      if (selectedPhotoFile) {
+      const newFiles = photoList.filter(p => p.file);
+      const existingUploaded = photoList.filter(p => !p.file && p.uploadedUrl);
+
+      existingUploaded.forEach(p => {
+        allFinalPhotos.push({
+          url: p.uploadedUrl || p.previewUrl,
+          filename: p.name,
+          size: p.size
+        });
+      });
+
+      if (newFiles.length > 0) {
         try {
           const photoFormData = new FormData();
-          photoFormData.append('photo', selectedPhotoFile);
-          const uploadRes = await api.post('/properties/upload-photo', photoFormData, {
+          newFiles.forEach(p => {
+            if (p.file) photoFormData.append('photos', p.file);
+          });
+          const uploadRes = await api.post('/properties/upload-photos', photoFormData, {
             headers: { 'Content-Type': 'multipart/form-data' }
           });
-          if (uploadRes.data?.url) {
-            finalPhotoPath = uploadRes.data.url;
+          if (uploadRes.data?.photos && Array.isArray(uploadRes.data.photos)) {
+            uploadRes.data.photos.forEach((uploaded: any) => {
+              allFinalPhotos.push({
+                url: uploaded.url,
+                filename: uploaded.filename,
+                size: uploaded.size,
+                mimetype: uploaded.mimetype
+              });
+            });
           }
         } catch (uploadErr: any) {
-          const errMsg = uploadErr.response?.data?.message || uploadErr.message || 'Failed to upload photo.';
-          setServerError(`Photo Upload Failed: ${errMsg}. Please remove or replace the photo, or try again.`);
+          const errMsg = uploadErr.response?.data?.message || uploadErr.message || 'Failed to upload photo(s).';
+          setServerError(`Photo Upload Failed: ${errMsg}. Please remove or replace the photo(s), or try again.`);
           setIsSaving(false);
           return;
         }
       }
 
+      const primaryPhoto = allFinalPhotos.length > 0 ? allFinalPhotos[0].url : (formData.propertyPhoto || undefined);
+
       const submissionData: UnifiedPropertyRegistration = {
         ...formData,
-        propertyPhoto: finalPhotoPath || undefined
+        propertyPhoto: primaryPhoto,
+        propertyPhotos: allFinalPhotos.length > 0 ? allFinalPhotos : undefined
       };
 
       await onSave(submissionData);
@@ -1330,105 +1444,170 @@ export function AddPropertyWorkflow({ close, onSave, initialType = 'LOT' }: AddP
                   )}
                 </div>
 
-                {/* ---------------- OPTIONAL PROPERTY PHOTO SECTION ---------------- */}
+                {/* ---------------- OPTIONAL MULTIPLE LOT PHOTOS SECTION ---------------- */}
                 <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-700/80 space-y-3">
-                  <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700/80 pb-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-200 dark:border-gray-700/80 pb-2.5 gap-2">
                     <div>
                       <h3 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                        <Camera size={16} className="text-green-600" />
-                        {formData.propertyType === 'LOT' ? 'Upload Lot Photo (Optional)' : 'Upload Building Photo (Optional)'}
+                        <Camera size={16} className="text-green-600 shrink-0" />
+                        {formData.propertyType === 'LOT' ? 'Upload Lot Photos (Optional)' : 'Upload Building Photos (Optional)'}
                       </h3>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                        Attach a ground-level photo of this {formData.propertyType === 'LOT' ? 'lot parcel' : 'building structure'} if available. JPG, PNG, or WebP up to 10MB.
+                        {formData.propertyType === 'LOT'
+                          ? 'Select one or more ground photos of this lot parcel. JPG, PNG, or WebP up to 10MB each. Uploading photos is optional.'
+                          : 'Select one or more structural photos of this building. JPG, PNG, or WebP up to 10MB each. Uploading photos is optional.'}
                       </p>
                     </div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded">
-                      Optional
-                    </span>
+                    <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                      {photoList.length > 0 && (
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 bg-green-100 text-green-800 dark:bg-green-950/60 dark:text-green-300 rounded-full border border-green-300 dark:border-green-800">
+                          {photoList.length} {photoList.length === 1 ? 'photo' : 'photos'} selected
+                        </span>
+                      )}
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded">
+                        Optional
+                      </span>
+                    </div>
                   </div>
 
                   {photoError && (
-                    <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2 text-xs text-red-700 dark:text-red-300">
+                    <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2 text-xs text-red-700 dark:text-red-300 animate-fade-in">
                       <AlertCircle size={15} className="shrink-0 text-red-500" />
                       <span>{photoError}</span>
                     </div>
                   )}
 
-                  {photoPreviewUrl ? (
-                    /* Image Preview Card */
-                    <div className="flex flex-col sm:flex-row items-center gap-4 p-3 bg-white dark:bg-gray-800 border border-green-200 dark:border-green-800/60 rounded-xl">
-                      <div className="relative w-36 h-28 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900 shrink-0 shadow-sm">
-                        <img
-                          src={photoPreviewUrl}
-                          alt="Property preview"
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div className="flex-1 space-y-1.5 w-full text-left">
+                  {/* Multiple Photos Responsive Gallery */}
+                  {photoList.length > 0 ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                          Selected Photo Gallery ({photoList.length} total)
+                        </span>
                         <div className="flex items-center gap-2">
-                          <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-                          <span className="text-xs font-bold text-gray-900 dark:text-white truncate">
-                            {selectedPhotoFile ? selectedPhotoFile.name : 'Selected Photo'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                          {selectedPhotoFile ? `${(selectedPhotoFile.size / 1024).toFixed(1)} KB` : 'Ready'} • Photo will be uploaded and stored securely with this property.
-                        </p>
-                        <div className="flex items-center gap-2 pt-1">
                           <button
                             type="button"
-                            id="replace-photo-btn"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+                            id="add-more-photos-btn"
+                            onClick={() => {
+                              replaceIndexRef.current = null;
+                              fileInputRef.current?.click();
+                            }}
+                            className="px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm cursor-pointer"
                           >
-                            <RefreshCw size={13} />
-                            Replace Photo
+                            <Plus size={13} /> Add More Photos
                           </button>
                           <button
                             type="button"
-                            id="remove-photo-btn"
-                            onClick={handleRemovePhoto}
-                            className="px-3 py-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+                            onClick={handleClearAllPhotos}
+                            className="text-[11px] text-gray-500 hover:text-red-600 dark:hover:text-red-400 font-semibold cursor-pointer underline"
                           >
-                            <Trash2 size={13} />
-                            Remove
+                            Clear All
                           </button>
                         </div>
+                      </div>
+
+                      {/* Scrollable Gallery Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-72 overflow-y-auto custom-scrollbar p-1">
+                        {photoList.map((photo, index) => (
+                          <div
+                            key={photo.id}
+                            className="relative group bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm hover:shadow-md transition flex flex-col"
+                          >
+                            {/* Thumbnail preview */}
+                            <div
+                              onClick={() => setActivePhotoModal(photo)}
+                              className="relative h-28 w-full bg-gray-100 dark:bg-gray-900 cursor-pointer overflow-hidden flex items-center justify-center group-hover:opacity-95"
+                            >
+                              <img
+                                src={photo.previewUrl}
+                                alt={photo.name}
+                                className="w-full h-full object-cover transition duration-200 group-hover:scale-105"
+                              />
+
+                              {/* Primary Photo Badge for the first image */}
+                              {index === 0 && (
+                                <span className="absolute top-1.5 left-1.5 px-2 py-0.5 bg-emerald-600 text-white text-[9px] font-extrabold uppercase tracking-wider rounded-md shadow-md">
+                                  Primary
+                                </span>
+                              )}
+
+                              {/* Hover Overlay Zoom Icon */}
+                              <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                                <Maximize2 size={18} />
+                              </div>
+                            </div>
+
+                            {/* Caption & Per-Photo Actions */}
+                            <div className="p-2 space-y-1 text-left flex-1 flex flex-col justify-between bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/60">
+                              <div>
+                                <p className="text-[11px] font-bold text-gray-800 dark:text-gray-200 truncate" title={photo.name}>
+                                  {photo.name}
+                                </p>
+                                <p className="text-[10px] text-gray-400">
+                                  {(photo.size / 1024).toFixed(1)} KB
+                                </p>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-1 pt-1 border-t border-gray-100 dark:border-gray-700/50">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTriggerReplacePhoto(index)}
+                                  className="text-[10px] font-semibold text-gray-600 dark:text-gray-300 hover:text-green-600 dark:hover:text-green-400 flex items-center gap-1 cursor-pointer"
+                                  title="Replace this photo"
+                                >
+                                  <RefreshCw size={11} /> Replace
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemovePhoto(photo.id)}
+                                  className="text-[10px] font-semibold text-red-600 hover:text-red-700 dark:hover:text-red-400 flex items-center gap-0.5 cursor-pointer"
+                                  title="Remove this photo"
+                                >
+                                  <Trash2 size={11} /> Remove
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ) : (
-                    /* Friendly Empty State Card */
+                    /* Friendly Empty State Multi-File Dropzone */
                     <div
                       id="lot-photo-dropzone"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="p-5 border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-green-500 dark:hover:border-green-500 rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition bg-white/50 dark:bg-gray-800/30 hover:bg-green-50/30 dark:hover:bg-green-950/20 group"
+                      onClick={() => {
+                        replaceIndexRef.current = null;
+                        fileInputRef.current?.click();
+                      }}
+                      className="p-6 border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-green-500 dark:hover:border-green-500 rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition bg-white/50 dark:bg-gray-800/30 hover:bg-green-50/30 dark:hover:bg-green-950/20 group"
                     >
-                      <div className="w-11 h-11 rounded-full bg-gray-100 dark:bg-gray-800 group-hover:bg-green-100 dark:group-hover:bg-green-900/40 text-gray-500 dark:text-gray-400 group-hover:text-green-600 dark:group-hover:text-green-300 flex items-center justify-center transition mb-2">
-                        <UploadCloud size={20} />
+                      <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 group-hover:bg-green-100 dark:group-hover:bg-green-900/40 text-gray-500 dark:text-gray-400 group-hover:text-green-600 dark:group-hover:text-green-300 flex items-center justify-center transition mb-2">
+                        <UploadCloud size={22} />
                       </div>
-                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                      <p className="text-xs font-bold text-gray-800 dark:text-gray-200">
                         {formData.propertyType === 'LOT'
-                          ? 'Click to browse or drop lot photo'
-                          : 'Click to browse or drop building photo'}
+                          ? 'Click to select or drop multiple lot photos'
+                          : 'Click to select or drop multiple building photos'}
                       </p>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                        {formData.propertyType === 'LOT' 
-                          ? 'No lot photo uploaded. You can continue without a photo.' 
-                          : 'No building photo uploaded. You can continue without a photo.'}
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 max-w-sm">
+                        {formData.propertyType === 'LOT'
+                          ? 'No lot photos uploaded — optional. You can upload multiple angles or proceed without photos.'
+                          : 'No building photos uploaded — optional. You can upload multiple angles or proceed without photos.'}
                       </p>
-                      <span className="mt-2.5 px-3 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-[11px] font-semibold text-gray-700 dark:text-gray-300 group-hover:border-green-500 group-hover:text-green-700 dark:group-hover:text-green-300 shadow-sm transition">
-                        Browse Image
+                      <span className="mt-3 px-3.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-semibold text-gray-700 dark:text-gray-300 group-hover:border-green-500 group-hover:text-green-700 dark:group-hover:text-green-300 shadow-sm transition flex items-center gap-1.5">
+                        <Plus size={14} /> Browse Multiple Photos
                       </span>
                     </div>
                   )}
 
-                  {/* Hidden File Input */}
+                  {/* Hidden Multi-file Input */}
                   <input
                     ref={fileInputRef}
                     id="property-photo-file-input"
                     type="file"
+                    multiple
                     accept="image/jpeg,image/png,image/webp,image/jpg"
-                    onChange={handlePhotoFileChange}
+                    onChange={handlePhotoFilesChange}
                     className="hidden"
                   />
                 </div>
@@ -1707,13 +1886,13 @@ export function AddPropertyWorkflow({ close, onSave, initialType = 'LOT' }: AddP
                   </div>
                 </div>
 
-                {/* Section D: Property Photo */}
+                {/* Section D: Property Photos Gallery in Review */}
                 <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
                   <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/90 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-purple-600" />
                       <h4 className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider">
-                        D. Property Photo
+                        D. Property Photos {photoList.length > 0 ? `(${photoList.length} ${photoList.length === 1 ? 'photo' : 'photos'} attached)` : ''}
                       </h4>
                     </div>
                     <button
@@ -1723,35 +1902,67 @@ export function AddPropertyWorkflow({ close, onSave, initialType = 'LOT' }: AddP
                       className="text-xs text-green-700 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 font-semibold flex items-center gap-1 cursor-pointer"
                     >
                       <Edit size={13} />
-                      {photoPreviewUrl ? 'Change Photo' : 'Add Photo'}
+                      {photoList.length > 0 ? 'Edit Photos' : 'Add Photos'}
                     </button>
                   </div>
                   <div className="p-4 text-xs">
-                    {photoPreviewUrl ? (
-                      <div className="flex flex-col sm:flex-row items-center gap-4">
-                        <div className="relative w-40 h-28 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900 shadow-sm shrink-0">
-                          <img
-                            src={photoPreviewUrl}
-                            alt="Property review preview"
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="space-y-1 text-left">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300 rounded text-[11px] font-bold">
-                            <CheckCircle2 size={12} /> Photo Attached
+                    {photoList.length > 0 ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300 rounded-full text-[11px] font-bold">
+                            <CheckCircle2 size={12} /> {photoList.length} {photoList.length === 1 ? 'Photo' : 'Photos'} Attached
                           </span>
-                          <p className="font-semibold text-gray-900 dark:text-white">
-                            {selectedPhotoFile ? selectedPhotoFile.name : 'Uploaded Property Photo'}
-                          </p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                            {selectedPhotoFile ? `${(selectedPhotoFile.size / 1024).toFixed(1)} KB` : ''} • Image will be securely stored and linked to this {formData.propertyType.toLowerCase()} record.
-                          </p>
+                          <span className="text-[11px] text-gray-400">
+                            Click any thumbnail to enlarge
+                          </span>
+                        </div>
+
+                        {/* Gallery Grid in Review */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-64 overflow-y-auto custom-scrollbar p-1">
+                          {photoList.map((photo, index) => (
+                            <div
+                              key={photo.id}
+                              onClick={() => setActivePhotoModal(photo)}
+                              className="group relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900 shadow-sm cursor-pointer hover:border-green-500 transition"
+                            >
+                              <div className="h-28 w-full overflow-hidden flex items-center justify-center">
+                                <img
+                                  src={photo.previewUrl}
+                                  alt={photo.name}
+                                  className="w-full h-full object-cover transition duration-200 group-hover:scale-105"
+                                />
+                              </div>
+
+                              {index === 0 && (
+                                <span className="absolute top-1.5 left-1.5 px-2 py-0.5 bg-emerald-600 text-white text-[9px] font-extrabold uppercase rounded shadow">
+                                  Primary
+                                </span>
+                              )}
+
+                              <div className="p-1.5 bg-white/95 dark:bg-gray-800/95 border-t border-gray-100 dark:border-gray-700">
+                                <p className="text-[10px] font-bold text-gray-800 dark:text-gray-200 truncate" title={photo.name}>
+                                  {photo.name}
+                                </p>
+                                <p className="text-[9px] text-gray-400">
+                                  {(photo.size / 1024).toFixed(1)} KB
+                                </p>
+                              </div>
+
+                              <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                                <Maximize2 size={16} />
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     ) : (
                       <div className="p-3 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg flex items-center gap-2.5 text-gray-500 dark:text-gray-400">
                         <Camera size={16} className="text-gray-400 shrink-0" />
-                        <span>No photo uploaded — optional. A property photo can be added later during assessment.</span>
+                        <span>
+                          {formData.propertyType === 'LOT' 
+                            ? 'No lot photos uploaded — optional. A property photo can be added later during assessment.' 
+                            : 'No building photos uploaded — optional. A property photo can be added later during assessment.'}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1864,48 +2075,65 @@ export function AddPropertyWorkflow({ close, onSave, initialType = 'LOT' }: AddP
         </div>
       )}
 
-      {/* ================= GIS MAP MODAL (OPTIONAL BOUNDARY MAPPING) ================= */}
+      {/* ================= BIRD'S-EYE SATELLITE GIS BOUNDARY DRAWING MODAL ================= */}
       {showMapModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-[80vh]">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                  <Layers size={18} className="text-green-600" />
-                  GIS Boundary Mapping
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Draw or adjust the polygon boundary for this {formData.propertyType.toLowerCase()}.
-                </p>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/75 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-6xl shadow-2xl">
+            <GISBoundaryDrawingModule
+              propertyType={formData.propertyType}
+              targetTitle={
+                formData.propertyType === 'LOT'
+                  ? (formData.lotNumber || 'New Lot Parcel')
+                  : (formData.buildingName || 'New Building Structure')
+              }
+              lotAreaEntered={formData.propertyType === 'LOT' ? formData.lotArea : formData.floorArea}
+              initialCoordinates={formData.coordinates}
+              onConfirmBoundary={(geom, area, perim) => {
+                handleChange('coordinates', JSON.stringify(geom.geometry.coordinates));
+                handleChange('area_sqm', String(area));
+                handleChange('perimeter_m', String(perim));
+                setShowMapModal(false);
+              }}
+              onClose={() => setShowMapModal(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ================= PHOTO ENLARGED LIGHTBOX MODAL ================= */}
+      {activePhotoModal && (
+        <div 
+          onClick={() => setActivePhotoModal(null)}
+          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in cursor-pointer"
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl max-w-3xl w-full overflow-hidden shadow-2xl cursor-default flex flex-col max-h-[90vh]"
+          >
+            <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gray-50 dark:bg-gray-800/80">
+              <div className="flex items-center gap-2">
+                <Camera size={16} className="text-emerald-600" />
+                <span className="font-bold text-xs text-gray-900 dark:text-white truncate max-w-md">
+                  {activePhotoModal.name}
+                </span>
+                <span className="text-[10px] text-gray-400">
+                  ({(activePhotoModal.size / 1024).toFixed(1)} KB)
+                </span>
               </div>
               <button
                 type="button"
-                onClick={() => setShowMapModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1"
+                onClick={() => setActivePhotoModal(null)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
-            <div className="flex-1 relative">
-              <GISDrawMap
-                entityType={formData.propertyType === 'LOT' ? 'lot' : 'building'}
-                onGeometryChange={(geom, area, perim) => {
-                  if (geom) {
-                    handleChange('coordinates', JSON.stringify(geom.geometry.coordinates));
-                    handleChange('area_sqm', String(area));
-                    handleChange('perimeter_m', String(perim));
-                  }
-                }}
+            <div className="flex-1 bg-black/5 dark:bg-black/40 overflow-hidden flex items-center justify-center p-2">
+              <img
+                src={activePhotoModal.previewUrl}
+                alt={activePhotoModal.name}
+                className="max-h-[70vh] max-w-full object-contain rounded-lg shadow-md"
               />
-            </div>
-            <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowMapModal(false)}
-                className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold"
-              >
-                Done Mapping
-              </button>
             </div>
           </div>
         </div>

@@ -731,65 +731,55 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
       let data = request.proposed_data;
       if (typeof data === 'string') data = JSON.parse(data);
 
-      const owner = data.owner || 'Unknown Owner';
-      const barangay = data.barangay || '';
-      const municipality = data.municipality || '';
-      const province = data.province || '';
+      const rawOwner = (data.owner || 'Roberto Santos').trim();
+      const parts = rawOwner.split(/\s+/);
+      const firstName = parts[0] || 'Roberto';
+      const lastName = parts.length > 1 ? parts.slice(1).join(' ') : 'Santos';
+      const barangay = data.barangay || 'Poblacion';
       const area = data.stated_area || 0;
 
       // 1. Create or get owner
-      const [ownerRows] = await connection.query('SELECT owner_id FROM property_owners WHERE full_name = ?', [owner]);
+      const [ownerRows] = await connection.query('SELECT owner_id FROM property_owners WHERE first_name = ? AND last_name = ?', [firstName, lastName]);
       let ownerId;
       if (ownerRows.length > 0) {
         ownerId = ownerRows[0].owner_id;
       } else {
-        const [ownerResult] = await connection.query('INSERT INTO property_owners (full_name, contact_number, email, address) VALUES (?, NULL, NULL, NULL)', [owner]);
+        const [ownerResult] = await connection.query('INSERT INTO property_owners (first_name, last_name) VALUES (?, ?)', [firstName, lastName]);
         ownerId = ownerResult.insertId;
       }
 
-      // 2. Create address
-      const [addressResult] = await connection.query('INSERT INTO property_addresses (street_address, barangay, municipality, province, region, zip_code) VALUES (?, ?, ?, ?, ?, ?)', 
-        ['', barangay, municipality, province, 'Region X', '9000']);
+      // 2. Create address in Lagonglong
+      const [brgyRows] = await connection.query('SELECT barangay_id FROM barangays WHERE barangay_name LIKE ? AND municipality_id = 1 LIMIT 1', [`%${barangay}%`]);
+      const brgyId = brgyRows.length > 0 ? brgyRows[0].barangay_id : 1;
+      const [addressResult] = await connection.query('INSERT INTO addresses (street, barangay_id, postal_code) VALUES (?, ?, ?)', 
+        ['Purok 1', brgyId, '9005']);
       const addressId = addressResult.insertId;
 
-      // 3. Generate property ID
-      const purokStr = `${municipality.toUpperCase()}-${barangay.toUpperCase().replace(/\s+/g, '')}`;
-      const [pRows] = await connection.query(
-        "SELECT property_id FROM properties WHERE property_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(property_id, '-A', -1) AS UNSIGNED) DESC LIMIT 1",
-        [`LP-${purokStr}-A%`]
+      // 3. Create property
+      const [propResult] = await connection.query(
+        'INSERT INTO properties (owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, 1, 1, "active")', 
+        [ownerId, addressId]
       );
-      let nextPropSeq = 1;
-      if (pRows.length > 0) {
-        const match = pRows[0].property_id.match(/-A(\d+)$/);
-        if (match) nextPropSeq = parseInt(match[1]) + 1;
-      }
-      const propertyIdStr = `LP-${purokStr}-A${nextPropSeq}`;
+      const propertyId = propResult.insertId;
 
-      // 4. Create property
-      await connection.query('INSERT INTO properties (property_id, owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, ?, ?, ?, ?)', 
-        [propertyIdStr, ownerId, addressId, 1, 1, 'active']);
-
-      // 5. Generate lot ID and Create lot
-      const [lRows] = await connection.query(
-        "SELECT lot_id FROM property_lots WHERE lot_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(lot_id, '-L', -1) AS UNSIGNED) DESC LIMIT 1",
-        [`LP-${purokStr}-L%`]
+      // 4. Create lot
+      const lotNumber = data.lot_number || `LOT-SCAN-${Date.now()}-${propertyId}`;
+      const [lotResult] = await connection.query(
+        'INSERT INTO property_lots (property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, "active")', 
+        [propertyId, lotNumber, data.cad_reference || null, Number.isFinite(area) ? area : null]
       );
-      let nextLotSeq = 1;
-      if (lRows.length > 0) {
-        const match = lRows[0].lot_id.match(/-L(\d+)$/);
-        if (match) nextLotSeq = parseInt(match[1]) + 1;
-      }
-      const lotId = `LP-${purokStr}-L${nextLotSeq}`;
+      const lotId = lotResult.insertId;
 
-      await connection.query('INSERT INTO property_lots (lot_id, property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?, ?)', 
-        [lotId, propertyIdStr, data.lot_number || `LOT-${propertyIdStr}`, data.cad_reference || null, Number.isFinite(area) ? area : null, 'active']);
-
-      // 6. Create GIS Location
+      // 5. Create GIS Location if coordinates present
       if (data.coordinates) {
+        let coords = data.coordinates;
+        if (typeof coords === 'string') {
+          try { coords = JSON.parse(coords); } catch (e) {}
+        }
         await connection.query(`
           INSERT INTO gis_locations (property_id, lot_id, geometry_type, coordinates, area_sqm, perimeter_m) 
           VALUES (?, ?, 'Polygon', ?, ?, ?)
-        `, [propertyIdStr, lotId, JSON.stringify(data.coordinates), data.area_sqm || 0, data.perimeter_m || 0]);
+        `, [propertyId, lotId, JSON.stringify(coords), Number(data.area_sqm) || 0, Number(data.perimeter_m) || 0]);
       }
 
       // 7. Update scanner status

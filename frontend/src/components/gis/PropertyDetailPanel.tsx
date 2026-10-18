@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   X,
   MapPin,
@@ -19,8 +19,12 @@ import {
   Calendar,
   ShieldCheck,
   ExternalLink,
-  Camera
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Maximize2
 } from 'lucide-react'
+import api from '../../lib/api'
 import type { GISFeature } from '../../types/gis'
 
 interface PropertyDetailPanelProps {
@@ -43,6 +47,33 @@ export function PropertyDetailPanel({
   canEditGis = false,
 }: PropertyDetailPanelProps) {
   const [copiedCoords, setCopiedCoords] = useState(false)
+  const [photos, setPhotos] = useState<Array<{ photo_id?: number; file_path: string; file_name?: string | null; file_size?: number | null; is_primary?: number | boolean }>>([])
+  const [activePhotoIdx, setActivePhotoIdx] = useState(0)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (feature.photos && feature.photos.length > 0) {
+      setPhotos(feature.photos)
+      setActivePhotoIdx(0)
+    } else if (feature.property_id) {
+      api.get(`/properties/${feature.property_id}/photos`)
+        .then(res => {
+          if (Array.isArray(res.data) && res.data.length > 0) {
+            setPhotos(res.data)
+            setActivePhotoIdx(0)
+          } else if (feature.property_photo) {
+            setPhotos([{ file_path: feature.property_photo }])
+          }
+        })
+        .catch(() => {
+          if (feature.property_photo) {
+            setPhotos([{ file_path: feature.property_photo }])
+          }
+        })
+    } else if (feature.property_photo) {
+      setPhotos([{ file_path: feature.property_photo }])
+    }
+  }, [feature])
 
   const isBuilding = feature.type === 'building'
   const isPending = feature.status === 'pending' || feature.property_status === 'pending'
@@ -165,24 +196,91 @@ export function PropertyDetailPanel({
           </button>
         </div>
 
-        {/* Optional Property Photo Preview */}
-        {feature.property_photo && (
-          <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 shadow-sm">
-            <div className="py-1.5 px-2.5 bg-gray-100/70 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                <Camera size={12} className="text-emerald-500" /> {isBuilding ? 'Building Photo' : 'Lot Photo'}
+        {/* Multi-Photo Gallery & Carousel Preview */}
+        {photos.length > 0 && (
+          <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 shadow-sm space-y-1">
+            <div className="py-1.5 px-3 bg-gray-100/80 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+                <Camera size={13} className="text-emerald-500" />
+                {isBuilding ? 'Building Photos' : 'Lot Photos'}
+                {photos.length > 1 && (
+                  <span className="ml-1 px-1.5 py-0.2 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 rounded font-mono text-[9px]">
+                    {activePhotoIdx + 1}/{photos.length}
+                  </span>
+                )}
+              </span>
+              <span className="text-[10px] text-gray-400">
+                {photos.length} {photos.length === 1 ? 'photo' : 'photos'}
               </span>
             </div>
-            <div className="h-40 w-full overflow-hidden bg-black/5 dark:bg-black/30 flex items-center justify-center">
+
+            {/* Active Image Box with Carousel Controls */}
+            <div className="relative h-44 w-full bg-black/10 dark:bg-black/40 overflow-hidden flex items-center justify-center group">
               <img
-                src={feature.property_photo}
+                src={photos[activePhotoIdx]?.file_path}
                 alt={feature.title}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover transition duration-200 cursor-pointer"
+                onClick={() => setLightboxUrl(photos[activePhotoIdx]?.file_path)}
                 onError={(e) => {
                   (e.currentTarget as HTMLElement).style.display = 'none';
                 }}
               />
+
+              {/* Prev/Next buttons if multiple photos */}
+              {photos.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePhotoIdx(i => (i === 0 ? photos.length - 1 : i - 1));
+                    }}
+                    className="absolute left-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/75 text-white transition cursor-pointer"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePhotoIdx(i => (i === photos.length - 1 ? 0 : i + 1));
+                    }}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/75 text-white transition cursor-pointer"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </>
+              )}
+
+              {/* Zoom click button */}
+              <button
+                type="button"
+                onClick={() => setLightboxUrl(photos[activePhotoIdx]?.file_path)}
+                className="absolute bottom-2 right-2 p-1 rounded-md bg-black/60 hover:bg-black/80 text-white text-[10px] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition cursor-pointer"
+              >
+                <Maximize2 size={12} /> View Full
+              </button>
             </div>
+
+            {/* Thumbnails row */}
+            {photos.length > 1 && (
+              <div className="p-2 flex gap-1.5 overflow-x-auto custom-scrollbar">
+                {photos.map((p, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setActivePhotoIdx(idx)}
+                    className={`relative w-12 h-10 rounded-md overflow-hidden border-2 shrink-0 transition cursor-pointer ${
+                      activePhotoIdx === idx
+                        ? 'border-emerald-500 ring-1 ring-emerald-500'
+                        : 'border-transparent opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <img src={p.file_path} alt="" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -418,6 +516,25 @@ export function PropertyDetailPanel({
           <span>View Full Property Record</span>
         </button>
       </div>
+
+      {/* Lightbox modal for enlarged photo */}
+      {lightboxUrl && (
+        <div 
+          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 z-[1400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in cursor-pointer"
+        >
+          <div onClick={e => e.stopPropagation()} className="relative max-w-3xl max-h-[85vh] bg-gray-900 rounded-2xl overflow-hidden shadow-2xl p-2 border border-gray-700">
+            <button
+              type="button"
+              onClick={() => setLightboxUrl(null)}
+              className="absolute top-4 right-4 z-10 p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+            <img src={lightboxUrl} alt="" className="max-h-[80vh] max-w-full object-contain rounded-lg" />
+          </div>
+        </div>
+      )}
     </aside>
   )
 }

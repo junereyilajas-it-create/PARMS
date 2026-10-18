@@ -33,12 +33,14 @@ export type GISFeature = {
   coordinates?: any;
   area_sqm?: number | null;
   perimeter_m?: number | null;
+  mapping_status?: 'verified' | 'approximate' | 'draft' | string | null;
   has_gis?: boolean;
   latitude?: number | null;
   longitude?: number | null;
 
   // Assessment details
   assessment_status?: string | null;
+  is_assessed?: boolean | number;
   assessor_level?: string | number | null;
   market_value?: string | number | null;
   assessed_value?: string | number | null;
@@ -59,6 +61,17 @@ export type GISFeature = {
 
   // Media
   property_photo?: string | null;
+  photos?: Array<{
+    photo_id?: number;
+    property_id?: number | string;
+    lot_id?: number | null;
+    building_id?: number | null;
+    file_path: string;
+    file_name?: string | null;
+    file_size?: number | null;
+    mime_type?: string | null;
+    is_primary?: number | boolean;
+  }>;
 }
 
 export type MapMode = 'street' | 'satellite' | 'streetview'

@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react'
+import { applyThemeToDOM } from '../../contexts/ThemeContext'
 
 interface IsolatedThemeWrapperProps {
   children: React.ReactNode
@@ -13,22 +14,15 @@ interface IsolatedThemeWrapperProps {
  */
 export function IsolatedThemeWrapper({ children, className = '' }: IsolatedThemeWrapperProps) {
   useEffect(() => {
-    // Save current theme setting from localStorage
-    const savedTheme = localStorage.getItem('accessor_theme') || 'light'
+    const savedTheme = (localStorage.getItem('accessor_theme') as 'light' | 'dark') || 'light'
 
     // Force light mode on document root while viewing isolated page
-    document.documentElement.dataset.theme = 'light'
-    document.documentElement.classList.remove('dark')
-    document.body.dataset.theme = 'light'
-    document.body.classList.remove('dark')
+    applyThemeToDOM('light')
 
     return () => {
       // When navigating away to dashboard/other pages, restore user's saved theme preference
-      const currentSavedTheme = localStorage.getItem('accessor_theme') || savedTheme
-      document.documentElement.dataset.theme = currentSavedTheme
-      document.documentElement.classList.toggle('dark', currentSavedTheme === 'dark')
-      document.body.dataset.theme = currentSavedTheme
-      document.body.classList.toggle('dark', currentSavedTheme === 'dark')
+      const currentSavedTheme = (localStorage.getItem('accessor_theme') as 'light' | 'dark') || savedTheme
+      applyThemeToDOM(currentSavedTheme)
     }
   }, [])
 

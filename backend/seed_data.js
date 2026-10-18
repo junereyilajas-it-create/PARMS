@@ -60,7 +60,7 @@ async function run() {
     const [owners] = await conn.query('SELECT owner_id FROM property_owners LIMIT 1');
     let ownerId;
     if (owners.length === 0) {
-      const [res] = await conn.query('INSERT INTO property_owners (first_name, last_name) VALUES ("Test", "Owner")');
+      const [res] = await conn.query('INSERT INTO property_owners (first_name, middle_name, last_name, contact_number, email) VALUES ("Roberto", "M.", "Santos", "0917-555-0192", "roberto.santos@parms.gov.ph")');
       ownerId = res.insertId;
     } else {
       ownerId = owners[0].owner_id;

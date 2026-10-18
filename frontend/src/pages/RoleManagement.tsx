@@ -121,31 +121,51 @@ export function RoleManagement() {
                   <th className="py-3 px-4 font-semibold text-gray-600 dark:text-gray-300 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y dark:divide-neutral-700">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {filteredUsers.map(u => (
-                  <tr key={u.user_id} className="hover:bg-gray-50 dark:hover:bg-neutral-800/50 transition-colors">
+                  <tr
+                    key={u.user_id}
+                    onClick={() => handleManageUser(u)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleManageUser(u);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Manage role and permissions for ${u.first_name} ${u.last_name}`}
+                    className="cursor-pointer hover:bg-purple-50/70 dark:hover:bg-purple-950/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:bg-purple-50/70 dark:focus-visible:bg-purple-950/30 transition-colors group select-none"
+                  >
                     <td className="py-3 px-4">
-                      <div className="font-medium dark:text-white">{u.first_name} {u.last_name}</div>
+                      <div className="font-medium text-gray-900 dark:text-white group-hover:text-purple-700 dark:group-hover:text-purple-300 transition-colors">
+                        {u.first_name} {u.last_name}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-500 dark:text-gray-400">
                       <div>{u.username}</div>
-                      <div>{u.email}</div>
+                      <div className="text-xs text-gray-400 dark:text-gray-500">{u.email}</div>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="px-2 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 text-xs font-bold rounded uppercase">
+                      <span className="px-2.5 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 text-xs font-bold rounded-md uppercase tracking-wider">
                         {u.role.replace('_', ' ')}
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <span className={`px-2 py-1 text-xs font-bold rounded uppercase ${u.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                      <span className={`px-2.5 py-1 text-xs font-bold rounded-md uppercase tracking-wider ${u.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
                         {u.status}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right">
                       <button
-                        onClick={() => handleManageUser(u)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleManageUser(u);
+                        }}
+                        className="p-2 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded-lg transition-transform group-hover:scale-110"
                         title="Manage Permissions"
+                        aria-label={`Manage Permissions for ${u.first_name}`}
                       >
                         <UserCog size={18} />
                       </button>

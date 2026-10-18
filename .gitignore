@@ -29,3 +29,4 @@ uploads/
 backend/uploads/
 *.traineddata
 test_*.js
+scratch_test_images/

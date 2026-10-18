@@ -36,7 +36,7 @@ const ALL_NAV_GROUPS = [
       { label: 'Assessments', icon: ClipboardCheck, roles: ['admin', 'assessor'] },
       { label: 'Assessment Assignments', icon: ClipboardCheck, roles: ['admin', 'super_admin'] },
       { label: 'Permission Requests', icon: FileText, roles: ['admin', 'super_admin'] },
-      { label: 'My Requests', icon: FileText, roles: ['assessor'] },
+      { label: 'My Requests', icon: FileText, roles: ['assessor', 'staff'] },
       { label: 'Certificates', icon: FileText, roles: ['super_admin', 'admin', 'staff'] },
       { label: 'Certificate Requests', icon: FileText, roles: ['owner', 'client'] },
       { label: 'Assigned Tasks', icon: ClipboardCheck, roles: ['staff'] }

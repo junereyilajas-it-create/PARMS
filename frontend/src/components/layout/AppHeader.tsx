@@ -1,6 +1,7 @@
 import { Bell, ChevronDown, Menu, Settings, LogOut, Moon, Sun, User, Check, CheckCircle2, HelpCircle } from 'lucide-react'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import api from '../../lib/api'
+import { useTheme } from '../../contexts/ThemeContext'
 
 const descriptions: Record<string, string> = { Dashboard: 'Overview of property records and assessment activity', Properties: 'Manage registered property lots and records', Owners: 'Manage ownership transfers and supporting records', Assessments: 'Review property valuation and assessment information', 'GIS Map': 'Locate and inspect registered properties on the map', Documents: 'Find and print official property certifications', Reports: 'Review operational intelligence and reports' }
 
@@ -24,7 +25,10 @@ function formatRelativeTime(dateString: string) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export function AppHeader({ active, onNavigate, theme, onThemeToggle, onMenu }: { active: string; onNavigate?: (page: string) => void; theme: 'light' | 'dark'; onThemeToggle: () => void; onMenu: () => void }) {
+export function AppHeader({ active, onNavigate, theme: propTheme, onThemeToggle: propToggle, onMenu }: { active: string; onNavigate?: (page: string) => void; theme?: 'light' | 'dark'; onThemeToggle?: () => void; onMenu: () => void }) {
+  const themeCtx = useTheme()
+  const theme = propTheme ?? themeCtx.theme
+  const onThemeToggle = propToggle ?? themeCtx.toggleTheme
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const [profile, setProfile] = useState<any>(null);

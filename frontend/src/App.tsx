@@ -9,6 +9,7 @@ import { IsolatedThemeWrapper } from './components/common/IsolatedThemeWrapper'
 import { CrudModal } from './components/common/CrudModal'
 import { SystemLoadingScreen } from './components/common/SystemLoadingScreen'
 import { useModal } from './contexts/ModalContext'
+import { useTheme, applyThemeToDOM } from './contexts/ThemeContext'
 import api, { ensureSession } from './lib/api'
 import type { Property } from './types/property'
 
@@ -60,20 +61,17 @@ function App() {
     setUserRole(localStorage.getItem('accessor_role') || '')
   }, [location.pathname])
 
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('accessor_theme') === 'dark' ? 'dark' : 'light')
+  const { theme, toggleTheme } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('accessor_sidebar_collapsed') === 'true')
 
   useEffect(() => {
     const isIsolated = location.pathname === '/' || location.pathname === '/login'
     if (isIsolated) {
-      document.documentElement.dataset.theme = 'light'
-      document.documentElement.classList.remove('dark')
+      applyThemeToDOM('light')
     } else {
-      document.documentElement.dataset.theme = theme
-      document.documentElement.classList.toggle('dark', theme === 'dark')
+      applyThemeToDOM(theme)
     }
-    localStorage.setItem('accessor_theme', theme)
   }, [theme, location.pathname])
   useEffect(() => { localStorage.setItem('accessor_sidebar_collapsed', String(sidebarCollapsed)) }, [sidebarCollapsed])
 
@@ -200,7 +198,7 @@ function App() {
       case 'My Requests': navigate('/my-requests'); break;
       case 'Assessment Requests':
       case 'Permission Requests':
-        navigate(currentRole === 'assessor' ? '/my-requests' : '/permission-requests');
+        navigate(currentRole === 'assessor' || currentRole === 'staff' ? '/my-requests' : '/permission-requests');
         break;
       case 'Certificates': navigate('/documents'); break;
       case 'Certificate Requests':
@@ -227,7 +225,7 @@ function App() {
     if (path.startsWith('/assessment-assignments')) return 'Assessment Assignments'
     if (path.startsWith('/my-requests')) return 'My Requests'
     if (path.startsWith('/permission-requests') || path.startsWith('/assessment-requests')) {
-      return userRole === 'assessor' ? 'My Requests' : 'Permission Requests'
+      return (userRole === 'assessor' || userRole === 'staff') ? 'My Requests' : 'Permission Requests'
     }
     if (path.startsWith('/assessments')) return 'Assessments'
 
@@ -299,7 +297,7 @@ function App() {
                 active={activePageName}
                 onNavigate={handleNavigate}
                 theme={theme}
-                onThemeToggle={() => setTheme(value => value === 'light' ? 'dark' : 'light')}
+                onThemeToggle={toggleTheme}
                 onMenu={() => setSidebarOpen(true)}
               />
               <section className="flex-1 p-4 sm:p-6 lg:p-8 w-full overflow-y-auto custom-scrollbar">

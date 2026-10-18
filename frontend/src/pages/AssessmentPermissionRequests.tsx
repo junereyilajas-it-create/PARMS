@@ -49,9 +49,18 @@ export const AssessmentPermissionRequests: React.FC = () => {
   const [userRole, setUserRole] = useState(() => localStorage.getItem('accessor_role') || '');
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
+  const isAdminOrSuper = ['admin', 'super_admin'].includes(userRole);
+  const isStaff = userRole === 'staff';
+
   // Tabs state: 'my' or 'all'
-  const initialTab = searchParams.get('tab') === 'all_requests' ? 'all' : 'my';
-  const [activeTab, setActiveTab] = useState<'my' | 'all'>(initialTab);
+  // Super Admin & Admin ONLY have 'all' (My Request is removed)
+  // Staff ONLY has 'my' (All Request is removed)
+  const getInitialTab = (): 'my' | 'all' => {
+    if (isAdminOrSuper) return 'all';
+    if (isStaff) return 'my';
+    return searchParams.get('tab') === 'all_requests' ? 'all' : 'my';
+  };
+  const [activeTab, setActiveTab] = useState<'my' | 'all'>(getInitialTab);
 
   // Data
   const [myRequests, setMyRequests] = useState<PermissionRequest[]>([]);
@@ -92,26 +101,39 @@ export const AssessmentPermissionRequests: React.FC = () => {
 
   // Sync URL search params with state
   useEffect(() => {
-    const urlTab = searchParams.get('tab');
-    if (urlTab === 'all_requests') {
+    if (isAdminOrSuper) {
       setActiveTab('all');
-    } else if (urlTab === 'my_requests') {
+    } else if (isStaff) {
       setActiveTab('my');
+    } else {
+      const urlTab = searchParams.get('tab');
+      if (urlTab === 'all_requests') {
+        setActiveTab('all');
+      } else if (urlTab === 'my_requests') {
+        setActiveTab('my');
+      }
     }
 
     const urlStatus = searchParams.get('status');
     if (urlStatus) {
       setStatusFilter(urlStatus);
     }
-  }, [searchParams]);
+  }, [searchParams, userRole, isAdminOrSuper, isStaff]);
 
   const loadData = async () => {
     setLoading(true);
     try {
       await ensureSession();
       const profile = await api.get('/profile');
-      setUserRole(profile.data.role);
+      const role = profile.data.role;
+      setUserRole(role);
       setCurrentUserId(profile.data.id || profile.data.user_id);
+
+      if (['admin', 'super_admin'].includes(role)) {
+        setActiveTab('all');
+      } else if (role === 'staff') {
+        setActiveTab('my');
+      }
 
       // Fetch My Requests
       const myRes = await api.get('/assessments/requests?scope=my');
@@ -150,6 +172,8 @@ export const AssessmentPermissionRequests: React.FC = () => {
   }, []);
 
   const handleTabChange = (tab: 'my' | 'all') => {
+    if (isAdminOrSuper && tab === 'my') return;
+    if (isStaff && tab === 'all') return;
     setActiveTab(tab);
     const newParams = new URLSearchParams(searchParams);
     newParams.set('tab', tab === 'my' ? 'my_requests' : 'all_requests');
@@ -375,7 +399,6 @@ export const AssessmentPermissionRequests: React.FC = () => {
     );
   };
 
-  const isAdminOrSuper = ['admin', 'super_admin'].includes(userRole);
 
   // Tab A: My Requests Columns
   const myRequestsColumns = [
@@ -536,61 +559,65 @@ export const AssessmentPermissionRequests: React.FC = () => {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
-            {userRole === 'assessor' ? 'My Requests' : 'Permission Requests'}
+            {isAdminOrSuper ? 'Permission Requests' : 'My Requests'}
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            {userRole === 'assessor'
-              ? 'Track, submit, and manage your property assessment permission requests.'
-              : 'Review, assign, and manage property assessment requests across all assessors.'}
+            {isAdminOrSuper
+              ? 'Review, assign, and manage property assessment requests across all assessors.'
+              : 'Track, submit, and manage your property assessment permission requests.'}
           </p>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800">
-        <button
-          id="tab-my-requests-btn"
-          data-testid="tab-my-requests-btn"
-          onClick={() => handleTabChange('my')}
-          className={`px-4 py-3 font-semibold text-sm border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'my'
-              ? 'border-green-600 text-green-700 dark:text-green-400 dark:border-green-400'
-              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-          }`}
-        >
-          <FileText size={16} />
-          My Requests
-          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-            activeTab === 'my'
-              ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
-              : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-          }`}>
-            {myRequests.length}
-          </span>
-        </button>
-
-        <button
-          id="tab-all-requests-btn"
-          data-testid="tab-all-requests-btn"
-          onClick={() => handleTabChange('all')}
-          className={`px-4 py-3 font-semibold text-sm border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'all'
-              ? 'border-green-600 text-green-700 dark:text-green-400 dark:border-green-400'
-              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-          }`}
-        >
-          <UserCheck size={16} />
-          All Requests
-          {canViewAll && (
+        {!isAdminOrSuper && (
+          <button
+            id="tab-my-requests-btn"
+            data-testid="tab-my-requests-btn"
+            onClick={() => handleTabChange('my')}
+            className={`px-4 py-3 font-semibold text-sm border-b-2 transition-all flex items-center gap-2 ${
+              activeTab === 'my'
+                ? 'border-green-600 text-green-700 dark:text-green-400 dark:border-green-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+          >
+            <FileText size={16} />
+            My Requests
             <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-              activeTab === 'all'
+              activeTab === 'my'
                 ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
                 : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
             }`}>
-              {allRequests.length}
+              {myRequests.length}
             </span>
-          )}
-        </button>
+          </button>
+        )}
+
+        {!isStaff && (
+          <button
+            id="tab-all-requests-btn"
+            data-testid="tab-all-requests-btn"
+            onClick={() => handleTabChange('all')}
+            className={`px-4 py-3 font-semibold text-sm border-b-2 transition-all flex items-center gap-2 ${
+              activeTab === 'all'
+                ? 'border-green-600 text-green-700 dark:text-green-400 dark:border-green-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+          >
+            <UserCheck size={16} />
+            All Requests
+            {canViewAll && (
+              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                activeTab === 'all'
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+                  : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+              }`}>
+                {allRequests.length}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Search and Filters Bar */}

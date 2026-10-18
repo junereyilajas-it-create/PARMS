@@ -40,7 +40,13 @@ export function PropertyLotManagement() {
   const { showSuccess, showError, showConfirm } = useModal();
   const [internalSearch, setInternalSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [lots, setLots] = useState<Lot[]>([]); const [filters, setFilters] = useState({ barangay: '', classification: '', propertyType: '', status: '' }); const [modal, setModal] = useState<{ mode: 'edit' | 'view'; record?: Lot } | null>(null); const [showAddProperty, setShowAddProperty] = useState(false); const [userRole, setUserRole] = useState(() => localStorage.getItem('accessor_role') || '');
+  const [lots, setLots] = useState<Lot[]>([]);
+  const [filters, setFilters] = useState({ barangay: '', classification: '', propertyType: '', status: '' });
+  const [modal, setModal] = useState<{ mode: 'edit' | 'view'; record?: Lot } | null>(null);
+  const [showAddProperty, setShowAddProperty] = useState(() => {
+    return new URLSearchParams(window.location.search).get('add') === 'true';
+  });
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('accessor_role') || '');
   const [assignmentProperty, setAssignmentProperty] = useState<SelectedPropertyAssignment | null>(null);
 
   useEffect(() => {

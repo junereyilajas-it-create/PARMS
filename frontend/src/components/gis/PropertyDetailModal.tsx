@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   X,
   Building2,
@@ -11,9 +11,11 @@ import {
   Home,
   CheckCircle2,
   PencilRuler,
-  Camera
+  Camera,
+  Maximize2
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import api from '../../lib/api'
 import type { GISFeature } from '../../types/gis'
 
 interface PropertyDetailModalProps {
@@ -31,6 +33,31 @@ export function PropertyDetailModal({
 }: PropertyDetailModalProps) {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'overview' | 'owner' | 'assessment' | 'gis'>('overview')
+  const [photos, setPhotos] = useState<Array<{ photo_id?: number; file_path: string; file_name?: string | null; file_size?: number | null; is_primary?: number | boolean }>>([])
+  const [activePhotoModal, setActivePhotoModal] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!feature) return
+    if (feature.photos && feature.photos.length > 0) {
+      setPhotos(feature.photos)
+    } else if (feature.property_id) {
+      api.get(`/properties/${feature.property_id}/photos`)
+        .then(res => {
+          if (Array.isArray(res.data) && res.data.length > 0) {
+            setPhotos(res.data)
+          } else if (feature.property_photo) {
+            setPhotos([{ file_path: feature.property_photo }])
+          }
+        })
+        .catch(() => {
+          if (feature.property_photo) {
+            setPhotos([{ file_path: feature.property_photo }])
+          }
+        })
+    } else if (feature.property_photo) {
+      setPhotos([{ file_path: feature.property_photo }])
+    }
+  }, [feature])
 
   if (!feature) return null
 
@@ -249,20 +276,41 @@ export function PropertyDetailModal({
                 </div>
               </div>
 
-              {feature.property_photo && (
-                <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800 space-y-2">
-                  <span className="text-gray-400 text-[10px] uppercase font-semibold flex items-center gap-1.5">
-                    <Camera size={13} className="text-emerald-500" /> {isBuilding ? 'Building Photo' : 'Lot Photo'}
-                  </span>
-                  <div className="relative h-56 w-full rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                    <img
-                      src={feature.property_photo}
-                      alt={feature.title}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLElement).style.display = 'none';
-                      }}
-                    />
+              {photos.length > 0 && (
+                <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400 text-[10px] uppercase font-semibold flex items-center gap-1.5">
+                      <Camera size={13} className="text-emerald-500" />
+                      {isBuilding ? 'Building Photos' : 'Lot Photos'} ({photos.length})
+                    </span>
+                    <span className="text-[10px] text-gray-400">Click photo to enlarge</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                    {photos.map((p, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => setActivePhotoModal(p.file_path)}
+                        className="group relative h-28 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 cursor-pointer shadow-sm hover:border-emerald-500 transition"
+                      >
+                        <img
+                          src={p.file_path}
+                          alt=""
+                          className="w-full h-full object-cover transition group-hover:scale-105"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                        {idx === 0 && (
+                          <span className="absolute top-1.5 left-1.5 px-1.5 py-0.2 bg-emerald-600 text-white text-[9px] font-bold rounded shadow">
+                            Primary
+                          </span>
+                        )}
+                        <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                          <Maximize2 size={16} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -446,6 +494,25 @@ export function PropertyDetailModal({
           </button>
         </div>
       </div>
+
+      {/* Lightbox zoom modal */}
+      {activePhotoModal && (
+        <div
+          onClick={() => setActivePhotoModal(null)}
+          className="fixed inset-0 z-[1500] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in cursor-pointer"
+        >
+          <div onClick={e => e.stopPropagation()} className="relative max-w-3xl max-h-[85vh] bg-gray-900 rounded-2xl overflow-hidden shadow-2xl p-2 border border-gray-700">
+            <button
+              type="button"
+              onClick={() => setActivePhotoModal(null)}
+              className="absolute top-4 right-4 z-10 p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+            <img src={activePhotoModal} alt="" className="max-h-[80vh] max-w-full object-contain rounded-lg" />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

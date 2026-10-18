@@ -10,7 +10,11 @@ import {
   Ruler,
   AlertCircle,
   CheckCircle2,
-  X
+  X,
+  Maximize2,
+  PencilRuler,
+  ListFilter,
+  Map as MapIcon
 } from 'lucide-react'
 import { MapContainer, TileLayer, Polygon, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -42,13 +46,15 @@ function MapFlyController({
   const map = useMap()
   useEffect(() => {
     if (targetBounds) {
-      map.flyToBounds(targetBounds, { padding: [60, 60], maxZoom: 18, duration: 1.2 })
+      map.flyToBounds(targetBounds, { padding: [50, 50], maxZoom: 18, duration: 1.2 })
     } else if (targetCenter) {
       map.flyTo(targetCenter, 17, { duration: 1.2 })
     }
   }, [map, targetCenter, targetBounds])
   return null
 }
+
+type FilterType = 'All' | 'Lots' | 'Buildings' | 'Assessed' | 'Unassessed' | 'Unmapped'
 
 export function PropertyMapView() {
   const { showError, showSuccess } = useModal()
@@ -57,9 +63,12 @@ export function PropertyMapView() {
   const [mapMode, setMapMode] = useState<MapMode>('street')
   const [query, setQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
-  const [filterType, setFilterType] = useState<'All' | 'Lots' | 'Buildings' | 'Unmapped'>('All')
+  const [filterType, setFilterType] = useState<FilterType>('All')
   const [showMeasurements, setShowMeasurements] = useState(true)
   const [showSatelliteLabels, setShowSatelliteLabels] = useState(true)
+
+  // Needs Mapping Queue local filter state
+  const [unmappedBarangayFilter, setUnmappedBarangayFilter] = useState<string>('all')
 
   const [features, setFeatures] = useState<GISFeature[]>([])
   const [selectedFeature, setSelectedFeature] = useState<GISFeature | null>(null)
@@ -70,6 +79,7 @@ export function PropertyMapView() {
   // Map Navigation targets
   const [flyTargetCenter, setFlyTargetCenter] = useState<[number, number] | null>(null)
   const [flyTargetBounds, setFlyTargetBounds] = useState<[[number, number], [number, number]] | null>(null)
+  const hasAutoFittedRef = useRef(false)
 
   // Modals
   const [isFullDetailModalOpen, setIsFullDetailModalOpen] = useState(false)
@@ -77,7 +87,7 @@ export function PropertyMapView() {
 
   // Current user role
   const [userRole] = useState(() => localStorage.getItem('accessor_role') || '')
-  const canEditGis = ['admin', 'assessor', 'super_admin'].includes(userRole)
+  const canEditGis = ['admin', 'assessor', 'super_admin', 'staff'].includes(userRole)
 
   const searchContainerRef = useRef<HTMLDivElement>(null)
 
@@ -112,11 +122,9 @@ export function PropertyMapView() {
         has_gis: Boolean(b.gis_id && b.coordinates),
       }))
 
-      // Combine lots and buildings without duplicates
       const combined = [...lots, ...bldgs]
       setFeatures(combined)
 
-      // If a feature was previously selected, update its reference with latest data
       if (selectedFeature) {
         const updated = combined.find(f => f.type === selectedFeature.type && f.id === selectedFeature.id)
         if (updated) setSelectedFeature(updated)
@@ -144,7 +152,6 @@ export function PropertyMapView() {
       const positions = parseLeafletPositions(f.coordinates)
       const geomDetails = positions.length >= 3 ? getGeometryDetails(positions) : null
 
-      // Determine marker position
       let markerPos: [number, number] | null = null
       if (geomDetails?.centroid) {
         markerPos = geomDetails.centroid
@@ -163,19 +170,110 @@ export function PropertyMapView() {
     })
   }, [features])
 
+  // Filter counts
+  const filterCounts = useMemo(() => {
+    const lots = features.filter(f => f.type === 'lot').length
+    const buildings = features.filter(f => f.type === 'building').length
+    const assessed = features.filter(f => Boolean(f.is_assessed || f.status === 'assessed' || f.property_status === 'approved')).length
+    const unassessed = features.length - assessed
+    const unmapped = features.filter(f => !f.has_gis).length
+    const mapped = features.filter(f => f.has_gis).length
+
+    return {
+      all: features.length,
+      lots,
+      buildings,
+      assessed,
+      unassessed,
+      unmapped,
+      mapped
+    }
+  }, [features])
+
   // Filter features according to selected tab and search query
   const filteredFeatures = useMemo(() => {
     const q = query.trim().toLowerCase()
     return featuresWithGeometry.filter(f => {
-      // Type & Mapping filter
+      // Search matching
+      if (q) {
+        const matchTitle = (f.title || '').toLowerCase().includes(q)
+        const matchOwner = (f.owner || '').toLowerCase().includes(q)
+        const matchPropId = `property-${f.property_id}`.toLowerCase().includes(q) || String(f.property_id).includes(q)
+        const matchEntityId = String(f.id).toLowerCase().includes(q)
+        const matchBarangay = (f.barangay_name || '').toLowerCase().includes(q)
+        const matchAddress = (f.full_address || '').toLowerCase().includes(q)
+        if (!matchTitle && !matchOwner && !matchPropId && !matchEntityId && !matchBarangay && !matchAddress) {
+          return false
+        }
+      }
+
+      const isAssessed = Boolean(f.is_assessed || f.status === 'assessed' || f.property_status === 'approved')
+
+      // Filter types
       if (filterType === 'Lots' && f.type !== 'lot') return false
       if (filterType === 'Buildings' && f.type !== 'building') return false
+      if (filterType === 'Assessed' && !isAssessed) return false
+      if (filterType === 'Unassessed' && isAssessed) return false
       if (filterType === 'Unmapped' && f.has_gis) return false
-      if (filterType === 'All' && !f.has_gis && q === '') return true
 
       return true
+    }).sort((a, b) => {
+      // Lots rendered first, buildings rendered second (on top of lots)
+      if (a.type === 'lot' && b.type === 'building') return -1
+      if (a.type === 'building' && b.type === 'lot') return 1
+      return 0
     })
   }, [featuresWithGeometry, filterType, query])
+
+  // List of unmapped properties specifically for the Needs Mapping Queue
+  const unmappedPropertiesList = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return features.filter(f => !f.has_gis).filter(f => {
+      if (unmappedBarangayFilter !== 'all') {
+        const brgy = (f.barangay_name || '').toLowerCase().trim()
+        if (brgy !== unmappedBarangayFilter.toLowerCase().trim()) return false
+      }
+      if (q) {
+        const matchTitle = (f.title || '').toLowerCase().includes(q)
+        const matchOwner = (f.owner || '').toLowerCase().includes(q)
+        const matchPropId = `property-${f.property_id}`.toLowerCase().includes(q) || String(f.property_id).includes(q)
+        const matchBarangay = (f.barangay_name || '').toLowerCase().includes(q)
+        return matchTitle || matchOwner || matchPropId || matchBarangay
+      }
+      return true
+    })
+  }, [features, unmappedBarangayFilter, query])
+
+  // Fit bounds to all mapped features
+  const fitAllBounds = () => {
+    const mapped = featuresWithGeometry.filter(f => f.has_gis && f.parsedPositions.length > 0)
+    if (mapped.length === 0) {
+      setFlyTargetCenter(LAGONGLONG_CENTER)
+      setFlyTargetBounds(null)
+      return
+    }
+    let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180
+    mapped.forEach(f => {
+      f.parsedPositions.forEach(([lat, lng]) => {
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+      })
+    })
+    if (minLat <= maxLat && minLng <= maxLng) {
+      setFlyTargetBounds([[minLat, minLng], [maxLat, maxLng]])
+      setFlyTargetCenter(null)
+    }
+  }
+
+  // Auto-fit on initial load when mapped features exist
+  useEffect(() => {
+    if (!hasAutoFittedRef.current && featuresWithGeometry.some(f => f.has_gis && f.parsedPositions.length > 0)) {
+      hasAutoFittedRef.current = true
+      fitAllBounds()
+    }
+  }, [featuresWithGeometry])
 
   // Search results for real-time dropdown
   const searchResults = useMemo(() => {
@@ -211,7 +309,6 @@ export function PropertyMapView() {
     if (selectedFeature?.latitude != null && selectedFeature?.longitude != null) {
       return [selectedFeature.latitude, selectedFeature.longitude]
     }
-    // Default to first mapped property or Lagonglong center
     const firstMapped = featuresWithGeometry.find(f => f.markerPos != null)
     if (firstMapped?.markerPos) return firstMapped.markerPos
     return LAGONGLONG_CENTER
@@ -226,24 +323,33 @@ export function PropertyMapView() {
             MUNICIPALITY OF LAGONGLONG • GIS PROPERTY PORTAL
           </p>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
-            Property Mapping & Street View
+            Property Cadastral GIS & Street View
           </h1>
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
-            High-precision cadastral mapping, actual satellite bird’s-eye imagery, and street-level exploration.
+            High-precision cadastral boundary mapping, satellite bird’s-eye imagery, and street-level exploration.
           </p>
         </div>
 
         {/* Quick summary badges */}
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
           <div className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5">
             <CheckCircle2 size={14} className="text-emerald-600" />
-            <span>{features.filter(f => f.has_gis).length} Mapped</span>
+            <span>{filterCounts.mapped} Mapped</span>
           </div>
 
-          <div className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40 text-amber-800 dark:text-amber-300 text-xs font-semibold flex items-center gap-1.5">
-            <AlertCircle size={14} className="text-amber-600" />
-            <span>{features.filter(f => !f.has_gis).length} Needs Mapping</span>
-          </div>
+          <button
+            type="button"
+            onClick={() => setFilterType('Unmapped')}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition ${
+              filterType === 'Unmapped'
+                ? 'bg-amber-600 text-white border-amber-700 shadow-sm'
+                : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100'
+            }`}
+            title="View properties requiring cadastral boundary mapping"
+          >
+            <AlertCircle size={14} className={filterType === 'Unmapped' ? 'text-white' : 'text-amber-600'} />
+            <span>{filterCounts.unmapped} Needs Mapping</span>
+          </button>
         </div>
       </div>
 
@@ -266,7 +372,7 @@ export function PropertyMapView() {
                     setIsSearchOpen(true)
                   }}
                   onFocus={() => setIsSearchOpen(true)}
-                  placeholder="Search by Property ID, Lot #, Owner, Barangay..."
+                  placeholder="Search by ID, Lot #, Building, Owner, Barangay..."
                   className="w-full bg-transparent border-none outline-none text-xs text-gray-900 dark:text-white placeholder:text-gray-400"
                 />
                 {query && (
@@ -338,32 +444,42 @@ export function PropertyMapView() {
               )}
             </div>
 
-            {/* Filter Tabs (All, Lots, Buildings, Needs Mapping) */}
-            <div className="flex items-center bg-gray-200/80 dark:bg-gray-700/80 p-0.5 rounded-xl text-xs font-semibold">
-              {(['All', 'Lots', 'Buildings', 'Unmapped'] as const).map(tab => (
+            {/* Filter Tabs (All, Lots, Buildings, Assessed, Unassessed, Needs Mapping) */}
+            <div className="flex items-center bg-gray-200/80 dark:bg-gray-700/80 p-0.5 rounded-xl text-xs font-semibold overflow-x-auto max-w-full">
+              {(
+                [
+                  { id: 'All', label: 'All', count: filterCounts.all },
+                  { id: 'Lots', label: 'Lots', count: filterCounts.lots },
+                  { id: 'Buildings', label: 'Buildings', count: filterCounts.buildings },
+                  { id: 'Assessed', label: 'Assessed', count: filterCounts.assessed },
+                  { id: 'Unassessed', label: 'Unassessed', count: filterCounts.unassessed },
+                  { id: 'Unmapped', label: 'Needs Mapping', count: filterCounts.unmapped },
+                ] as const
+              ).map(tab => (
                 <button
-                  key={tab}
-                  id={`tab-filter-${tab.toLowerCase()}`}
+                  key={tab.id}
+                  id={`tab-filter-${tab.id.toLowerCase()}`}
                   type="button"
-                  onClick={() => setFilterType(tab)}
-                  className={`px-3 py-1.5 rounded-lg transition ${
-                    filterType === tab
+                  onClick={() => setFilterType(tab.id as FilterType)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg whitespace-nowrap transition ${
+                    filterType === tab.id
                       ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                   }`}
                 >
-                  {tab === 'All'
-                    ? 'All'
-                    : tab === 'Lots'
-                      ? 'Lots'
-                      : tab === 'Buildings'
-                        ? 'Buildings'
-                        : 'Needs Mapping'}
+                  <span>{tab.label}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    filterType === tab.id
+                      ? tab.id === 'Unmapped' ? 'bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200' : 'bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200'
+                      : 'bg-gray-300/60 dark:bg-gray-600 text-gray-700 dark:text-gray-300'
+                  }`}>
+                    {tab.count}
+                  </span>
                 </button>
               ))}
             </div>
 
-            {/* View Mode Selector: Street Map | Satellite / Bird's-Eye | Street View */}
+            {/* View Mode Selector: Street Map | Satellite / Bird's-Eye | Street View & Tools */}
             <div className="flex items-center gap-2">
               <div className="flex items-center bg-emerald-50 dark:bg-emerald-950/40 p-0.5 rounded-xl border border-emerald-200 dark:border-emerald-800/40 text-xs font-semibold">
                 <button
@@ -408,6 +524,20 @@ export function PropertyMapView() {
                   <span>Street View</span>
                 </button>
               </div>
+
+              {/* Fit All Mapped Boundaries Button */}
+              {mapMode !== 'streetview' && (
+                <button
+                  id="btn-gis-fit-bounds"
+                  type="button"
+                  onClick={fitAllBounds}
+                  className="p-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition flex items-center gap-1 text-xs font-medium"
+                  title="Fit all mapped properties to view"
+                >
+                  <Maximize2 size={14} className="text-emerald-600" />
+                  <span className="hidden xl:inline">Fit Bounds</span>
+                </button>
+              )}
 
               {/* Satellite Labels Toggle */}
               {mapMode === 'satellite' && (
@@ -476,7 +606,7 @@ export function PropertyMapView() {
             </div>
           )}
 
-          {/* Map Body Canvas */}
+          {/* Map Body Canvas / Needs Mapping Queue Display */}
           <div className="relative flex-1 w-full h-[520px] sm:h-[580px] bg-gray-100 dark:bg-gray-950 overflow-hidden">
             {isLoading ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 dark:bg-gray-900/80 backdrop-blur z-30">
@@ -488,7 +618,154 @@ export function PropertyMapView() {
               </div>
             ) : null}
 
-            {mapMode === 'streetview' ? (
+            {filterType === 'Unmapped' ? (
+              /* Dedicated Interactive "Needs Mapping Queue" View */
+              <div className="absolute inset-0 bg-gray-50 dark:bg-gray-900 overflow-y-auto p-4 z-20 flex flex-col">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 mb-3 border-b border-gray-200 dark:border-gray-700">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">
+                        <AlertCircle size={18} />
+                      </span>
+                      <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                        Cadastral Needs Mapping Queue
+                      </h2>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {unmappedPropertiesList.length} properties in Lagonglong, Misamis Oriental require boundary drawing or cadastral survey placement.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Barangay Filter */}
+                    <div className="flex items-center gap-1.5 text-xs bg-white dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700">
+                      <ListFilter size={14} className="text-gray-400" />
+                      <select
+                        aria-label="Filter unmapped properties by barangay"
+                        value={unmappedBarangayFilter}
+                        onChange={e => setUnmappedBarangayFilter(e.target.value)}
+                        className="bg-transparent text-xs text-gray-800 dark:text-gray-200 outline-none font-medium cursor-pointer"
+                      >
+                        <option value="all">All Barangays</option>
+                        <option value="poblacion">Poblacion</option>
+                        <option value="kauswagan">Kauswagan</option>
+                        <option value="gaston">Gaston</option>
+                        <option value="tabok">Tabok</option>
+                        <option value="mabini">Mabini</option>
+                        <option value="dampil">Dampil</option>
+                        <option value="lumbo">Lumbo</option>
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setFilterType('All')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition"
+                    >
+                      <MapIcon size={14} />
+                      <span>Back to Map</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Queue Cards Grid */}
+                {unmappedPropertiesList.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500">
+                    <CheckCircle2 size={36} className="text-emerald-500 mb-2" />
+                    <p className="font-bold text-sm text-gray-800 dark:text-gray-200">
+                      No unmapped properties match this filter!
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      All properties in this selection have cadastral boundary coordinates saved.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {unmappedPropertiesList.map(prop => {
+                      const isBuilding = prop.type === 'building'
+                      const isAssessed = Boolean(prop.is_assessed || prop.status === 'assessed' || prop.property_status === 'approved')
+
+                      return (
+                        <div
+                          key={`unmapped-${prop.type}-${prop.id}`}
+                          className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3.5 hover:shadow-md transition flex flex-col justify-between gap-3"
+                        >
+                          <div>
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                isBuilding
+                                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300'
+                                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                              }`}>
+                                {isBuilding ? <Building2 size={11} /> : <SquareDashed size={11} />}
+                                {isBuilding ? 'Building' : 'Lot Parcel'}
+                              </span>
+
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                isAssessed
+                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40'
+                                  : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40'
+                              }`}>
+                                {isAssessed ? 'Assessed' : 'Unassessed'}
+                              </span>
+                            </div>
+
+                            <h3 className="font-bold text-sm text-gray-900 dark:text-white leading-tight">
+                              {prop.title}
+                            </h3>
+                            <p className="text-[11px] font-mono text-gray-400 mt-0.5">
+                              ID: P-{prop.property_id} • {prop.type === 'building' ? `Bldg #${prop.id}` : `Lot #${prop.id}`}
+                            </p>
+
+                            <div className="mt-2.5 space-y-1 text-xs text-gray-600 dark:text-gray-300">
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="text-gray-400">Owner:</span>
+                                <span className="font-semibold text-gray-800 dark:text-gray-200">{prop.owner}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="text-gray-400">Location:</span>
+                                <span>{prop.barangay_name || 'Poblacion'}, Lagonglong</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-gray-400">Declared Area:</span>
+                                <span className="font-mono">{prop.area || '0'} m²</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-700/60">
+                            {canEditGis && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedFeature(prop)
+                                  setIsDrawModalOpen(true)
+                                }}
+                                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-sm transition"
+                              >
+                                <PencilRuler size={13} />
+                                <span>Locate & Draw</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedFeature(prop)
+                                setIsFullDetailModalOpen(true)
+                              }}
+                              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-xs font-semibold transition"
+                            >
+                              <Eye size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : mapMode === 'streetview' ? (
               /* Street View Viewport Mode */
               <StreetViewViewer
                 lat={streetViewCoords[0]}
@@ -498,7 +775,6 @@ export function PropertyMapView() {
                 onSwitchToSatellite={() => setMapMode('satellite')}
                 onSwitchToStreetMap={() => setMapMode('street')}
                 miniMapComponent={
-                  /* Mini-Map overview rendered in Street View corner */
                   <MapContainer
                     center={streetViewCoords}
                     zoom={17}
@@ -510,7 +786,7 @@ export function PropertyMapView() {
                     {featuresWithGeometry.map(f => {
                       if (!f.parsedPositions.length) return null
                       const isSelected = selectedFeature?.id === f.id && selectedFeature?.type === f.type
-                      const color = f.type === 'building' ? '#a855f7' : '#10b981'
+                      const color = f.type === 'building' ? '#8b5cf6' : '#10b981'
                       return (
                         <Polygon
                           key={`mini-${f.type}-${f.id}`}
@@ -584,12 +860,13 @@ export function PropertyMapView() {
                   if (!hasPolygon && !f.markerPos) return null
 
                   const isBuilding = f.type === 'building'
-                  const isPending = f.status === 'pending' || f.property_status === 'pending'
+                  const isAssessed = Boolean(f.is_assessed || f.status === 'assessed' || f.property_status === 'approved')
                   const isSelected = selectedFeature?.id === f.id && selectedFeature?.type === f.type
+                  const isApproximate = f.mapping_status === 'approximate' || f.mapping_status === 'draft'
 
-                  // Colors: Emerald for Lot, Purple for Building, Amber for Pending, Cyan for Selected
+                  // Colors: Emerald for Lot, Purple for Building, Amber for Unassessed/Pending, Cyan for Selected
                   let strokeColor = isBuilding ? '#8b5cf6' : '#10b981'
-                  if (isPending) strokeColor = '#f59e0b'
+                  if (!isAssessed) strokeColor = '#f59e0b'
                   if (isSelected) strokeColor = '#06b6d4'
 
                   const fillColor = isBuilding ? '#8b5cf6' : '#10b981'
@@ -603,30 +880,66 @@ export function PropertyMapView() {
                           pathOptions={{
                             color: strokeColor,
                             fillColor,
-                            fillOpacity: isSelected ? 0.6 : isPending ? 0.5 : 0.35,
-                            weight: isSelected ? 4 : 2,
-                            dashArray: isPending ? '6, 6' : undefined,
+                            fillOpacity: isSelected ? 0.6 : isAssessed ? 0.4 : 0.3,
+                            weight: isSelected ? 4 : isBuilding ? 3 : 2,
+                            dashArray: isApproximate ? '6, 6' : undefined,
                           }}
                           eventHandlers={{
-                            click: () => handleSelectFeature(f),
+                            click: (e) => {
+                              e.originalEvent?.stopPropagation()
+                              handleSelectFeature(f)
+                            },
                           }}
                         >
                           <Popup>
-                            <div className="p-1 space-y-1 text-xs">
-                              <div className="font-bold text-gray-900 flex items-center gap-1">
-                                {isBuilding ? <Building2 size={13} className="text-purple-600" /> : <SquareDashed size={13} className="text-emerald-600" />}
-                                <span>{f.title}</span>
+                            <div className="p-1 space-y-1.5 text-xs">
+                              <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-1">
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  isBuilding ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
+                                }`}>
+                                  {isBuilding ? <Building2 size={11} /> : <SquareDashed size={11} />}
+                                  {isBuilding ? 'Building Footprint' : 'Land Parcel'}
+                                </span>
+                                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                  isAssessed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                                }`}>
+                                  {isAssessed ? 'Assessed' : 'Unassessed'}
+                                </span>
                               </div>
+
+                              <div className="font-bold text-gray-900 flex items-center justify-between">
+                                <span>{f.title}</span>
+                                <span className="text-[10px] text-gray-400 font-mono">P-{f.property_id}</span>
+                              </div>
+
                               <div className="text-gray-600">Owner: <strong>{f.owner}</strong></div>
                               <div className="text-gray-600">Area: <strong>{f.area_sqm || f.area} m²</strong></div>
                               <div className="text-gray-600">Barangay: <strong>{f.barangay_name || 'Lagonglong'}</strong></div>
-                              <button
-                                type="button"
-                                onClick={() => handleSelectFeature(f)}
-                                className="w-full mt-2 py-1 px-2 bg-emerald-600 text-white rounded font-semibold text-[11px] hover:bg-emerald-700 transition"
-                              >
-                                View Property Details
-                              </button>
+                              <div className="text-[11px] text-gray-500">
+                                Boundary: <strong>{isApproximate ? 'Manual / Approximate' : 'Cadastral Survey Boundary'}</strong>
+                              </div>
+
+                              <div className="pt-1 flex flex-col gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectFeature(f)}
+                                  className="w-full py-1 px-2 bg-emerald-600 text-white rounded font-semibold text-[11px] hover:bg-emerald-700 transition"
+                                >
+                                  View Property Details
+                                </button>
+                                {canEditGis && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedFeature(f)
+                                      setIsDrawModalOpen(true)
+                                    }}
+                                    className="w-full py-1 px-2 bg-amber-600 text-white rounded font-semibold text-[11px] hover:bg-amber-700 transition"
+                                  >
+                                    Edit Boundary
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </Popup>
                         </Polygon>
@@ -636,9 +949,12 @@ export function PropertyMapView() {
                       {f.markerPos && (
                         <Marker
                           position={f.markerPos}
-                          icon={createCustomMarkerIcon(f.type, isSelected, isPending)}
+                          icon={createCustomMarkerIcon(f.type, isSelected, !isAssessed)}
                           eventHandlers={{
-                            click: () => handleSelectFeature(f),
+                            click: (e) => {
+                              e.originalEvent?.stopPropagation()
+                              handleSelectFeature(f)
+                            },
                           }}
                         />
                       )}
@@ -663,7 +979,7 @@ export function PropertyMapView() {
             )}
           </div>
 
-          {/* Map Footer & Legend */}
+          {/* Map Footer & Comprehensive Legend */}
           <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-gray-50 dark:bg-gray-800/80 border-t border-gray-200 dark:border-gray-700 text-xs">
             <div className="flex items-center gap-4 flex-wrap">
               <span className="flex items-center gap-1.5 font-medium text-gray-700 dark:text-gray-300">
@@ -675,8 +991,12 @@ export function PropertyMapView() {
                 Building Footprints
               </span>
               <span className="flex items-center gap-1.5 font-medium text-gray-700 dark:text-gray-300">
-                <span className="w-3 h-3 rounded-full bg-amber-500 border border-dashed border-amber-700 inline-block" />
-                Pending Approval
+                <span className="w-3 h-3 rounded-full border-2 border-emerald-500 inline-block" />
+                Verified Survey
+              </span>
+              <span className="flex items-center gap-1.5 font-medium text-gray-700 dark:text-gray-300">
+                <span className="w-3 h-3 rounded-full border-2 border-dashed border-amber-500 inline-block" />
+                Unassessed / Approx
               </span>
               <span className="flex items-center gap-1.5 font-medium text-gray-700 dark:text-gray-300">
                 <span className="w-3 h-3 rounded-full bg-cyan-400 inline-block shadow-sm ring-2 ring-cyan-200" />
@@ -685,7 +1005,7 @@ export function PropertyMapView() {
             </div>
 
             <div className="text-gray-500 dark:text-gray-400 font-medium">
-              Lagonglong, Misamis Oriental • {features.filter(f => f.has_gis).length} Mapped Properties Loaded
+              Lagonglong, Misamis Oriental • {filterCounts.mapped} Mapped • {filterCounts.unmapped} Needs Mapping
             </div>
           </div>
         </section>

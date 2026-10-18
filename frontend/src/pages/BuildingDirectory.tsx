@@ -11,7 +11,9 @@ import api, { ensureSession } from '../lib/api';
 
 export const BuildingDirectory: React.FC = () => {
   const [modal, setModal] = useState<{ mode: 'create' | 'edit' | 'view'; record?: any } | null>(null);
-  const [showAddProperty, setShowAddProperty] = useState(false);
+  const [showAddProperty, setShowAddProperty] = useState(() => {
+    return new URLSearchParams(window.location.search).get('add') === 'true';
+  });
   const [filters, setFilters] = useState({ barangay: '', type: '', status: '', assessment: '' });
   const [internalSearch, setInternalSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');

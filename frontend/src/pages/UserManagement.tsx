@@ -1,15 +1,24 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import api from '../lib/api'
 import { CrudModal } from '../components/common/CrudModal'
 import { Search, Plus, Edit2, Trash2 } from 'lucide-react'
 import { useModal } from '../contexts/ModalContext'
 
 export function UserManagement() {
+  const [searchParams] = useSearchParams()
   const { showSuccess, showError, showConfirm } = useModal()
   const [users, setUsers] = useState<any[]>([])
   const [search, setSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [roleFilter, setRoleFilter] = useState(() => searchParams.get('role') || '')
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || '')
+
+  useEffect(() => {
+    const roleParam = searchParams.get('role')
+    if (roleParam !== null) setRoleFilter(roleParam)
+    const statusParam = searchParams.get('status')
+    if (statusParam !== null) setStatusFilter(statusParam)
+  }, [searchParams])
   const [modalState, setModalState] = useState<{ mode: 'create' | 'edit'; record?: any } | null>(null)
 
   const filteredUsers = users.filter(u => {
