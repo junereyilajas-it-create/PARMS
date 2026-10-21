@@ -128,6 +128,9 @@ export interface ParsedGeometry {
     end: [number, number]
     midPoint: [number, number]
     lengthMeters: number
+    label?: string
+    fromPoint?: number
+    toPoint?: number
   }[]
   areaSqm: number
   perimeterMeters: number

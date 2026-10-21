@@ -7,13 +7,22 @@ import L from 'leaflet';
 import * as turf from '@turf/turf';
 import { parseLeafletPositions } from '../../lib/gisUtils';
 import {
+  formatPointPair,
+  detectSelfIntersection,
+  constructRectangle,
+  constructSquare,
+  constructQuadrilateral,
+  constructInitialPolygonLocal,
+  validateMeasurements,
+  type LotShapeType,
+} from '../../lib/gisGeometry';
+import {
   RotateCw,
   Move,
   Undo2,
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
-  Info,
   Pencil,
   X,
   ArrowUp,
@@ -21,7 +30,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Ruler,
-  Check
+  Check,
+  Shapes,
+  ShieldAlert,
 } from 'lucide-react';
 
 // Fix default Leaflet icon paths
@@ -37,6 +48,10 @@ const LAGONGLONG_CENTER: [number, number] = [8.834, 124.786];
 
 export interface SideMeasurement {
   side: number;
+  fromPoint: number;
+  toPoint: number;
+  pointPair: string; // e.g. "1–2"
+  fullDescription: string; // e.g. "Point 1 → Point 2"
   entered: number;
   derived: number;
   diff: number;
@@ -56,68 +71,6 @@ export interface GISBoundaryDrawingModuleProps {
     sideMeasurements?: SideMeasurement[]
   ) => void;
   onClose: () => void;
-}
-
-// Geometric construction helper for N sides
-function constructInitialPolygonLocal(sides: number[]): [number, number][] {
-  const n = sides.length;
-  if (n < 3) return [];
-
-  // Triangle construction
-  if (n === 3) {
-    const a = sides[0], b = sides[1], c = sides[2];
-    if (a + b <= c || a + c <= b || b + c <= a) {
-      // Fallback equilateral scaled
-      const r = (a + b + c) / (3 * Math.sqrt(3));
-      return [
-        [0, r],
-        [r * Math.cos(Math.PI / 6), -r * Math.sin(Math.PI / 6)],
-        [-r * Math.cos(Math.PI / 6), -r * Math.sin(Math.PI / 6)]
-      ];
-    }
-    const cosA = (a * a + c * c - b * b) / (2 * a * c);
-    const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
-    return [[0, 0], [a, 0], [c * cosA, c * sinA]];
-  }
-
-  // Quadrilateral construction
-  if (n === 4) {
-    const s0 = sides[0], s1 = sides[1], s2 = sides[2], s3 = sides[3];
-    const d0 = Math.sqrt(s0 * s0 + s1 * s1);
-    const minD = Math.abs(s2 - s3) + 0.05 * (s2 + s3);
-    const maxD = (s2 + s3) - 0.05 * (s2 + s3);
-    const d = Math.max(minD, Math.min(maxD, d0));
-
-    const cosBeta = Math.max(-0.99, Math.min(0.99, (s0 * s0 + s1 * s1 - d * d) / (2 * s0 * s1)));
-    const sinBeta = Math.sqrt(Math.max(0, 1 - cosBeta * cosBeta));
-    const v0: [number, number] = [0, 0];
-    const v1: [number, number] = [s0, 0];
-    const v2: [number, number] = [s0 - s1 * cosBeta, s1 * sinBeta];
-
-    const dx = v2[0] - v0[0];
-    const dy = v2[1] - v0[1];
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const a = (s3 * s3 - s2 * s2 + dist * dist) / (2 * dist);
-    const h = Math.sqrt(Math.max(0, s3 * s3 - a * a));
-    const xm = v0[0] + (a * dx) / dist;
-    const ym = v0[1] + (a * dy) / dist;
-    const rx = -dy / dist;
-    const ry = dx / dist;
-    const v3: [number, number] = [xm - h * rx, ym - h * ry];
-    return [v0, v1, v2, v3];
-  }
-
-  // General n >= 5: proportional distribution on convex loop
-  const totalPerimeter = sides.reduce((sum, s) => sum + s, 0);
-  const angles = sides.map(s => (s / totalPerimeter) * 2 * Math.PI);
-  let curAngle = 0;
-  const pts: [number, number][] = [[0, 0]];
-  for (let i = 0; i < n - 1; i++) {
-    curAngle += angles[i];
-    const prev = pts[pts.length - 1];
-    pts.push([prev[0] + sides[i] * Math.cos(curAngle), prev[1] + sides[i] * Math.sin(curAngle)]);
-  }
-  return pts;
 }
 
 // Convert local meters (x, y) to geographic (lat, lng) centered around center [lat, lng]
@@ -159,25 +112,22 @@ function rotatePoints(points: [number, number][], centroid: [number, number], an
   const metersPerDegLng = 111139 * Math.cos((cLat * Math.PI) / 180);
 
   return points.map(([lat, lng]) => {
-    // Convert to meters relative to centroid
     const dx = (lng - cLng) * metersPerDegLng;
     const dy = (lat - cLat) * metersPerDegLat;
 
-    // Rotate
     const rotX = dx * cosA - dy * sinA;
     const rotY = dx * sinA + dy * cosA;
 
-    // Convert back
     const newLat = cLat + rotY / metersPerDegLat;
     const newLng = cLng + rotX / metersPerDegLng;
     return [newLat, newLng];
   });
 }
 
-// Map Controller component to handle programmatically zooming or Geoman freehand
+// Map Controller component to handle programmatically zooming or click repositioning
 function MapController({
   onMapClick,
-  setMapInstance
+  setMapInstance,
 }: {
   onMapClick?: (latlng: [number, number]) => void;
   setMapInstance: (map: L.Map) => void;
@@ -188,7 +138,6 @@ function MapController({
     setMapInstance(map);
   }, [map, setMapInstance]);
 
-  // Handle click on map for moving centroid
   useEffect(() => {
     if (!onMapClick) return;
     const handleClick = (e: L.LeafletMouseEvent) => {
@@ -216,12 +165,25 @@ export function GISBoundaryDrawingModule({
   // Map View Mode: Street Map vs Satellite / Bird's-Eye View (Default to Satellite)
   const [mapMode, setMapMode] = useState<'satellite' | 'street'>('satellite');
 
-  // Input measurements state
+  // Question 1: Total Lot Area (m²)
+  const initialAreaValue = lotAreaEntered && Number(lotAreaEntered) > 0 ? String(lotAreaEntered) : '350';
+  const [lotAreaInput, setLotAreaInput] = useState<string>(initialAreaValue);
+
+  // Question 2: Number of Sides (default: 4 sides)
   const [sidesCount, setSidesCount] = useState<number>(4);
-  const [sideInputs, setSideInputs] = useState<string[]>(['15', '20', '15', '20']);
-  const [presetType, setPresetType] = useState<'custom' | 'rectangle'>('rectangle');
-  const [rectWidth, setRectWidth] = useState<string>('15');
+
+  // Question 3: Are side lengths available from technical description or survey?
+  const [inputMode, setInputMode] = useState<'area_auto' | 'survey_measurements'>('area_auto');
+
+  // Question 4: Expected shape: Rectangle, Square, or Irregular Polygon
+  const [shapeType, setShapeType] = useState<LotShapeType>('rectangle');
+
+  // Rectangle dimension controls: default for 350 m² -> 20m length x 17.5m width
   const [rectLength, setRectLength] = useState<string>('20');
+  const [rectWidth, setRectWidth] = useState<string>('17.5');
+
+  // Consecutive point pairs side inputs: [ 1-2, 2-3, 3-4, 4-1 ... ]
+  const [sideInputs, setSideInputs] = useState<string[]>(['20', '17.5', '20', '17.5']);
 
   // Active Polygon Vertices [ [lat, lng], ... ]
   const [vertices, setVertices] = useState<[number, number][]>([]);
@@ -232,6 +194,7 @@ export function GISBoundaryDrawingModule({
   const [activeSideIndex, setActiveSideIndex] = useState<number | null>(null);
   const [moveMode, setMoveMode] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
 
   const mapRef = useRef<L.Map | null>(null);
 
@@ -249,7 +212,6 @@ export function GISBoundaryDrawingModule({
         setVertices(pts);
         setSidesCount(pts.length);
         setIsConfirmed(true);
-        // Auto-fit to existing boundary
         setTimeout(() => {
           if (mapRef.current) {
             const bounds = L.latLngBounds(pts.map(([lat, lng]) => [lat, lng]));
@@ -262,9 +224,56 @@ export function GISBoundaryDrawingModule({
     }
   }, [initialGeometry, initialCoordinates]);
 
-  // Sync side inputs when sidesCount changes
+  // Synchronize area and dimensions when user changes total lot area
+  const handleAreaChange = (val: string) => {
+    setLotAreaInput(val);
+    const area = parseFloat(val);
+    if (!isNaN(area) && area > 0) {
+      if (shapeType === 'rectangle') {
+        // Reasonable starting rectangle: length = 20 (or proportional), width = area / length
+        let l = 20;
+        if (area < 100) l = Math.round(Math.sqrt(area * 1.5) * 10) / 10;
+        else if (area > 1000) l = Math.round(Math.sqrt(area * 1.5) * 10) / 10;
+        const w = Math.round((area / l) * 100) / 100;
+        setRectLength(String(l));
+        setRectWidth(String(w));
+        setSideInputs([String(l), String(w), String(l), String(w)]);
+      } else if (shapeType === 'square') {
+        const side = Math.round(Math.sqrt(area) * 100) / 100;
+        setSideInputs([String(side), String(side), String(side), String(side)]);
+      }
+    }
+  };
+
+  // Synchronize shape type
+  const handleShapeTypeChange = (newShape: LotShapeType) => {
+    setShapeType(newShape);
+    const area = parseFloat(lotAreaInput) || 350;
+
+    if (newShape === 'rectangle') {
+      const l = parseFloat(rectLength) || 20;
+      const w = Math.round((area / l) * 100) / 100;
+      setRectWidth(String(w));
+      setSideInputs([String(l), String(w), String(l), String(w)]);
+    } else if (newShape === 'square') {
+      const side = Math.round(Math.sqrt(area) * 100) / 100;
+      setSideInputs([String(side), String(side), String(side), String(side)]);
+    }
+  };
+
+  // Synchronize rectangle length/width
+  const handleRectangleChange = (l: string, w: string) => {
+    setRectLength(l);
+    setRectWidth(w);
+    setSideInputs([l, w, l, w]);
+  };
+
+  // Synchronize number of sides
   const handleSidesCountChange = (count: number) => {
     setSidesCount(count);
+    if (count !== 4 && shapeType !== 'irregular') {
+      setShapeType('irregular');
+    }
     setSideInputs(prev => {
       const next = [...prev];
       while (next.length < count) {
@@ -274,42 +283,72 @@ export function GISBoundaryDrawingModule({
     });
   };
 
-  // Sync rectangle presets
-  const handleRectangleChange = (w: string, l: string) => {
-    setRectWidth(w);
-    setRectLength(l);
-    setSideInputs([w, l, w, l]);
-  };
+  // Validate measurements continuously
+  useEffect(() => {
+    const parsed = sideInputs.map(s => Number(s) || 0);
+    const statedArea = parseFloat(lotAreaInput) || undefined;
+    const result = validateMeasurements({
+      sidesCount,
+      sideLengths: parsed,
+      shapeType,
+      statedArea,
+    });
+    setValidationWarnings(result.warnings);
+  }, [sideInputs, sidesCount, shapeType, lotAreaInput]);
 
-  // Generate initial polygon from side measurements
-  const handleGenerateBoundary = (centerOverride?: [number, number]) => {
+  // Generate polygon boundary on the map
+  const handleGenerateBoundary = (customCenter?: [number, number]) => {
     setErrorMsg('');
-    const parsedSides = sideInputs.map(s => Number(s));
-    for (let i = 0; i < parsedSides.length; i++) {
-      if (isNaN(parsedSides[i]) || parsedSides[i] <= 0) {
-        setErrorMsg(`Please enter a valid positive length for Side ${i + 1}.`);
-        return;
-      }
-    }
+    const parsed = sideInputs.slice(0, sidesCount).map(s => Number(s) || 0);
+    const statedArea = parseFloat(lotAreaInput) || undefined;
 
-    // Check polygon feasibility: no single side >= sum of other sides
-    const total = parsedSides.reduce((a, b) => a + b, 0);
-    for (let i = 0; i < parsedSides.length; i++) {
-      if (parsedSides[i] >= total - parsedSides[i]) {
-        setErrorMsg(`Side ${i + 1} (${parsedSides[i]}m) is too long to close a polygon with the other sides.`);
-        return;
-      }
-    }
+    // Run geometric validation
+    const validation = validateMeasurements({
+      sidesCount,
+      sideLengths: parsed,
+      shapeType,
+      statedArea,
+    });
 
-    const localPts = constructInitialPolygonLocal(parsedSides);
-    if (!localPts.length) {
-      setErrorMsg('Unable to construct polygon with entered measurements.');
+    if (validation.errors.length > 0) {
+      setErrorMsg(validation.errors[0]);
       return;
     }
 
-    // Placement center: map center or Lagonglong center
+    setValidationWarnings(validation.warnings);
+
+    let localPts: [number, number][] = [];
+
+    if (sidesCount === 4) {
+      if (shapeType === 'rectangle' && validation.isRectangle) {
+        localPts = constructRectangle(parsed[0], parsed[1]);
+      } else if (shapeType === 'square' && validation.isSquare) {
+        localPts = constructSquare(parsed[0]);
+      } else {
+        // Construct irregular quadrilateral preserving exact measured side lengths
+        localPts = constructQuadrilateral(parsed[0], parsed[1], parsed[2], parsed[3]);
+      }
+    } else {
+      localPts = constructInitialPolygonLocal(parsed);
+    }
+
+    if (!localPts.length) {
+      setErrorMsg('Unable to construct closed polygon with entered measurements.');
+      return;
+    }
+
+    // Check self-intersection on generated geometry
+    const selfCheck = detectSelfIntersection(localPts);
+    if (selfCheck.hasIntersection) {
+      setErrorMsg(`The polygon contains intersecting boundary lines between segment ${selfCheck.seg1} and ${selfCheck.seg2}.`);
+      return;
+    }
+
+    // Determine placement center
     let center: [number, number] = LAGONGLONG_CENTER;
-    if (centerOverride) {
+    if (customCenter) {
+      center = customCenter;
+    } else if (centerOverride) {
       center = centerOverride;
     } else if (mapRef.current) {
       const c = mapRef.current.getCenter();
@@ -325,7 +364,6 @@ export function GISBoundaryDrawingModule({
     setIsConfirmed(false);
     setActiveTab('tools');
 
-    // Zoom and pan map to the generated polygon
     setTimeout(() => {
       if (mapRef.current) {
         const bounds = L.latLngBounds(geoPts.map(([lat, lng]) => [lat, lng]));
@@ -350,7 +388,7 @@ export function GISBoundaryDrawingModule({
     setIsConfirmed(false);
   };
 
-  // Move entire polygon by delta in meters
+  // Nudge entire boundary in meters
   const handleNudge = (deltaX: number, deltaY: number) => {
     if (!vertices.length) return;
     saveHistory(vertices);
@@ -366,7 +404,7 @@ export function GISBoundaryDrawingModule({
     setIsConfirmed(false);
   };
 
-  // Center polygon at clicked map point
+  // Center polygon at clicked map position
   const handleMapClickToMove = (targetCenter: [number, number]) => {
     if (!moveMode || !vertices.length) return;
     saveHistory(vertices);
@@ -399,7 +437,7 @@ export function GISBoundaryDrawingModule({
     setIsConfirmed(false);
   };
 
-  // Calculate live measurements using turf
+  // Calculate live measurements and validate self-intersections
   const liveStats = useMemo(() => {
     if (vertices.length < 3) {
       return {
@@ -408,11 +446,11 @@ export function GISBoundaryDrawingModule({
         sides: [] as SideMeasurement[],
         isValid: false,
         closedCoordinates: [] as [number, number][],
+        selfIntersection: { hasIntersection: false },
       };
     }
 
     const ring = [...vertices, vertices[0]];
-    // Turf uses [lng, lat]
     const turfRing = ring.map(([lat, lng]) => [lng, lat]);
     const polyGeo = turf.polygon([turfRing]);
 
@@ -426,7 +464,10 @@ export function GISBoundaryDrawingModule({
       // geometry error
     }
 
-    // Side lengths derived from geometry
+    // Check self-intersection
+    const selfIntersection = detectSelfIntersection(vertices);
+
+    // Side lengths derived from live geometry with 1–2 point pair notation
     const sides: SideMeasurement[] = [];
     for (let i = 0; i < vertices.length; i++) {
       const p1 = turf.point([vertices[i][1], vertices[i][0]]);
@@ -435,9 +476,14 @@ export function GISBoundaryDrawingModule({
       const derivedLen = Math.round(turf.distance(p1, p2, { units: 'meters' }) * 100) / 100;
       const enteredLen = Number(sideInputs[i]) || derivedLen;
       const diff = Math.round((derivedLen - enteredLen) * 100) / 100;
+      const pair = formatPointPair(i, vertices.length, enteredLen);
 
       sides.push({
         side: i + 1,
+        fromPoint: pair.from,
+        toPoint: pair.to,
+        pointPair: pair.label,
+        fullDescription: `${pair.fullText} = ${derivedLen.toFixed(2)} meters`,
         entered: enteredLen,
         derived: derivedLen,
         diff,
@@ -448,8 +494,9 @@ export function GISBoundaryDrawingModule({
       areaSqm,
       perimeterM,
       sides,
-      isValid: areaSqm > 0,
+      isValid: areaSqm > 0 && !selfIntersection.hasIntersection,
       closedCoordinates: ring,
+      selfIntersection,
     };
   }, [vertices, sideInputs]);
 
@@ -460,7 +507,11 @@ export function GISBoundaryDrawingModule({
       return;
     }
 
-    // Turf polygon: ring with closed final point [lng, lat]
+    if (liveStats.selfIntersection.hasIntersection) {
+      setErrorMsg('Cannot confirm boundary: The polygon contains intersecting boundary lines.');
+      return;
+    }
+
     const turfCoords = [...vertices, vertices[0]].map(([lat, lng]) => [lng, lat]);
     const geoJsonFeature = turf.polygon([turfCoords]);
 
@@ -468,13 +519,12 @@ export function GISBoundaryDrawingModule({
     onConfirmBoundary(geoJsonFeature, liveStats.areaSqm, liveStats.perimeterM, liveStats.sides);
   };
 
-  // Centroid for marker / label
   const centroid = useMemo(() => computeCentroid(vertices), [vertices]);
 
   return (
-    <div className="flex flex-col h-[78vh] min-h-[560px] w-full bg-white dark:bg-gray-900 rounded-2xl overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-800 animate-fade-in text-gray-900 dark:text-gray-100">
+    <div className="flex flex-col h-[82vh] min-h-[600px] w-full bg-white dark:bg-gray-900 rounded-2xl overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-800 animate-fade-in text-gray-900 dark:text-gray-100">
       {/* Top Header */}
-      <div className="px-5 py-3.5 bg-gray-50/90 dark:bg-gray-850/90 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between shrink-0">
+      <div className="px-5 py-3 bg-gray-50/95 dark:bg-gray-850/95 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-md">
             <Ruler size={19} />
@@ -482,21 +532,20 @@ export function GISBoundaryDrawingModule({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-sm text-gray-900 dark:text-white">
-                Bird’s-Eye Boundary Drawing & Measurements: {targetTitle}
+                Cadastral Lot Boundary Drawing & Survey Placement: {targetTitle}
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                {propertyType} Satellite GIS
+                {propertyType} Accurate GIS
               </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Generate boundary from side lengths or draw over satellite imagery. Position, rotate, and adjust.
+              Numbered corner points (1–2, 2–3), area calculations, and high-contrast survey plotting.
             </p>
           </div>
         </div>
 
         {/* View Switcher & Close */}
         <div className="flex items-center gap-2">
-          {/* Map View Mode Selector */}
           <div className="flex items-center bg-gray-200/80 dark:bg-gray-800 p-1 rounded-xl border border-gray-300 dark:border-gray-700">
             <button
               type="button"
@@ -508,7 +557,7 @@ export function GISBoundaryDrawingModule({
                   : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
               }`}
             >
-              <span>🛰️ Satellite / Bird’s-Eye</span>
+              <span>🛰️ Satellite</span>
             </button>
             <button
               type="button"
@@ -520,14 +569,14 @@ export function GISBoundaryDrawingModule({
                   : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
               }`}
             >
-              <span>🗺️ Street Map</span>
+              <span>🗺️ Street</span>
             </button>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-800 transition"
+            className="p-1.5 rounded-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-800 transition cursor-pointer"
             title="Close boundary drawing tool"
           >
             <X size={18} />
@@ -537,26 +586,26 @@ export function GISBoundaryDrawingModule({
 
       {/* Main Container: Sidebar + Map */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        {/* Left Control Panel / Tabs */}
-        <div className="w-full md:w-96 flex flex-col border-r border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/60 overflow-y-auto shrink-0 custom-scrollbar text-xs">
+        {/* Left Control Panel */}
+        <div className="w-full md:w-[410px] flex flex-col border-r border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/60 overflow-y-auto shrink-0 custom-scrollbar text-xs">
           {/* Sub-Tabs */}
           <div className="grid grid-cols-3 border-b border-gray-200 dark:border-gray-800 p-2 gap-1 bg-white/60 dark:bg-gray-850/60">
             <button
               type="button"
               onClick={() => setActiveTab('auto')}
-              className={`py-2 px-2 rounded-lg font-bold text-center transition cursor-pointer flex flex-col items-center gap-1 ${
+              className={`py-2 px-1.5 rounded-lg font-bold text-center transition cursor-pointer flex flex-col items-center gap-1 ${
                 activeTab === 'auto'
                   ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
                   : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
             >
-              <Ruler size={15} />
-              <span>1. Enter Sides</span>
+              <Shapes size={15} />
+              <span>1. Lot & Sides</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('tools')}
-              className={`py-2 px-2 rounded-lg font-bold text-center transition cursor-pointer flex flex-col items-center gap-1 ${
+              className={`py-2 px-1.5 rounded-lg font-bold text-center transition cursor-pointer flex flex-col items-center gap-1 ${
                 activeTab === 'tools'
                   ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
                   : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -568,34 +617,45 @@ export function GISBoundaryDrawingModule({
             <button
               type="button"
               onClick={() => setActiveTab('measurements')}
-              className={`py-2 px-2 rounded-lg font-bold text-center transition cursor-pointer flex flex-col items-center gap-1 ${
+              className={`py-2 px-1.5 rounded-lg font-bold text-center transition cursor-pointer flex flex-col items-center gap-1 ${
                 activeTab === 'measurements'
                   ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
                   : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
             >
               <CheckCircle2 size={15} />
-              <span>3. Review & Verify</span>
+              <span>3. Technical Review</span>
             </button>
           </div>
 
-          {/* TAB 1: ENTER SIDES & AUTO-GENERATE */}
+          {/* TAB 1: LOT AREA, SIDES & NUMBERED CORNER POINTS */}
           {activeTab === 'auto' && (
             <div className="p-4 space-y-4">
-              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 rounded-xl space-y-1">
-                <span className="font-bold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
-                  <Info size={14} className="text-blue-600" />
-                  Auto-Construct from Lot Survey
-                </span>
-                <p className="text-[11px] text-blue-800/80 dark:text-blue-300/80 leading-relaxed">
-                  Enter the number of sides and lengths in meters. An initial polygon will be generated immediately on the Bird’s-Eye satellite map.
-                </p>
+              {/* Question 1: Total Lot Area */}
+              <div className="p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl space-y-1.5">
+                <label className="block font-bold text-gray-700 dark:text-gray-300">
+                  1. What is the total lot area?
+                </label>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      value={lotAreaInput}
+                      onChange={e => handleAreaChange(e.target.value)}
+                      placeholder="e.g. 350"
+                      className="w-full pl-3 pr-10 py-1.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg font-mono font-bold text-gray-900 dark:text-white"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">m²</span>
+                  </div>
+                </div>
               </div>
 
-              {/* Sides Count Selector */}
-              <div>
-                <label className="block font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                  Number of Sides
+              {/* Question 2: How many sides does the property have? */}
+              <div className="p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl space-y-2">
+                <label className="block font-bold text-gray-700 dark:text-gray-300">
+                  2. How many sides or boundary segments does the property have?
                 </label>
                 <div className="grid grid-cols-4 gap-1.5">
                   {[3, 4, 5, 6].map(num => (
@@ -606,7 +666,7 @@ export function GISBoundaryDrawingModule({
                       className={`py-1.5 text-center font-bold rounded-lg border transition cursor-pointer ${
                         sidesCount === num
                           ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                          : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-emerald-400'
+                          : 'bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-emerald-400'
                       }`}
                     >
                       {num} Sides {num === 4 ? '(Quad)' : ''}
@@ -615,109 +675,194 @@ export function GISBoundaryDrawingModule({
                 </div>
               </div>
 
-              {/* Quick Presets for 4 sides */}
+              {/* Question 3: Shape selection (Rectangle, Square, or Irregular Polygon) */}
               {sidesCount === 4 && (
-                <div className="space-y-2 pt-1 border-t border-gray-200 dark:border-gray-800">
-                  <span className="font-bold text-gray-700 dark:text-gray-300 block">Preset Format</span>
-                  <div className="flex gap-2">
+                <div className="p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl space-y-2">
+                  <label className="block font-bold text-gray-700 dark:text-gray-300">
+                    3. Expected geometric shape
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
                     <button
                       type="button"
-                      onClick={() => {
-                        setPresetType('rectangle');
-                        handleRectangleChange(rectWidth, rectLength);
-                      }}
-                      className={`flex-1 py-1 px-2 rounded-lg font-bold text-[11px] border transition cursor-pointer ${
-                        presetType === 'rectangle'
+                      onClick={() => handleShapeTypeChange('rectangle')}
+                      className={`py-1.5 px-1 rounded-lg font-bold text-[11px] border transition cursor-pointer text-center ${
+                        shapeType === 'rectangle'
                           ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-400'
-                          : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700'
+                          : 'bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700'
                       }`}
                     >
-                      Standard Box / Rectangle
+                      🔲 Rectangle
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPresetType('custom')}
-                      className={`flex-1 py-1 px-2 rounded-lg font-bold text-[11px] border transition cursor-pointer ${
-                        presetType === 'custom'
+                      onClick={() => handleShapeTypeChange('square')}
+                      className={`py-1.5 px-1 rounded-lg font-bold text-[11px] border transition cursor-pointer text-center ${
+                        shapeType === 'square'
                           ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-400'
-                          : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700'
+                          : 'bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700'
                       }`}
                     >
-                      Custom 4 Sides
+                      ⏹️ Square
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShapeTypeChange('irregular')}
+                      className={`py-1.5 px-1 rounded-lg font-bold text-[11px] border transition cursor-pointer text-center ${
+                        shapeType === 'irregular'
+                          ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-400'
+                          : 'bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700'
+                      }`}
+                    >
+                      📐 Irregular
                     </button>
                   </div>
+                </div>
+              )}
 
-                  {presetType === 'rectangle' && (
-                    <div className="grid grid-cols-2 gap-2 pt-1">
+              {/* Question 4: Are side lengths available from technical description or blueprint? */}
+              <div className="p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-gray-700 dark:text-gray-300">
+                    4. Technical description measurements
+                  </label>
+                  <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 p-0.5 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setInputMode('area_auto')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                        inputMode === 'area_auto'
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-gray-600 dark:text-gray-300'
+                      }`}
+                    >
+                      Auto from Area
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInputMode('survey_measurements')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                        inputMode === 'survey_measurements'
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-gray-600 dark:text-gray-300'
+                      }`}
+                    >
+                      Enter Distances
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-mode: Rectangle dimensions */}
+                {inputMode === 'area_auto' && shapeType === 'rectangle' && sidesCount === 4 && (
+                  <div className="space-y-2 pt-1 border-t border-gray-100 dark:border-gray-700">
+                    <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[11px] text-gray-500 dark:text-gray-400 block mb-1">
-                          Width (m) [Sides 1 & 3]
-                        </label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="1"
-                          value={rectWidth}
-                          onChange={e => handleRectangleChange(e.target.value, rectLength)}
-                          className="w-full px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg font-mono font-bold text-gray-900 dark:text-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] text-gray-500 dark:text-gray-400 block mb-1">
-                          Length (m) [Sides 2 & 4]
+                          Length: <strong>Point 1–2 & 3–4</strong>
                         </label>
                         <input
                           type="number"
                           step="0.1"
                           min="1"
                           value={rectLength}
-                          onChange={e => handleRectangleChange(rectWidth, e.target.value)}
-                          className="w-full px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg font-mono font-bold text-gray-900 dark:text-white"
+                          onChange={e => handleRectangleChange(e.target.value, rectWidth)}
+                          className="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg font-mono font-bold text-gray-900 dark:text-white"
                         />
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Individual Side Inputs */}
-              {(sidesCount !== 4 || presetType === 'custom') && (
-                <div className="space-y-2 pt-1 border-t border-gray-200 dark:border-gray-800">
-                  <span className="font-bold text-gray-700 dark:text-gray-300 block">Side Lengths (Meters)</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {sideInputs.map((val, idx) => (
-                      <div key={idx} className="space-y-1">
-                        <label className="text-[11px] text-gray-600 dark:text-gray-400 font-semibold flex items-center justify-between">
-                          <span>Side {idx + 1}</span>
-                          <span className="text-[10px] text-gray-400">m</span>
+                      <div>
+                        <label className="text-[11px] text-gray-500 dark:text-gray-400 block mb-1">
+                          Width: <strong>Point 2–3 & 4–1</strong>
                         </label>
                         <input
                           type="number"
                           step="0.1"
-                          min="0.5"
-                          value={val}
-                          onFocus={() => setActiveSideIndex(idx)}
-                          onBlur={() => setActiveSideIndex(null)}
-                          onMouseEnter={() => setActiveSideIndex(idx)}
-                          onMouseLeave={() => setActiveSideIndex(null)}
-                          onChange={e => {
-                            const updated = [...sideInputs];
-                            updated[idx] = e.target.value;
-                            setSideInputs(updated);
-                          }}
-                          className={`w-full px-2.5 py-1.5 bg-white dark:bg-gray-800 border rounded-lg font-mono font-bold text-gray-900 dark:text-white transition ${
-                            activeSideIndex === idx ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-gray-300 dark:border-gray-700'
-                          }`}
+                          min="1"
+                          value={rectWidth}
+                          onChange={e => handleRectangleChange(rectLength, e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg font-mono font-bold text-gray-900 dark:text-white"
                         />
                       </div>
-                    ))}
+                    </div>
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
+                      Area = {rectLength} m × {rectWidth} m = {(Number(rectLength) * Number(rectWidth)).toFixed(2)} m²
+                    </p>
                   </div>
+                )}
+
+                {/* Sub-mode: Numbered Point Pair Distance Inputs (Point 1 → Point 2, Point 2 → Point 3, etc.) */}
+                {(inputMode === 'survey_measurements' || shapeType === 'irregular' || sidesCount !== 4) && (
+                  <div className="space-y-2 pt-1 border-t border-gray-100 dark:border-gray-700">
+                    <span className="font-bold text-gray-700 dark:text-gray-300 block text-[11px]">
+                      Boundary Distances by Consecutive Numbered Points:
+                    </span>
+                    <div className="space-y-2">
+                      {Array.from({ length: sidesCount }).map((_, idx) => {
+                        const pair = formatPointPair(idx, sidesCount);
+                        const val = sideInputs[idx] || '15';
+                        return (
+                          <div
+                            key={idx}
+                            onMouseEnter={() => setActiveSideIndex(idx)}
+                            onMouseLeave={() => setActiveSideIndex(null)}
+                            className={`p-2 rounded-lg border transition ${
+                              activeSideIndex === idx
+                                ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-400'
+                                : 'bg-gray-50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-[10px]">
+                                  {pair.from}
+                                </span>
+                                <span className="font-semibold text-gray-800 dark:text-gray-200">
+                                  {pair.fullText} ({pair.label})
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0.1"
+                                  value={val}
+                                  onFocus={() => setActiveSideIndex(idx)}
+                                  onBlur={() => setActiveSideIndex(null)}
+                                  onChange={e => {
+                                    const next = [...sideInputs];
+                                    next[idx] = e.target.value;
+                                    setSideInputs(next);
+                                  }}
+                                  className="w-24 px-2 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md font-mono font-bold text-right text-gray-900 dark:text-white"
+                                />
+                                <span className="text-gray-400 font-bold">m</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Validation Warnings (e.g. Not an exact rectangle, area mismatch) */}
+              {validationWarnings.length > 0 && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300">
+                    <AlertTriangle size={15} className="shrink-0 text-amber-600" />
+                    <span>Survey Validation Notice</span>
+                  </div>
+                  {validationWarnings.map((warn, i) => (
+                    <p key={i} className="text-[11px] text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
+                      • {warn}
+                    </p>
+                  ))}
                 </div>
               )}
 
+              {/* Error Alert */}
               {errorMsg && (
-                <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg text-rose-700 dark:text-rose-300 text-[11px] flex items-center gap-2">
-                  <AlertTriangle size={15} className="shrink-0 text-rose-500" />
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-xl text-rose-700 dark:text-rose-300 text-[11px] flex items-center gap-2">
+                  <ShieldAlert size={16} className="shrink-0 text-rose-500" />
                   <span>{errorMsg}</span>
                 </div>
               )}
@@ -733,8 +878,8 @@ export function GISBoundaryDrawingModule({
                 Generate Boundary on Satellite Map
               </button>
 
-              <div className="p-2.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-lg text-[11px] text-amber-800 dark:text-amber-300">
-                <strong>Initial Layout Disclaimer:</strong> Side lengths alone do not uniquely specify angles. This generated polygon is an initial layout — adjust its position and orientation over actual imagery.
+              <div className="p-2.5 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 rounded-lg text-[11px] text-blue-800 dark:text-blue-300 space-y-1">
+                <strong>Preliminary Visualization:</strong> Automatically generated dimensions are an initial layout and must be verified against the property's actual technical description or survey.
               </div>
             </div>
           )}
@@ -745,10 +890,10 @@ export function GISBoundaryDrawingModule({
               <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-1">
                 <span className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
                   <Move size={14} />
-                  Positioning Instruction
+                  Positioning Workflow
                 </span>
                 <p className="text-[11px] text-emerald-900/80 dark:text-emerald-300/80 leading-relaxed font-medium">
-                  "Position the boundary over the correct lot, adjust its orientation, verify the measurements, and confirm."
+                  Position the boundary over the correct lot, adjust its orientation, verify the measurements, and confirm.
                 </p>
               </div>
 
@@ -798,7 +943,7 @@ export function GISBoundaryDrawingModule({
               {/* Whole-Polygon Movement Nudge Controls */}
               <div className="p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl space-y-2">
                 <span className="font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
-                  <Move size={14} className="text-blue-600" /> Nudge Position (Preserves Dimensions)
+                  <Move size={14} className="text-blue-600" /> Nudge Position (Preserves Geometry)
                 </span>
                 <p className="text-[11px] text-gray-500">
                   Click arrows to shift boundary by 2 meters, or click anywhere on the satellite map to center it.
@@ -856,10 +1001,10 @@ export function GISBoundaryDrawingModule({
               {/* Corner Handles Guide */}
               <div className="p-3 bg-gray-100/60 dark:bg-gray-800/50 rounded-xl space-y-1">
                 <span className="font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-                  <Pencil size={13} className="text-emerald-500" /> Corner Vertex Dragging
+                  <Pencil size={13} className="text-emerald-500" /> Numbered Corner Vertex Dragging
                 </span>
                 <p className="text-[11px] text-gray-500 leading-relaxed">
-                  Drag any circular vertex pin on the satellite map to adjust specific corners to visible fences or roads. Live measurements will update automatically.
+                  Drag any circular corner marker (1, 2, 3, 4) on the map to adjust specific lot corners. All connected boundary lines stay attached to their endpoints.
                 </p>
               </div>
 
@@ -886,7 +1031,7 @@ export function GISBoundaryDrawingModule({
             </div>
           )}
 
-          {/* TAB 3: MEASUREMENTS & AREA COMPARISON */}
+          {/* TAB 3: MEASUREMENTS & TECHNICAL DESCRIPTION */}
           {activeTab === 'measurements' && (
             <div className="p-4 space-y-4">
               {/* Summary Cards */}
@@ -898,11 +1043,15 @@ export function GISBoundaryDrawingModule({
                   <span className="font-mono text-base font-extrabold text-emerald-600 dark:text-emerald-400">
                     {liveStats.areaSqm.toFixed(2)} m²
                   </span>
-                  {lotAreaEntered && Number(lotAreaEntered) > 0 && (
+                  {lotAreaInput && Number(lotAreaInput) > 0 && (
                     <div className="text-[10px] text-gray-500 mt-1 border-t border-gray-100 dark:border-gray-700 pt-1">
-                      Step 1 Input: <strong>{Number(lotAreaEntered).toFixed(2)} m²</strong>
-                      <span className={`block font-bold ${Math.abs(liveStats.areaSqm - Number(lotAreaEntered)) < 1 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                        Δ {(liveStats.areaSqm - Number(lotAreaEntered)).toFixed(2)} m²
+                      Recorded Area: <strong>{Number(lotAreaInput).toFixed(2)} m²</strong>
+                      <span
+                        className={`block font-bold ${
+                          Math.abs(liveStats.areaSqm - Number(lotAreaInput)) < 1 ? 'text-emerald-600' : 'text-amber-600'
+                        }`}
+                      >
+                        Δ {(liveStats.areaSqm - Number(lotAreaInput)).toFixed(2)} m²
                       </span>
                     </div>
                   )}
@@ -916,49 +1065,46 @@ export function GISBoundaryDrawingModule({
                     {liveStats.perimeterM.toFixed(2)} m
                   </span>
                   <div className="text-[10px] text-gray-500 mt-1 border-t border-gray-100 dark:border-gray-700 pt-1">
-                    Sides: <strong>{vertices.length} vertices</strong>
+                    Corners: <strong>{vertices.length} numbered points</strong>
                   </div>
                 </div>
               </div>
 
-              {/* Side Breakdown Table */}
+              {/* Technical Description Format Table */}
               <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
                 <div className="px-3 py-2 bg-gray-100/70 dark:bg-gray-750 font-bold text-gray-800 dark:text-gray-200 flex items-center justify-between">
-                  <span>Side Measurements vs Map</span>
-                  <span className="text-[10px] text-gray-500">Meters</span>
+                  <span>Technical Description (Survey Format)</span>
+                  <span className="text-[10px] text-gray-500 font-mono">Meters</span>
                 </div>
-                <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-48 overflow-y-auto custom-scrollbar">
-                  {liveStats.sides.map(s => {
+                <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-56 overflow-y-auto custom-scrollbar">
+                  {liveStats.sides.map((s, idx) => {
                     const hasDiff = Math.abs(s.diff) > 0.1;
                     return (
                       <div
                         key={s.side}
-                        onMouseEnter={() => setActiveSideIndex(s.side - 1)}
+                        onMouseEnter={() => setActiveSideIndex(idx)}
                         onMouseLeave={() => setActiveSideIndex(null)}
-                        className={`px-3 py-2 flex items-center justify-between text-[11px] transition cursor-pointer ${
-                          activeSideIndex === (s.side - 1)
+                        className={`px-3 py-2.5 flex items-center justify-between text-[11px] transition cursor-pointer ${
+                          activeSideIndex === idx
                             ? 'bg-amber-100/70 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200'
                             : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
                         }`}
                       >
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-bold flex items-center justify-center text-[10px]">
-                            {s.side}
+                        <div className="flex items-center gap-2">
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 font-mono font-bold text-[10px]">
+                            {s.pointPair}
                           </span>
                           <span className="font-semibold text-gray-800 dark:text-gray-200">
-                            Side {s.side}
+                            Point {s.fromPoint} → Point {s.toPoint}
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-gray-500 font-mono">
-                            Entered: {s.entered.toFixed(2)}m
-                          </span>
                           <span className="font-mono font-bold text-gray-900 dark:text-white">
-                            Map: {s.derived.toFixed(2)}m
+                            = {s.derived.toFixed(2)} meters
                           </span>
                           {hasDiff && (
                             <span
-                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
                                 s.diff > 0
                                   ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
                                   : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'
@@ -975,42 +1121,49 @@ export function GISBoundaryDrawingModule({
                 </div>
               </div>
 
-              {liveStats.sides.some(s => Math.abs(s.diff) > 0.2) && (
-                <div className="p-2.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
-                  <strong>Measurement Variation Warning:</strong> One or more sides were adjusted away from their entered survey length. Original survey records will remain distinct from geometry measurements.
+              {/* Self-intersection Warning */}
+              {liveStats.selfIntersection.hasIntersection && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-xl text-rose-800 dark:text-rose-200 text-[11px] space-y-1">
+                  <strong>Boundary Error:</strong> The polygon contains intersecting boundary lines between segment {liveStats.selfIntersection.seg1} and {liveStats.selfIntersection.seg2}. Please adjust corners to remove the crossing lines.
                 </div>
               )}
             </div>
           )}
 
-          {/* Bottom Action Footer in Control Panel */}
+          {/* Bottom Action Footer */}
           <div className="mt-auto p-4 border-t border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-850/80 space-y-2">
             <button
               type="button"
               id="confirm-boundary-btn"
               onClick={handleConfirm}
-              disabled={vertices.length < 3 || liveStats.areaSqm <= 0}
+              disabled={vertices.length < 3 || liveStats.areaSqm <= 0 || liveStats.selfIntersection.hasIntersection}
               className={`w-full py-2.5 rounded-xl font-bold transition flex items-center justify-center gap-2 shadow-lg cursor-pointer ${
-                isConfirmed
+                liveStats.selfIntersection.hasIntersection
+                  ? 'bg-gray-400 text-white cursor-not-allowed'
+                  : isConfirmed
                   ? 'bg-emerald-700 text-white'
                   : 'bg-emerald-600 hover:bg-emerald-700 text-white'
               }`}
             >
               <CheckCircle2 size={16} />
-              {isConfirmed ? 'Boundary Confirmed ✓' : 'Confirm Boundary & Return'}
+              {liveStats.selfIntersection.hasIntersection
+                ? 'Cannot Confirm (Intersecting Lines)'
+                : isConfirmed
+                ? 'Boundary Confirmed ✓'
+                : 'Confirm Boundary & Save Coordinates'}
             </button>
             <p className="text-[10px] text-center text-gray-500">
-              Final boundary coordinates will be preserved in your property record.
+              Technical survey measurements and corner coordinates are preserved in the property record.
             </p>
           </div>
         </div>
 
         {/* Right Map Canvas Area */}
-        <div className="flex-1 relative h-full min-h-[420px]">
+        <div className="flex-1 relative h-full min-h-[440px]">
           {/* Overlay Status HUD Badge */}
           <div className="absolute top-3 left-3 z-[400] flex flex-wrap items-center gap-2 pointer-events-none">
             <div className="bg-white/95 dark:bg-gray-850/95 backdrop-blur-md px-3.5 py-1.5 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 text-xs flex items-center gap-2 pointer-events-auto">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className={`w-2.5 h-2.5 rounded-full ${liveStats.selfIntersection.hasIntersection ? 'bg-rose-500 animate-ping' : 'bg-emerald-500 animate-pulse'}`} />
               <span className="font-bold text-gray-800 dark:text-gray-200">
                 {liveStats.areaSqm > 0 ? `${liveStats.areaSqm.toFixed(2)} m²` : 'Draw Boundary'}
               </span>
@@ -1020,8 +1173,14 @@ export function GISBoundaryDrawingModule({
               </span>
             </div>
 
-            {isConfirmed && (
-              <span className="bg-emerald-600 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow-lg flex items-center gap-1.5">
+            {liveStats.selfIntersection.hasIntersection && (
+              <span className="bg-rose-600 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow-lg flex items-center gap-1.5 pointer-events-auto">
+                <AlertTriangle size={14} /> Intersecting Lines Detected
+              </span>
+            )}
+
+            {isConfirmed && !liveStats.selfIntersection.hasIntersection && (
+              <span className="bg-emerald-600 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow-lg flex items-center gap-1.5 pointer-events-auto">
                 <Check size={14} /> Confirmed
               </span>
             )}
@@ -1057,7 +1216,7 @@ export function GISBoundaryDrawingModule({
             {/* Polygon Geometry Display */}
             {vertices.length >= 3 && (
               <>
-                {/* 1. Base High-Contrast Dark Halo Outline (Visible over both Satellite & Street) */}
+                {/* 1. Base High-Contrast Dark Halo Outline */}
                 <LeafletPolygon
                   positions={liveStats.closedCoordinates}
                   pathOptions={{
@@ -1073,10 +1232,18 @@ export function GISBoundaryDrawingModule({
                 <LeafletPolygon
                   positions={liveStats.closedCoordinates}
                   pathOptions={{
-                    color: isConfirmed ? '#10b981' : '#06b6d4',
+                    color: liveStats.selfIntersection.hasIntersection
+                      ? '#ef4444'
+                      : isConfirmed
+                      ? '#10b981'
+                      : '#06b6d4',
                     weight: 3.5,
                     dashArray: isConfirmed ? undefined : '5, 5',
-                    fillColor: isConfirmed ? '#10b981' : '#06b6d4',
+                    fillColor: liveStats.selfIntersection.hasIntersection
+                      ? '#ef4444'
+                      : isConfirmed
+                      ? '#10b981'
+                      : '#06b6d4',
                     fillOpacity: 0.25,
                   }}
                 />
@@ -1087,31 +1254,31 @@ export function GISBoundaryDrawingModule({
                     <Polyline
                       positions={[
                         vertices[activeSideIndex],
-                        vertices[(activeSideIndex + 1) % vertices.length]
+                        vertices[(activeSideIndex + 1) % vertices.length],
                       ]}
                       pathOptions={{
                         color: '#ffffff',
                         weight: 8,
                         opacity: 0.95,
-                        interactive: false
+                        interactive: false,
                       }}
                     />
                     <Polyline
                       positions={[
                         vertices[activeSideIndex],
-                        vertices[(activeSideIndex + 1) % vertices.length]
+                        vertices[(activeSideIndex + 1) % vertices.length],
                       ]}
                       pathOptions={{
                         color: '#f59e0b',
                         weight: 5,
                         opacity: 1,
-                        interactive: false
+                        interactive: false,
                       }}
                     />
                   </>
                 )}
 
-                {/* 4. Corner Vertex Markers */}
+                {/* 4. Numbered Corner Vertex Markers (Point 1, Point 2, Point 3, Point 4) */}
                 {vertices.map((pos, idx) => (
                   <Marker
                     key={`vertex-${idx}`}
@@ -1128,13 +1295,19 @@ export function GISBoundaryDrawingModule({
                       className: 'custom-vertex-marker',
                       html: `
                         <div style="
-                          width: 24px; 
-                          height: 24px; 
+                          width: 26px; 
+                          height: 26px; 
                           border-radius: 50%; 
-                          background: linear-gradient(135deg, ${isConfirmed ? '#059669' : '#0284c7'}, ${isConfirmed ? '#10b981' : '#38bdf8'}); 
+                          background: linear-gradient(135deg, ${
+                            liveStats.selfIntersection.hasIntersection
+                              ? '#dc2626, #ef4444'
+                              : isConfirmed
+                              ? '#059669, #10b981'
+                              : '#0284c7, #38bdf8'
+                          }); 
                           color: #ffffff; 
                           border: 2.5px solid #ffffff; 
-                          box-shadow: 0 3px 8px rgba(0,0,0,0.55); 
+                          box-shadow: 0 3px 8px rgba(0,0,0,0.6); 
                           display: flex; 
                           align-items: center; 
                           justify-content: center; 
@@ -1146,17 +1319,17 @@ export function GISBoundaryDrawingModule({
                           ${idx + 1}
                         </div>
                       `,
-                      iconSize: [24, 24],
-                      iconAnchor: [12, 12],
+                      iconSize: [26, 26],
+                      iconAnchor: [13, 13],
                     })}
                   >
-                    <Tooltip direction="top" offset={[0, -12]}>
-                      Vertex ${idx + 1} (Drag to adjust boundary)
+                    <Tooltip direction="top" offset={[0, -13]}>
+                      Point {idx + 1} (Corner {idx + 1}) — Drag to adjust boundary
                     </Tooltip>
                   </Marker>
                 ))}
 
-                {/* 5. Side-Length Labels Beside Their Respective Lines (Outward Offset) */}
+                {/* 5. Consecutive Side-Length Labels: 1–2, 2–3, 3–4, 4–1 (Outward Perpendicular Offset) */}
                 {liveStats.sides.map((sideItem, i) => {
                   const p1 = vertices[i];
                   const p2 = vertices[(i + 1) % vertices.length];
@@ -1165,7 +1338,6 @@ export function GISBoundaryDrawingModule({
                   const midLat = (p1[0] + p2[0]) / 2;
                   const midLng = (p1[1] + p2[1]) / 2;
 
-                  // Geographic distance projection
                   const metersPerDegLat = 111139;
                   const metersPerDegLng = 111139 * Math.cos((midLat * Math.PI) / 180);
                   const dx = (p2[1] - p1[1]) * metersPerDegLng;
@@ -1176,21 +1348,17 @@ export function GISBoundaryDrawingModule({
                   let labelLng = midLng;
 
                   if (segLen > 0) {
-                    // Normal vector perpendicular to segment
                     let nx = -dy / segLen;
                     let ny = dx / segLen;
 
-                    // Centroid vector
                     const cdx = (midLng - centroid[1]) * metersPerDegLng;
                     const cdy = (midLat - centroid[0]) * metersPerDegLat;
 
-                    // Dot product test to guarantee offset is on the exterior side
                     if (cdx * nx + cdy * ny < 0) {
                       nx = -nx;
                       ny = -ny;
                     }
 
-                    // 6.5 meters outward perpendicular offset
                     const offsetMeters = 6.5;
                     labelLat = midLat + (ny * offsetMeters) / metersPerDegLat;
                     labelLng = midLng + (nx * offsetMeters) / metersPerDegLng;
@@ -1210,7 +1378,7 @@ export function GISBoundaryDrawingModule({
                             display: inline-flex;
                             align-items: center;
                             gap: 4px;
-                            background-color: ${isActive ? 'rgba(15, 23, 42, 0.98)' : 'rgba(15, 23, 42, 0.90)'};
+                            background-color: ${isActive ? 'rgba(15, 23, 42, 0.98)' : 'rgba(15, 23, 42, 0.92)'};
                             color: #ffffff;
                             border: 1.5px solid ${isActive ? '#f59e0b' : '#38bdf8'};
                             border-radius: 6px;
@@ -1218,17 +1386,17 @@ export function GISBoundaryDrawingModule({
                             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
                             font-size: 11px;
                             font-weight: 700;
-                            box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+                            box-shadow: 0 3px 8px rgba(0,0,0,0.55);
                             white-space: nowrap;
                             pointer-events: none;
                             transform: translate(-50%, -50%);
                           ">
-                            <span style="color: ${isActive ? '#fbbf24' : '#38bdf8'}; font-weight: 800;">S${sideItem.side}:</span>
+                            <span style="color: ${isActive ? '#fbbf24' : '#38bdf8'}; font-weight: 800;">${sideItem.pointPair}:</span>
                             <span>${sideItem.derived.toFixed(2)} m</span>
                           </div>
                         `,
-                        iconSize: [80, 24],
-                        iconAnchor: [40, 12],
+                        iconSize: [85, 24],
+                        iconAnchor: [42, 12],
                       })}
                     />
                   );

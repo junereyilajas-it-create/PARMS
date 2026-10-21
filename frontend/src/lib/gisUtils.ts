@@ -98,10 +98,14 @@ export function getGeometryDetails(positions: [number, number][]): ParsedGeometr
   }
 
   // Calculate side lengths for each edge
+  const totalEdges = closed.length - 1
   const sideLengths: ParsedGeometry['sideLengths'] = []
-  for (let i = 0; i < closed.length - 1; i++) {
+  for (let i = 0; i < totalEdges; i++) {
     const p1 = closed[i]
     const p2 = closed[i + 1]
+    const fromPoint = i + 1
+    const toPoint = (i + 1) % totalEdges + 1
+    const label = `${fromPoint}–${toPoint}`
     const midPoint: [number, number] = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2]
     try {
       const dist = turf.distance(
@@ -114,6 +118,9 @@ export function getGeometryDetails(positions: [number, number][]): ParsedGeometr
         end: p2,
         midPoint,
         lengthMeters: Math.round(dist * 100) / 100,
+        label,
+        fromPoint,
+        toPoint,
       })
     } catch {
       // skip invalid edge
@@ -195,29 +202,61 @@ export function createCustomMarkerIcon(type: 'lot' | 'building', isSelected: boo
 }
 
 /**
- * Creates side-length measurement badge divIcon
+ * Creates side-length measurement badge divIcon with numbered point pair (e.g. 1–2: 14.48 m)
  */
-export function createSideLengthIcon(meters: number) {
+export function createSideLengthIcon(meters: number, label?: string) {
   return L.divIcon({
     className: 'gis-measurement-label',
     html: `
       <div style="
-        background: rgba(15, 23, 42, 0.85);
+        background: rgba(15, 23, 42, 0.90);
         color: #f8fafc;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 4px;
-        padding: 1px 5px;
+        border: 1.5px solid rgba(56, 189, 248, 0.8);
+        border-radius: 5px;
+        padding: 2px 6px;
         font-size: 10px;
         font-weight: 700;
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         white-space: nowrap;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        box-shadow: 0 3px 6px rgba(0,0,0,0.45);
         pointer-events: none;
         backdrop-filter: blur(2px);
+        transform: translate(-50%, -50%);
       ">
-        ${meters.toFixed(2)} m
+        ${label ? `<span style="color: #38bdf8; font-weight: 800; margin-right: 4px;">${label}:</span>` : ''}<span>${meters.toFixed(2)} m</span>
       </div>
     `,
-    iconAnchor: [24, 8],
+    iconSize: [80, 22],
+    iconAnchor: [40, 11],
+  })
+}
+
+/**
+ * Creates numbered corner vertex marker divIcon (e.g. Point 1, Point 2, etc.)
+ */
+export function createCornerPointIcon(pointNumber: number, isConfirmed: boolean = false) {
+  return L.divIcon({
+    className: 'gis-corner-point-marker',
+    html: `
+      <div style="
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, ${isConfirmed ? '#059669' : '#0284c7'}, ${isConfirmed ? '#10b981' : '#38bdf8'});
+        color: #ffffff;
+        border: 2px solid #ffffff;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 800;
+        user-select: none;
+      ">
+        ${pointNumber}
+      </div>
+    `,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
   })
 }

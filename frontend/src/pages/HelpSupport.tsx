@@ -144,24 +144,24 @@ export function HelpSupport() {
     {
       id: 'gis-boundary-drawing',
       category: 'gis-mapping',
-      title: 'How to Draw Lot Boundaries with Side Lengths in GIS',
-      summary: 'Use the interactive Leaflet GIS Boundary Drawing tool to input sides (S1, S2, etc.), lengths in meters, and vertex adjustments.',
+      title: 'How to Draw Lot Boundaries with Numbered Corner Points in GIS',
+      summary: 'Use the interactive Leaflet GIS Boundary Drawing tool to input numbered corner points (1–2, 2–3, etc.), lengths in meters, area calculations, and vertex adjustments.',
       roles: ['super_admin', 'admin', 'staff', 'assessor'],
       steps: [
         { title: 'Open GIS Mapping Module', description: 'Select "GIS Tax Map" from the sidebar navigation.' },
         { title: 'Select Property to Map', description: 'Search for the property by PIN or Owner. Click "Map Property" or "Edit Boundary".' },
         { title: 'Enter Number of Sides', description: 'In the boundary tool, choose the number of property sides (e.g., 4 sides for a quadrilateral lot).' },
-        { title: 'Input Side Lengths in Meters', description: 'Enter the exact measured boundary lengths (e.g. S1 = 15.01 m, S2 = 10.25 m, S3 = 15.00 m, S4 = 10.25 m).' },
+        { title: 'Input Distances by Consecutive Numbered Points', description: 'Enter the exact measured boundary lengths between consecutive corners (e.g. Point 1–2 = 14.48 m, Point 2–3 = 8.60 m, Point 3–4 = 14.35 m, Point 4–1 = 6.60 m).' },
         { title: 'Inspect High-Contrast Boundary Lines', description: 'Notice the distinct dual-layer stroke (outer dark halo + inner vibrant line) visible over both street and satellite imagery.' },
-        { title: 'Verify Side-Length Badges', description: 'Side labels (e.g. S1: 15.01 m) are automatically offset beside the segment and never obscure or cover the boundary line.' },
-        { title: 'Adjust Vertices if Necessary', description: 'Drag vertex markers to match actual cadastral corners. Labels dynamically reposition with outward normals.' },
+        { title: 'Verify Side-Length Badges', description: 'Numbered point labels (e.g. 1–2: 14.48 m) are automatically offset beside the segment and never obscure or cover the boundary line.' },
+        { title: 'Adjust Vertices if Necessary', description: 'Drag numbered corner pins (1, 2, 3, 4) to match actual cadastral corners. Connected boundary lines stay attached to their endpoints.' },
         { title: 'Save GIS Location', description: 'Click "Save Boundary & Coordinates". The property status transitions from Unmapped to Mapped.' }
       ],
       tips: [
         'Active sides highlight in vibrant amber when focused or hovered in the input table.',
         'Entering side lengths provides geometric guidance; field verification by an authorized surveyor is recommended for official land titling.'
       ],
-      tags: ['gis', 'boundary', 'drawing', 'side lengths', 's1', 'vertex', 'leaflet']
+      tags: ['gis', 'boundary', 'drawing', 'point pairs', '1-2', 'corner points', 'vertex', 'leaflet']
     },
     {
       id: 'gis-staff-approval',
@@ -334,7 +334,7 @@ export function HelpSupport() {
     },
     {
       q: 'Why were side-length labels hard to read and how was it fixed?',
-      a: 'Previously, text labels were rendered directly on top of the boundary line segments. In this update, all side-length labels (e.g. S1: 15.01 m) are calculated with outward perpendicular normal offsets so they sit beside the line, never obstructing or breaking the boundary stroke.',
+      a: 'Previously, text labels were rendered directly on top of the boundary line segments. In this update, all boundary labels (e.g. 1–2: 14.48 m) are calculated with outward perpendicular normal offsets so they sit beside the line with clear point pair notation, never obstructing or breaking the boundary stroke.',
       cat: 'gis-mapping'
     },
     {

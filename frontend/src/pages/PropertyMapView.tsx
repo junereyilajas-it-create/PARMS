@@ -29,6 +29,7 @@ import {
   getGeometryDetails,
   createCustomMarkerIcon,
   createSideLengthIcon,
+  createCornerPointIcon,
 } from '../lib/gisUtils'
 import { StreetViewViewer } from '../components/gis/StreetViewViewer'
 import { PropertyDetailPanel } from '../components/gis/PropertyDetailPanel'
@@ -1092,6 +1093,18 @@ export function PropertyMapView() {
                                 Boundary: <strong>{isApproximate ? 'Manual / Approximate' : 'Cadastral Survey Boundary'}</strong>
                               </div>
 
+                              {f.geomDetails?.sideLengths && f.geomDetails.sideLengths.length > 0 && (
+                                <div className="pt-1.5 border-t border-gray-100 dark:border-gray-700 text-[10px] space-y-0.5 font-mono">
+                                  <span className="font-bold text-gray-700 dark:text-gray-300 block">Technical Description:</span>
+                                  {f.geomDetails.sideLengths.slice(0, 6).map((s, idx) => (
+                                    <div key={idx} className="flex justify-between text-gray-600 dark:text-gray-400">
+                                      <span>Point {s.fromPoint} → Point {s.toPoint} ({s.label}):</span>
+                                      <strong>{s.lengthMeters.toFixed(2)} m</strong>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
                               <div className="pt-1 flex flex-col gap-1">
                                 <button
                                   type="button"
@@ -1161,14 +1174,22 @@ export function PropertyMapView() {
                         />
                       )}
 
-                      {/* Side Lengths & Measurements Labels */}
+                      {/* Side Lengths & Measurements Labels with 1–2 Notation and Corner Point Numbers */}
                       {showMeasurements && f.geomDetails?.sideLengths && (
                         <>
                           {f.geomDetails.sideLengths.map((side, idx) => (
                             <Marker
                               key={`edge-${f.type}-${f.id}-${idx}`}
                               position={side.midPoint}
-                              icon={createSideLengthIcon(side.lengthMeters)}
+                              icon={createSideLengthIcon(side.lengthMeters, side.label)}
+                              interactive={false}
+                            />
+                          ))}
+                          {f.parsedPositions.map((pos, idx) => (
+                            <Marker
+                              key={`corner-${f.type}-${f.id}-${idx}`}
+                              position={pos}
+                              icon={createCornerPointIcon(idx + 1, true)}
                               interactive={false}
                             />
                           ))}

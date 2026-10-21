@@ -14,6 +14,7 @@ import {
   getGeometryDetails,
   createCustomMarkerIcon,
   createSideLengthIcon,
+  createCornerPointIcon,
 } from '../lib/gisUtils'
 import { StreetViewViewer } from '../components/gis/StreetViewViewer'
 import { PropertyDetailPanel } from '../components/gis/PropertyDetailPanel'
@@ -312,7 +313,15 @@ export function ClientGISMap() {
                             <Marker
                               key={`client-edge-${f.type}-${f.id}-${idx}`}
                               position={side.midPoint}
-                              icon={createSideLengthIcon(side.lengthMeters)}
+                              icon={createSideLengthIcon(side.lengthMeters, side.label)}
+                              interactive={false}
+                            />
+                          ))}
+                          {f.parsedPositions.map((pos, idx) => (
+                            <Marker
+                              key={`client-corner-${f.type}-${f.id}-${idx}`}
+                              position={pos}
+                              icon={createCornerPointIcon(idx + 1, true)}
                               interactive={false}
                             />
                           ))}

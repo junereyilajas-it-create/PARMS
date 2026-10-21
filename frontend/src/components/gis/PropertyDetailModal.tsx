@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   X,
   Building2,
@@ -17,6 +17,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import api from '../../lib/api'
 import type { GISFeature } from '../../types/gis'
+import { parseLeafletPositions, getGeometryDetails } from '../../lib/gisUtils'
 
 interface PropertyDetailModalProps {
   feature: GISFeature | null
@@ -39,6 +40,12 @@ export function PropertyDetailModal({
   const [activeTab, setActiveTab] = useState<'overview' | 'owner' | 'assessment' | 'gis'>('overview')
   const [photos, setPhotos] = useState<Array<{ photo_id?: number; file_path: string; file_name?: string | null; file_size?: number | null; is_primary?: number | boolean }>>([])
   const [activePhotoModal, setActivePhotoModal] = useState<string | null>(null)
+
+  const geomDetails = useMemo(() => {
+    if (!feature?.coordinates) return null
+    const pts = parseLeafletPositions(feature.coordinates)
+    return pts.length >= 3 ? getGeometryDetails(pts) : null
+  }, [feature?.coordinates])
 
   useEffect(() => {
     if (!feature) return
@@ -457,6 +464,27 @@ export function PropertyDetailModal({
                     <strong className="text-xs font-mono text-gray-800 dark:text-gray-200">
                       Latitude: {feature.latitude.toFixed(6)}, Longitude: {feature.longitude.toFixed(6)}
                     </strong>
+                  </div>
+                )}
+
+                {geomDetails && geomDetails.sideLengths.length > 0 && (
+                  <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <div className="px-3 py-2 bg-gray-100/70 dark:bg-gray-750 font-bold text-xs text-gray-800 dark:text-gray-200 flex items-center justify-between">
+                      <span>Technical Description (Cadastral Survey)</span>
+                      <span className="text-[10px] text-gray-500 font-mono">{geomDetails.sideLengths.length} Segments</span>
+                    </div>
+                    <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-48 overflow-y-auto">
+                      {geomDetails.sideLengths.map((s, idx) => (
+                        <div key={idx} className="px-3 py-2 flex items-center justify-between text-xs font-mono">
+                          <span className="text-gray-700 dark:text-gray-300 font-medium">
+                            Point {s.fromPoint} → Point {s.toPoint} ({s.label}):
+                          </span>
+                          <strong className="text-emerald-600 dark:text-emerald-400">
+                            {s.lengthMeters.toFixed(2)} meters
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
