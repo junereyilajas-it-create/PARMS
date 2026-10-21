@@ -1,5 +1,6 @@
 import { Bell, ChevronDown, Menu, Settings, LogOut, Moon, Sun, User, Check, CheckCircle2, HelpCircle } from 'lucide-react'
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '../../lib/api'
 import { useTheme } from '../../contexts/ThemeContext'
 
@@ -26,6 +27,7 @@ function formatRelativeTime(dateString: string) {
 }
 
 export function AppHeader({ active, onNavigate, theme: propTheme, onThemeToggle: propToggle, onMenu }: { active: string; onNavigate?: (page: string) => void; theme?: 'light' | 'dark'; onThemeToggle?: () => void; onMenu: () => void }) {
+  const navigate = useNavigate()
   const themeCtx = useTheme()
   const theme = propTheme ?? themeCtx.theme
   const onThemeToggle = propToggle ?? themeCtx.toggleTheme
@@ -51,7 +53,13 @@ export function AppHeader({ active, onNavigate, theme: propTheme, onThemeToggle:
 
     // Fetch profile dynamically
     if (localStorage.getItem('accessor_token')) {
-      api.get('/profile').then(res => setProfile(res.data)).catch(console.error);
+      api.get('/profile').then(res => {
+        setProfile(res.data);
+        if (res.data?.permissions) {
+          localStorage.setItem('accessor_permissions', JSON.stringify(res.data.permissions));
+          window.dispatchEvent(new Event('permissions_updated'));
+        }
+      }).catch(console.error);
     }
 
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -77,17 +85,37 @@ export function AppHeader({ active, onNavigate, theme: propTheme, onThemeToggle:
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 
-  const markAsRead = async (id: number, type: string) => {
+  const handleNotificationClick = async (notif: Notification) => {
     try {
-      await api.patch(`/notifications/${id}/read`);
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
-      setUnreadCount(prev => Math.max(0, prev - 1));
+      if (!notif.is_read) {
+        await api.patch(`/notifications/${notif.id}/read`);
+        setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
       
       setIsNotifOpen(false);
-      if (type.includes('PERMISSION') && onNavigate) onNavigate('Permission Requests');
-      else if (type === 'ASSESSMENT' && onNavigate) onNavigate('Assessments');
+
+      const userRole = profile?.role || localStorage.getItem('accessor_role') || '';
+      const isAdminOrSuper = ['admin', 'super_admin'].includes(userRole);
+      const relatedId = notif.related_id;
+
+      if (notif.type.includes('PERMISSION') || notif.type.includes('APPROVAL')) {
+        if (isAdminOrSuper) {
+          navigate(relatedId ? `/permission-requests?requestId=${relatedId}` : '/permission-requests');
+        } else {
+          navigate(relatedId ? `/my-requests?requestId=${relatedId}` : '/my-requests');
+        }
+      } else if (notif.type === 'ASSESSMENT') {
+        navigate('/assessments');
+      } else if (notif.type.includes('CERTIFICATE')) {
+        if (['client', 'owner'].includes(userRole)) {
+          navigate('/client/certificate-requests');
+        } else {
+          navigate('/admin/certificate-requests');
+        }
+      }
     } catch (err) {
-      console.error('Failed to mark as read:', err);
+      console.error('Failed to handle notification click:', err);
     }
   };
 
@@ -164,8 +192,8 @@ export function AppHeader({ active, onNavigate, theme: propTheme, onThemeToggle:
                     {notifications.map(notif => (
                       <button
                         key={notif.id}
-                        onClick={() => markAsRead(notif.id, notif.type)}
-                        className={`w-full text-left p-4 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
+                        onClick={() => handleNotificationClick(notif)}
+                        className={`w-full text-left p-4 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer ${
                           !notif.is_read ? 'bg-green-50/40 dark:bg-green-900/10' : ''
                         }`}
                       >

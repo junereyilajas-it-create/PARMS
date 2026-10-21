@@ -14,13 +14,16 @@ import {
   Maximize2,
   PencilRuler,
   ListFilter,
-  Map as MapIcon
+  Map as MapIcon,
+  Table,
+  Clock,
+  Send
 } from 'lucide-react'
 import { MapContainer, TileLayer, Polygon, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import api, { ensureSession } from '../lib/api'
 import { useModal } from '../contexts/ModalContext'
-import type { GISFeature, MapMode } from '../types/gis'
+import type { GISFeature, MapMode, GISMappingRequest } from '../types/gis'
 import {
   parseLeafletPositions,
   getGeometryDetails,
@@ -31,6 +34,10 @@ import { StreetViewViewer } from '../components/gis/StreetViewViewer'
 import { PropertyDetailPanel } from '../components/gis/PropertyDetailPanel'
 import { PropertyDetailModal } from '../components/gis/PropertyDetailModal'
 import { GISDrawModal } from '../components/gis/GISDrawModal'
+import { GISPropertyDirectoryTable } from '../components/gis/GISPropertyDirectoryTable'
+import { GISMappingRequestsTable } from '../components/gis/GISMappingRequestsTable'
+import { GISMappingRequestModal } from '../components/gis/GISMappingRequestModal'
+import { GISReviewRequestModal } from '../components/gis/GISReviewRequestModal'
 
 // Lagonglong, Misamis Oriental coordinates
 const LAGONGLONG_CENTER: [number, number] = [8.8062, 124.7900]
@@ -60,6 +67,8 @@ export function PropertyMapView() {
   const { showError, showSuccess } = useModal()
 
   // State
+  type GISViewTab = 'map' | 'directory' | 'requests'
+  const [gisViewTab, setGisViewTab] = useState<GISViewTab>('map')
   const [mapMode, setMapMode] = useState<MapMode>('street')
   const [query, setQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -84,10 +93,18 @@ export function PropertyMapView() {
   // Modals
   const [isFullDetailModalOpen, setIsFullDetailModalOpen] = useState(false)
   const [isDrawModalOpen, setIsDrawModalOpen] = useState(false)
+  const [requestTargetFeature, setRequestTargetFeature] = useState<GISFeature | null>(null)
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false)
+  const [reviewTargetRequest, setReviewTargetRequest] = useState<GISMappingRequest | null>(null)
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false)
+  const [requestsRefreshTrigger, setRequestsRefreshTrigger] = useState(0)
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0)
 
   // Current user role
   const [userRole] = useState(() => localStorage.getItem('accessor_role') || '')
-  const canEditGis = ['admin', 'assessor', 'super_admin', 'staff'].includes(userRole)
+  const isAdminOrSuper = ['admin', 'super_admin', 'assessor'].includes(userRole)
+  const isStaff = userRole === 'staff'
+  const canEditGis = isAdminOrSuper || isStaff
 
   const searchContainerRef = useRef<HTMLDivElement>(null)
 
@@ -114,16 +131,17 @@ export function PropertyMapView() {
       const lots = (data.lots || []).map((l: any) => ({
         ...l,
         type: 'lot',
-        has_gis: Boolean(l.gis_id && l.coordinates),
+        has_gis: Boolean(l.is_mapped || (l.gis_id && l.coordinates && l.coordinates !== 'null' && l.coordinates !== '[]')),
       }))
       const bldgs = (data.buildings || []).map((b: any) => ({
         ...b,
         type: 'building',
-        has_gis: Boolean(b.gis_id && b.coordinates),
+        has_gis: Boolean(b.is_mapped || (b.gis_id && b.coordinates && b.coordinates !== 'null' && b.coordinates !== '[]')),
       }))
 
       const combined = [...lots, ...bldgs]
       setFeatures(combined)
+      setPendingRequestsCount(combined.filter(f => f.latest_request_status === 'pending').length)
 
       if (selectedFeature) {
         const updated = combined.find(f => f.type === selectedFeature.type && f.id === selectedFeature.id)
@@ -139,6 +157,46 @@ export function PropertyMapView() {
     } finally {
       setIsLoading(false)
       setIsRefreshing(false)
+    }
+  }
+
+  const handleInitiateMapping = (feature: GISFeature) => {
+    setSelectedFeature(feature)
+    if (isAdminOrSuper) {
+      setIsDrawModalOpen(true)
+    } else if (isStaff) {
+      if (feature.latest_request_status === 'approved') {
+        setIsDrawModalOpen(true)
+      } else {
+        setRequestTargetFeature(feature)
+        setIsRequestModalOpen(true)
+      }
+    }
+  }
+
+  const handleOpenRequest = (feature: GISFeature) => {
+    setRequestTargetFeature(feature)
+    setIsRequestModalOpen(true)
+  }
+
+  const handleOpenReview = (request: GISMappingRequest) => {
+    setReviewTargetRequest(request)
+    setIsReviewModalOpen(true)
+  }
+
+  const handleOpenDrawForRequest = (propertyId: number, propertyType: 'lot' | 'building') => {
+    const target = features.find(f => f.property_id === propertyId && f.type === propertyType)
+    if (target) {
+      setSelectedFeature(target)
+      setIsDrawModalOpen(true)
+    }
+  }
+
+  const handleViewPropertyFromRequest = (propertyId: number, propertyType: 'lot' | 'building') => {
+    const target = features.find(f => f.property_id === propertyId && f.type === propertyType)
+    if (target) {
+      setSelectedFeature(target)
+      setIsFullDetailModalOpen(true)
     }
   }
 
@@ -291,15 +349,19 @@ export function PropertyMapView() {
   }, [featuresWithGeometry, query])
 
   // Select feature and center map
-  const handleSelectFeature = (feature: typeof featuresWithGeometry[0]) => {
+  const handleSelectFeature = (feature: GISFeature | typeof featuresWithGeometry[0]) => {
     setSelectedFeature(feature)
     setIsSearchOpen(false)
 
-    if (feature.geomDetails?.bounds) {
-      setFlyTargetBounds(feature.geomDetails.bounds)
+    const withGeom = 'parsedPositions' in feature
+      ? (feature as typeof featuresWithGeometry[0])
+      : featuresWithGeometry.find(f => f.property_id === feature.property_id && f.type === feature.type)
+
+    if (withGeom?.geomDetails?.bounds) {
+      setFlyTargetBounds(withGeom.geomDetails.bounds)
       setFlyTargetCenter(null)
-    } else if (feature.markerPos) {
-      setFlyTargetCenter(feature.markerPos)
+    } else if (withGeom?.markerPos) {
+      setFlyTargetCenter(withGeom.markerPos)
       setFlyTargetBounds(null)
     }
   }
@@ -323,38 +385,118 @@ export function PropertyMapView() {
             MUNICIPALITY OF LAGONGLONG • GIS PROPERTY PORTAL
           </p>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
-            Property Cadastral GIS & Street View
+            Property Cadastral GIS & Mapping
           </h1>
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
-            High-precision cadastral boundary mapping, satellite bird’s-eye imagery, and street-level exploration.
+            High-precision cadastral boundary mapping, property directory registry, and workflow approvals.
           </p>
         </div>
 
-        {/* Quick summary badges */}
+        {/* View Switcher Tabs: Map View | Property Directory (36) | Mapping Requests */}
         <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-          <div className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5">
-            <CheckCircle2 size={14} className="text-emerald-600" />
-            <span>{filterCounts.mapped} Mapped</span>
+          <div className="flex items-center bg-gray-200/90 dark:bg-gray-800 p-1 rounded-2xl border border-gray-300/70 dark:border-gray-700 shadow-sm text-xs font-semibold">
+            <button
+              type="button"
+              id="btn-gis-tab-map"
+              onClick={() => setGisViewTab('map')}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition ${
+                gisViewTab === 'map'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <MapPin size={15} />
+              <span>Cadastral Map</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-gis-tab-directory"
+              onClick={() => setGisViewTab('directory')}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition ${
+                gisViewTab === 'directory'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <Table size={15} />
+              <span>Property Directory</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                gisViewTab === 'directory' ? 'bg-emerald-800 text-white' : 'bg-gray-300 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+              }`}>
+                {features.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-gis-tab-requests"
+              onClick={() => setGisViewTab('requests')}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition ${
+                gisViewTab === 'requests'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <Clock size={15} />
+              <span>Mapping Requests</span>
+              {pendingRequestsCount > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-500 text-white animate-pulse">
+                  {pendingRequestsCount}
+                </span>
+              )}
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setFilterType('Unmapped')}
-            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition ${
-              filterType === 'Unmapped'
-                ? 'bg-amber-600 text-white border-amber-700 shadow-sm'
-                : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100'
-            }`}
-            title="View properties requiring cadastral boundary mapping"
-          >
-            <AlertCircle size={14} className={filterType === 'Unmapped' ? 'text-white' : 'text-amber-600'} />
-            <span>{filterCounts.unmapped} Needs Mapping</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5">
+              <CheckCircle2 size={14} className="text-emerald-600" />
+              <span>{filterCounts.mapped} Mapped</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setGisViewTab('map');
+                setFilterType('Unmapped');
+              }}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition ${
+                filterType === 'Unmapped' && gisViewTab === 'map'
+                  ? 'bg-amber-600 text-white border-amber-700 shadow-sm'
+                  : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100'
+              }`}
+              title="View properties requiring cadastral boundary mapping"
+            >
+              <AlertCircle size={14} className={filterType === 'Unmapped' && gisViewTab === 'map' ? 'text-white' : 'text-amber-600'} />
+              <span>{filterCounts.unmapped} Needs Mapping</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Main Map Container & Panel Layout */}
-      <div className="flex flex-col lg:flex-row gap-5 min-h-[640px]">
+      {gisViewTab === 'directory' ? (
+        <GISPropertyDirectoryTable
+          features={features}
+          userRole={userRole}
+          onSelectFeature={handleSelectFeature}
+          onOpenDrawModal={handleInitiateMapping}
+          onOpenRequestModal={handleOpenRequest}
+          onOpenDetailModal={(feat) => {
+            setSelectedFeature(feat);
+            setIsFullDetailModalOpen(true);
+          }}
+        />
+      ) : gisViewTab === 'requests' ? (
+        <GISMappingRequestsTable
+          userRole={userRole}
+          onOpenReviewModal={handleOpenReview}
+          onOpenDrawModalForRequest={handleOpenDrawForRequest}
+          onViewProperty={handleViewPropertyFromRequest}
+          refreshTrigger={requestsRefreshTrigger}
+        />
+      ) : (
+        /* Main Map Container & Panel Layout */
+        <div className="flex flex-col lg:flex-row gap-5 min-h-[640px]">
         {/* Left Map Viewport Container */}
         <section className="flex-1 flex flex-col bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden transition-colors">
           {/* GIS Mapping Toolbar */}
@@ -734,7 +876,7 @@ export function PropertyMapView() {
                           </div>
 
                           <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-700/60">
-                            {canEditGis && (
+                            {isAdminOrSuper ? (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -746,7 +888,38 @@ export function PropertyMapView() {
                                 <PencilRuler size={13} />
                                 <span>Locate & Draw</span>
                               </button>
-                            )}
+                            ) : isStaff ? (
+                              prop.latest_request_status === 'approved' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedFeature(prop)
+                                    setIsDrawModalOpen(true)
+                                  }}
+                                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold shadow-sm transition animate-pulse"
+                                >
+                                  <PencilRuler size={13} />
+                                  <span>Locate & Draw (Approved)</span>
+                                </button>
+                              ) : prop.latest_request_status === 'pending' ? (
+                                <span className="flex-1 text-center py-1.5 px-2 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-lg text-xs font-semibold">
+                                  Pending Approval
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedFeature(prop)
+                                    setRequestTargetFeature(prop)
+                                    setIsRequestModalOpen(true)
+                                  }}
+                                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition"
+                                >
+                                  <Send size={13} />
+                                  <span>Request to Map</span>
+                                </button>
+                              )
+                            ) : null}
 
                             <button
                               type="button"
@@ -927,7 +1100,7 @@ export function PropertyMapView() {
                                 >
                                   View Property Details
                                 </button>
-                                {canEditGis && (
+                                {isAdminOrSuper ? (
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -938,7 +1111,36 @@ export function PropertyMapView() {
                                   >
                                     Edit Boundary
                                   </button>
-                                )}
+                                ) : isStaff ? (
+                                  f.latest_request_status === 'approved' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedFeature(f)
+                                        setIsDrawModalOpen(true)
+                                      }}
+                                      className="w-full py-1 px-2 bg-green-600 text-white rounded font-semibold text-[11px] hover:bg-green-700 transition animate-pulse"
+                                    >
+                                      Edit Boundary (Approved)
+                                    </button>
+                                  ) : f.latest_request_status === 'pending' ? (
+                                    <span className="text-center py-1 text-[10px] font-semibold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 rounded">
+                                      Pending Update Approval
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedFeature(f)
+                                        setRequestTargetFeature(f)
+                                        setIsRequestModalOpen(true)
+                                      }}
+                                      className="w-full py-1 px-2 bg-blue-600 text-white rounded font-semibold text-[11px] hover:bg-blue-700 transition"
+                                    >
+                                      Request Boundary Update
+                                    </button>
+                                  )
+                                ) : null}
                               </div>
                             </div>
                           </Popup>
@@ -1025,19 +1227,24 @@ export function PropertyMapView() {
               setMapMode('streetview')
             }}
             onOpenFullDetails={() => setIsFullDetailModalOpen(true)}
-            onStartMapping={() => setIsDrawModalOpen(true)}
+            onStartMapping={() => handleInitiateMapping(selectedFeature)}
+            onRequestMapping={() => handleOpenRequest(selectedFeature)}
             canEditGis={canEditGis}
+            userRole={userRole}
           />
         )}
       </div>
+      )}
 
       {/* Comprehensive Full Property Record Modal */}
       {isFullDetailModalOpen && selectedFeature && (
         <PropertyDetailModal
           feature={selectedFeature}
           onClose={() => setIsFullDetailModalOpen(false)}
-          onStartMapping={() => setIsDrawModalOpen(true)}
+          onStartMapping={() => handleInitiateMapping(selectedFeature)}
+          onRequestMapping={() => handleOpenRequest(selectedFeature)}
           canEditGis={canEditGis}
+          userRole={userRole}
         />
       )}
 
@@ -1048,6 +1255,46 @@ export function PropertyMapView() {
           onClose={() => setIsDrawModalOpen(false)}
           onSaved={() => {
             loadGISData(true)
+            setRequestsRefreshTrigger(t => t + 1)
+          }}
+        />
+      )}
+
+      {/* Staff GIS Mapping Request Modal */}
+      {isRequestModalOpen && requestTargetFeature && (
+        <GISMappingRequestModal
+          feature={requestTargetFeature}
+          onClose={() => {
+            setIsRequestModalOpen(false)
+            setRequestTargetFeature(null)
+          }}
+          onSubmitted={() => {
+            loadGISData(true)
+            setRequestsRefreshTrigger(t => t + 1)
+            showSuccess('Mapping request submitted successfully and is pending review.')
+          }}
+        />
+      )}
+
+      {/* Admin Review Request Modal */}
+      {isReviewModalOpen && reviewTargetRequest && (
+        <GISReviewRequestModal
+          request={reviewTargetRequest}
+          onClose={() => {
+            setIsReviewModalOpen(false)
+            setReviewTargetRequest(null)
+          }}
+          onReviewed={() => {
+            loadGISData(true)
+            setRequestsRefreshTrigger(t => t + 1)
+            showSuccess('Mapping request review completed.')
+          }}
+          onViewProperty={(propId, propType) => {
+            const feat = features.find(f => f.property_id === propId && f.type === propType)
+            if (feat) {
+              setSelectedFeature(feat)
+              setIsFullDetailModalOpen(true)
+            }
           }}
         />
       )}

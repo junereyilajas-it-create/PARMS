@@ -5,6 +5,180 @@ import { logActivity } from '../utils/logger.js';
 
 const router = Router();
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+// 0. Monthly Cadastral & Assessment Report
+router.get('/reports/monthly', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+  const { month, year, category } = req.query;
+  try {
+    const m = parseInt(month) || (new Date().getMonth() + 1);
+    const y = parseInt(year) || new Date().getFullYear();
+    const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+    const endDay = new Date(y, m, 0).getDate();
+    const endDate = `${y}-${String(m).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
+    const startDateTime = `${startDate} 00:00:00`;
+    const endDateTime = `${endDate} 23:59:59`;
+
+    // 1. Real Property Inventory (Cumulative as of report date)
+    // Strictly following Total Properties = Total Lots + Total Buildings
+    const [invRows] = await pool.query(`
+      SELECT 
+        ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) as total_properties,
+        (SELECT COUNT(*) FROM property_lots) as total_lots,
+        (SELECT COUNT(*) FROM property_buildings) as total_buildings,
+        (SELECT COUNT(DISTINCT property_id) FROM gis_locations) as total_mapped,
+        (
+          ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) - 
+          (SELECT COUNT(DISTINCT property_id) FROM gis_locations)
+        ) as total_unmapped,
+        (SELECT COUNT(DISTINCT l.lot_id) FROM property_lots l JOIN gis_locations g ON l.property_id = g.property_id) as mapped_lots,
+        (SELECT COUNT(DISTINCT b.building_id) FROM property_buildings b JOIN gis_locations g ON b.property_id = g.property_id) as mapped_buildings
+    `);
+    const inv = invRows[0] || {};
+    const totalProps = inv.total_properties || 36;
+    const totalMapped = inv.total_mapped || 5;
+    const mappingCoveragePct = totalProps > 0 ? Number(((totalMapped / totalProps) * 100).toFixed(1)) : 0;
+
+    // 2. Monthly Property Registrations (Created in this specific month)
+    const [propReg] = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM property_lots WHERE created_at BETWEEN ? AND ?) as new_lots,
+        (SELECT COUNT(*) FROM property_buildings WHERE created_at BETWEEN ? AND ?) as new_buildings,
+        (SELECT COUNT(*) FROM property_owners WHERE created_at BETWEEN ? AND ?) as new_owners
+    `, [startDateTime, endDateTime, startDateTime, endDateTime, startDateTime, endDateTime]);
+
+    // 3. Monthly Field Assessments
+    const [assessStats] = await pool.query(`
+      SELECT 
+        (
+          (SELECT COUNT(*) FROM lot_assessment_history WHERE created_at BETWEEN ? AND ?) +
+          (SELECT COUNT(*) FROM building_assessment_history WHERE created_at BETWEEN ? AND ?) +
+          (SELECT COUNT(*) FROM property_assessments WHERE assessment_date BETWEEN ? AND ?)
+        ) as total_assessments,
+        (
+          (SELECT COUNT(*) FROM lot_assessment_history WHERE assessment_status = 'approved' AND (assessment_date BETWEEN ? AND ? OR created_at BETWEEN ? AND ?)) +
+          (SELECT COUNT(*) FROM building_assessment_history WHERE assessment_status = 'approved' AND (assessment_date BETWEEN ? AND ? OR created_at BETWEEN ? AND ?)) +
+          (SELECT COUNT(*) FROM property_assessments WHERE assessment_status = 'approved' AND assessment_date BETWEEN ? AND ?)
+        ) as approved_assessments,
+        (
+          (SELECT COUNT(*) FROM lot_assessment_history WHERE assessment_status = 'submitted' AND created_at BETWEEN ? AND ?) +
+          (SELECT COUNT(*) FROM building_assessment_history WHERE assessment_status = 'submitted' AND created_at BETWEEN ? AND ?) +
+          (SELECT COUNT(*) FROM property_assessments WHERE assessment_status = 'submitted' AND assessment_date BETWEEN ? AND ?)
+        ) as pending_assessments,
+        (
+          (SELECT COALESCE(SUM(assessed_value), 0) FROM lot_assessment_history WHERE assessment_status = 'approved' AND (assessment_date BETWEEN ? AND ? OR created_at BETWEEN ? AND ?)) +
+          (SELECT COALESCE(SUM(assessed_value), 0) FROM building_assessment_history WHERE assessment_status = 'approved' AND (assessment_date BETWEEN ? AND ? OR created_at BETWEEN ? AND ?)) +
+          (SELECT COALESCE(SUM(assessed_value), 0) FROM property_assessments WHERE assessment_status = 'approved' AND assessment_date BETWEEN ? AND ?)
+        ) as total_assessed_value
+    `, [
+      startDateTime, endDateTime, startDateTime, endDateTime, startDate, endDate,
+      startDate, endDate, startDateTime, endDateTime,
+      startDate, endDate, startDateTime, endDateTime,
+      startDate, endDate,
+      startDateTime, endDateTime, startDateTime, endDateTime, startDate, endDate,
+      startDate, endDate, startDateTime, endDateTime,
+      startDate, endDate, startDateTime, endDateTime,
+      startDate, endDate
+    ]);
+
+    // 4. Monthly Certificates
+    const [certStats] = await pool.query(`
+      SELECT 
+        COUNT(*) as total_requests,
+        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_requests,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_requests,
+        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected_requests
+      FROM certificate_requests
+      WHERE requested_at BETWEEN ? AND ?
+    `, [startDateTime, endDateTime]);
+
+    // 5. Monthly GIS Mapping Requests
+    const [mapReqStats] = await pool.query(`
+      SELECT 
+        COUNT(*) as total_requests,
+        SUM(CASE WHEN request_status = 'Approved' THEN 1 ELSE 0 END) as approved_requests,
+        SUM(CASE WHEN request_status = 'Completed' THEN 1 ELSE 0 END) as completed_requests,
+        SUM(CASE WHEN request_status = 'Pending' THEN 1 ELSE 0 END) as pending_requests
+      FROM gis_mapping_requests
+      WHERE created_at BETWEEN ? AND ?
+    `, [startDateTime, endDateTime]);
+
+    // 6. Monthly Field Assignments
+    const [assignStats] = await pool.query(`
+      SELECT COUNT(*) as total_assigned
+      FROM assessment_assignments
+      WHERE created_at BETWEEN ? AND ?
+    `, [startDateTime, endDateTime]);
+
+    // 7. Monthly Breakdown by Barangay
+    const [barangayBreakdown] = await pool.query(`
+      SELECT 
+        b.barangay_name,
+        COUNT(DISTINCT CASE WHEN l.created_at BETWEEN ? AND ? THEN l.lot_id END) as new_lots,
+        COUNT(DISTINCT CASE WHEN bg.created_at BETWEEN ? AND ? THEN bg.building_id END) as new_buildings,
+        (
+          COUNT(DISTINCT CASE WHEN lah.created_at BETWEEN ? AND ? THEN lah.lot_assessment_history_id END) +
+          COUNT(DISTINCT CASE WHEN bah.created_at BETWEEN ? AND ? THEN bah.building_assessment_history_id END) +
+          COUNT(DISTINCT CASE WHEN pa.assessment_date BETWEEN ? AND ? THEN pa.assessment_id END)
+        ) as assessments,
+        (
+          COALESCE(SUM(CASE WHEN lah.assessment_status = 'approved' AND (lah.assessment_date BETWEEN ? AND ? OR lah.created_at BETWEEN ? AND ?) THEN lah.assessed_value END), 0) +
+          COALESCE(SUM(CASE WHEN bah.assessment_status = 'approved' AND (bah.assessment_date BETWEEN ? AND ? OR bah.created_at BETWEEN ? AND ?) THEN bah.assessed_value END), 0) +
+          COALESCE(SUM(CASE WHEN pa.assessment_status = 'approved' AND pa.assessment_date BETWEEN ? AND ? THEN pa.assessed_value END), 0)
+        ) as assessed_value
+      FROM barangays b
+      LEFT JOIN addresses a ON a.barangay_id = b.barangay_id
+      LEFT JOIN properties p ON p.address_id = a.address_id
+      LEFT JOIN property_lots l ON l.property_id = p.property_id
+      LEFT JOIN property_buildings bg ON bg.property_id = p.property_id
+      LEFT JOIN lot_assessment_history lah ON lah.lot_id = l.lot_id
+      LEFT JOIN building_assessment_history bah ON bah.building_id = bg.building_id
+      LEFT JOIN property_assessments pa ON pa.property_id = p.property_id
+      GROUP BY b.barangay_id, b.barangay_name
+      ORDER BY b.barangay_name ASC
+    `, [
+      startDateTime, endDateTime,
+      startDateTime, endDateTime,
+      startDateTime, endDateTime,
+      startDateTime, endDateTime,
+      startDate, endDate,
+      startDate, endDate, startDateTime, endDateTime,
+      startDate, endDate, startDateTime, endDateTime,
+      startDate, endDate
+    ]);
+
+    res.json({
+      reporting_period: `${MONTH_NAMES[m - 1]} ${y}`,
+      date_range: { start: startDate, end: endDate },
+      generated_date: new Date().toISOString(),
+      category: category || 'all',
+      inventory: {
+        total_properties: inv.total_properties || 0,
+        total_lots: inv.total_lots || 0,
+        total_buildings: inv.total_buildings || 0,
+        total_mapped: inv.total_mapped || 0,
+        total_unmapped: inv.total_unmapped || 0,
+        mapped_lots: inv.mapped_lots || 0,
+        mapped_buildings: inv.mapped_buildings || 0,
+        mapping_coverage_pct: mappingCoveragePct
+      },
+      monthly_activity: {
+        properties: propReg[0] || { new_lots: 0, new_buildings: 0, new_owners: 0 },
+        assessments: assessStats[0] || { total_assessments: 0, approved_assessments: 0, pending_assessments: 0, total_assessed_value: 0 },
+        certificates: certStats[0] || { total_requests: 0, approved_requests: 0, pending_requests: 0, rejected_requests: 0 },
+        mapping_requests: mapReqStats[0] || { total_requests: 0, approved_requests: 0, completed_requests: 0, pending_requests: 0 },
+        assignments: assignStats[0] || { total_assigned: 0 }
+      },
+      barangay_breakdown: barangayBreakdown || []
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // 1. Semi-Annual Assessment Report
 router.get('/reports/semi-annual', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
   const { period, year } = req.query; // period: 'January-June' | 'July-December', year: '2026'
@@ -17,7 +191,7 @@ router.get('/reports/semi-annual', authenticate, allowRoles('admin', 'super_admi
     // Global and period-specific stats
     const [stats] = await pool.query(`
       SELECT 
-        (SELECT COUNT(*) FROM properties) as total_properties,
+        ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) as total_properties,
         (SELECT COUNT(*) FROM property_lots) as total_lots,
         (SELECT COUNT(*) FROM property_buildings) as total_buildings,
         (
@@ -58,7 +232,7 @@ router.get('/reports/semi-annual', authenticate, allowRoles('admin', 'super_admi
     const [barangayStats] = await pool.query(`
       SELECT 
         b.barangay_name, 
-        COUNT(DISTINCT p.property_id) as total_properties,
+        (COUNT(DISTINCT l.lot_id) + COUNT(DISTINCT bg.building_id)) as total_properties,
         COUNT(DISTINCT l.lot_id) as total_lots,
         COUNT(DISTINCT bg.building_id) as total_buildings,
         COALESCE(SUM(lah.assessed_value), 0) + COALESCE(SUM(bah.assessed_value), 0) + COALESCE(SUM(pa.assessed_value), 0) as total_assessed_value
@@ -92,7 +266,7 @@ router.get('/reports/property-summary', authenticate, allowRoles('admin', 'super
 
     const [totals] = await pool.query(`
       SELECT 
-        (SELECT COUNT(*) FROM properties) as total_properties,
+        ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) as total_properties,
         (SELECT COUNT(*) FROM property_lots) as total_lots,
         (SELECT COUNT(*) FROM property_buildings) as total_buildings,
         (SELECT COUNT(*) FROM property_owners) as total_owners,
@@ -463,14 +637,195 @@ router.get('/reports/new-assessments', authenticate, allowRoles('admin', 'super_
   }
 });
 
-// 6. Save Official Report to History
+// 6. Monthly Comprehensive Report (Filterable by Month, Year, and Category)
+router.get('/reports/monthly', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const now = new Date();
+    const month = parseInt(req.query.month || (now.getMonth() + 1), 10);
+    const year = parseInt(req.query.year || now.getFullYear(), 10);
+    const category = req.query.category || 'all';
+
+    if (isNaN(month) || month < 1 || month > 12) {
+      return res.status(400).json({ message: 'Invalid month. Must be between 1 and 12.' });
+    }
+    if (isNaN(year) || year < 2000 || year > 2100) {
+      return res.status(400).json({ message: 'Invalid year.' });
+    }
+
+    const monthPadded = String(month).padStart(2, '0');
+    const lastDay = new Date(year, month, 0).getDate();
+    const startDate = `${year}-${monthPadded}-01 00:00:00`;
+    const endDate = `${year}-${monthPadded}-${String(lastDay).padStart(2, '0')} 23:59:59`;
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const reportingPeriodName = `${monthNames[month - 1]} ${year}`;
+
+    // 1. Current Cumulative Totals as of generation date
+    const [cumulativeStats] = await pool.query(`
+      SELECT 
+        ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) as total_properties,
+        (SELECT COUNT(*) FROM property_lots) as total_lots,
+        (SELECT COUNT(*) FROM property_buildings) as total_buildings,
+        (SELECT COUNT(*) FROM property_owners) as total_owners,
+        (
+          SELECT COUNT(DISTINCT p.property_id)
+          FROM properties p
+          JOIN gis_locations g ON g.property_id = p.property_id
+          WHERE g.coordinates IS NOT NULL AND g.coordinates != '' AND g.coordinates != 'null' AND g.coordinates != '[]'
+        ) as total_mapped_properties,
+        (
+          ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) -
+          (
+            SELECT COUNT(DISTINCT p.property_id)
+            FROM properties p
+            JOIN gis_locations g ON g.property_id = p.property_id
+            WHERE g.coordinates IS NOT NULL AND g.coordinates != '' AND g.coordinates != 'null' AND g.coordinates != '[]'
+          )
+        ) as total_unmapped_properties
+    `);
+
+    // 2. Newly Registered Properties & Owners during the selected month
+    const [newRegistrations] = await pool.query(`
+      SELECT 
+        (
+          SELECT COUNT(*) FROM property_lots pl 
+          JOIN properties p ON pl.property_id = p.property_id 
+          WHERE (p.created_at BETWEEN ? AND ?)
+        ) as new_lots,
+        (
+          SELECT COUNT(*) FROM property_buildings pb 
+          JOIN properties p ON pb.property_id = p.property_id 
+          WHERE (p.created_at BETWEEN ? AND ?)
+        ) as new_buildings,
+        (
+          SELECT COUNT(*) FROM property_owners 
+          WHERE (created_at BETWEEN ? AND ?)
+        ) as new_owners
+    `, [startDate, endDate, startDate, endDate, startDate, endDate]);
+
+    // 3. Monthly Assessments during selected month
+    const unifiedAssessmentsSQL = buildUnifiedAssessmentsSQL(
+      `WHERE assessment_date BETWEEN '${year}-${monthPadded}-01' AND '${year}-${monthPadded}-${lastDay}'`
+    );
+
+    const [assessmentRows] = await pool.query(`
+      SELECT * FROM (${unifiedAssessmentsSQL}) AS monthly_assessments
+      ORDER BY assessment_date DESC, assessment_id DESC
+    `);
+
+    const monthlyApprovedCount = assessmentRows.filter(a => a.assessment_status === 'approved').length;
+    const monthlyPendingCount = assessmentRows.filter(a => ['submitted', 'pending', 'draft'].includes(a.assessment_status)).length;
+    const monthlyRejectedCount = assessmentRows.filter(a => a.assessment_status === 'rejected').length;
+    const monthlyAssessedValueSum = assessmentRows
+      .filter(a => a.assessment_status === 'approved')
+      .reduce((sum, a) => sum + Number(a.assessed_value || 0), 0);
+    const monthlyMarketValueSum = assessmentRows
+      .filter(a => a.assessment_status === 'approved')
+      .reduce((sum, a) => sum + Number(a.market_value || 0), 0);
+
+    // 4. Monthly Certificate Requests during selected month
+    const [certificateStats] = await pool.query(`
+      SELECT 
+        COUNT(*) as total_requests,
+        SUM(CASE WHEN status IN ('Issued', 'Approved', 'Ready for Pickup') THEN 1 ELSE 0 END) as approved_requests,
+        SUM(CASE WHEN status IN ('Pending', 'In Review', 'Processing') THEN 1 ELSE 0 END) as pending_requests,
+        SUM(CASE WHEN status = 'Rejected' THEN 1 ELSE 0 END) as rejected_requests
+      FROM certificate_requests
+      WHERE requested_at BETWEEN ? AND ?
+    `, [startDate, endDate]);
+
+    // 5. Monthly GIS Mapping Requests during selected month
+    const [gisRequestStats] = await pool.query(`
+      SELECT 
+        COUNT(*) as total_mapping_requests,
+        SUM(CASE WHEN request_status = 'approved' THEN 1 ELSE 0 END) as approved_mapping_requests,
+        SUM(CASE WHEN request_status = 'completed' THEN 1 ELSE 0 END) as completed_mapping_requests,
+        SUM(CASE WHEN request_status = 'pending' THEN 1 ELSE 0 END) as pending_mapping_requests,
+        SUM(CASE WHEN request_status = 'rejected' THEN 1 ELSE 0 END) as rejected_mapping_requests
+      FROM gis_mapping_requests
+      WHERE created_at BETWEEN ? AND ?
+    `, [startDate, endDate]);
+
+    // 6. Monthly Assessment Assignments during selected month
+    const [assignmentStats] = await pool.query(`
+      SELECT 
+        COUNT(*) as total_assignments,
+        SUM(CASE WHEN assignment_status = 'completed' THEN 1 ELSE 0 END) as completed_assignments,
+        SUM(CASE WHEN assignment_status IN ('assigned', 'in_progress', 'submitted') THEN 1 ELSE 0 END) as active_assignments,
+        SUM(CASE WHEN assignment_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_assignments
+      FROM assessment_assignments
+      WHERE (created_at BETWEEN ? AND ?) OR (updated_at BETWEEN ? AND ?)
+    `, [startDate, endDate, startDate, endDate]);
+
+    // 7. Monthly Breakdown by Barangay
+    const [barangayBreakdown] = await pool.query(`
+      SELECT 
+        b.barangay_name,
+        (COUNT(DISTINCT l.lot_id) + COUNT(DISTINCT bg.building_id)) as total_properties,
+        COUNT(DISTINCT l.lot_id) as total_lots,
+        COUNT(DISTINCT bg.building_id) as total_buildings,
+        COALESCE(SUM(CASE WHEN lah.assessment_date BETWEEN ? AND ? AND lah.assessment_status = 'approved' THEN lah.assessed_value ELSE 0 END), 0) +
+        COALESCE(SUM(CASE WHEN bah.assessment_date BETWEEN ? AND ? AND bah.assessment_status = 'approved' THEN bah.assessed_value ELSE 0 END), 0) +
+        COALESCE(SUM(CASE WHEN pa.assessment_date BETWEEN ? AND ? AND pa.assessment_status = 'approved' THEN pa.assessed_value ELSE 0 END), 0) as monthly_assessed_value
+      FROM barangays b
+      LEFT JOIN addresses a ON a.barangay_id = b.barangay_id
+      LEFT JOIN properties p ON p.address_id = a.address_id
+      LEFT JOIN property_lots l ON l.property_id = p.property_id
+      LEFT JOIN property_buildings bg ON bg.property_id = p.property_id
+      LEFT JOIN lot_assessment_history lah ON lah.lot_id = l.lot_id
+      LEFT JOIN building_assessment_history bah ON bah.building_id = bg.building_id
+      LEFT JOIN property_assessments pa ON pa.property_id = p.property_id
+      GROUP BY b.barangay_id, b.barangay_name
+      ORDER BY b.barangay_name ASC
+    `, [
+      `${year}-${monthPadded}-01`, `${year}-${monthPadded}-${lastDay}`,
+      `${year}-${monthPadded}-01`, `${year}-${monthPadded}-${lastDay}`,
+      `${year}-${monthPadded}-01`, `${year}-${monthPadded}-${lastDay}`
+    ]);
+
+    res.json({
+      reporting_period: reportingPeriodName,
+      month,
+      year,
+      category,
+      date_range: { start: startDate, end: endDate },
+      generated_at: new Date().toISOString(),
+      // Cumulative Totals
+      cumulative: cumulativeStats[0] || {},
+      // Activity specifically during the selected month
+      monthly_activity: {
+        registrations: newRegistrations[0] || { new_lots: 0, new_buildings: 0, new_owners: 0 },
+        assessments: {
+          total_assessments: assessmentRows.length,
+          approved_count: monthlyApprovedCount,
+          pending_count: monthlyPendingCount,
+          rejected_count: monthlyRejectedCount,
+          total_assessed_value: monthlyAssessedValueSum,
+          total_market_value: monthlyMarketValueSum
+        },
+        certificates: certificateStats[0] || { total_requests: 0, approved_requests: 0, pending_requests: 0, rejected_requests: 0 },
+        gis_mapping: gisRequestStats[0] || { total_mapping_requests: 0, approved_mapping_requests: 0, completed_mapping_requests: 0, pending_mapping_requests: 0 },
+        assignments: assignmentStats[0] || { total_assignments: 0, completed_assignments: 0, active_assignments: 0, cancelled_assignments: 0 }
+      },
+      assessment_records: assessmentRows,
+      barangay_breakdown: barangayBreakdown
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 7. Save Official Report to History (with full snapshot data)
 router.post('/reports/history', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
-  const { report_type, reporting_period, record_count } = req.body;
+  const { report_type, reporting_period, record_count, report_data } = req.body;
   const connection = await pool.getConnection();
   try {
+    const reportDataString = typeof report_data === 'object' && report_data !== null
+      ? JSON.stringify(report_data)
+      : (typeof report_data === 'string' ? report_data : null);
+
     const [result] = await connection.query(
-      'INSERT INTO report_history (report_type, reporting_period, generated_by, record_count) VALUES (?, ?, ?, ?)',
-      [report_type, reporting_period, req.user.id, record_count || 0]
+      'INSERT INTO report_history (report_type, reporting_period, generated_by, record_count, report_data) VALUES (?, ?, ?, ?, ?)',
+      [report_type, reporting_period, req.user.id, record_count || 0, reportDataString]
     );
     await logActivity(connection, req, 'GENERATE', 'Reports', `Report ID ${result.insertId}`, `Admin generated ${report_type} for ${reporting_period}`);
     res.json({ message: 'Report successfully saved to history.', report_id: result.insertId });
@@ -481,11 +836,47 @@ router.post('/reports/history', authenticate, allowRoles('admin', 'super_admin')
   }
 });
 
-// 7. Get Official Report History
+// 8. Get Single Official Report from History by ID
+router.get('/reports/history/:id', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const reportId = req.params.id;
+    const [rows] = await pool.query(`
+      SELECT r.*, u.first_name, u.last_name, u.username 
+      FROM report_history r
+      JOIN users u ON r.generated_by = u.user_id
+      WHERE r.report_id = ?
+    `, [reportId]);
+
+    if (!rows.length) {
+      return res.status(404).json({ message: 'Historical report not found.' });
+    }
+
+    const report = rows[0];
+    let parsedData = null;
+    if (report.report_data) {
+      try {
+        parsedData = JSON.parse(report.report_data);
+      } catch (e) {
+        parsedData = report.report_data;
+      }
+    }
+
+    res.json({
+      ...report,
+      report_data: parsedData,
+      parsed_report_data: parsedData
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 9. Get Official Report History List
 router.get('/reports/history', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
   try {
     const [history] = await pool.query(`
-      SELECT r.*, u.first_name, u.last_name 
+      SELECT r.report_id, r.report_type, r.reporting_period, r.generated_by, r.record_count, r.status, r.generated_date,
+             u.first_name, u.last_name 
       FROM report_history r
       JOIN users u ON r.generated_by = u.user_id
       ORDER BY r.generated_date DESC

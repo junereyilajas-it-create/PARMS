@@ -13,6 +13,7 @@ export function RoleManagement() {
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [userPerms, setUserPerms] = useState<string[]>([])
   const [editingRole, setEditingRole] = useState<string>('')
+  const [isSaving, setIsSaving] = useState(false)
 
   const loadData = async () => {
     try {
@@ -45,6 +46,7 @@ export function RoleManagement() {
 
   const handleSave = async () => {
     if (!selectedUser) return;
+    setIsSaving(true);
     try {
       // Save role change if modified
       if (editingRole !== selectedUser.role) {
@@ -60,10 +62,13 @@ export function RoleManagement() {
       });
 
       showSuccess('Permissions and role successfully updated.');
+      window.dispatchEvent(new Event('permissions_updated'));
       setSelectedUser(null);
-      loadData();
+      await loadData();
     } catch (e: any) {
       showError(e.response?.data?.message || 'Failed to update user permissions.');
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -192,9 +197,19 @@ export function RoleManagement() {
               </button>
               <button
                 onClick={handleSave}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 shadow-md transition-all"
+                disabled={isSaving}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 shadow-md transition-all disabled:opacity-50 cursor-pointer"
               >
-                <Save size={18} /> Save Changes
+                {isSaving ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Saving Changes...
+                  </>
+                ) : (
+                  <>
+                    <Save size={18} /> Save Changes
+                  </>
+                )}
               </button>
             </div>
           </div>

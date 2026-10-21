@@ -37,7 +37,7 @@ const ALL_NAV_GROUPS = [
       { label: 'Assessment Assignments', icon: ClipboardCheck, roles: ['admin', 'super_admin'] },
       { label: 'Permission Requests', icon: FileText, roles: ['admin', 'super_admin'] },
       { label: 'My Requests', icon: FileText, roles: ['assessor', 'staff'] },
-      { label: 'Certificates', icon: FileText, roles: ['super_admin', 'admin', 'staff'] },
+      { label: 'Certificates', icon: FileText, roles: ['super_admin', 'admin'], permission: 'MANAGE_CERTIFICATES' },
       { label: 'Certificate Requests', icon: FileText, roles: ['owner', 'client'] },
       { label: 'Assigned Tasks', icon: ClipboardCheck, roles: ['staff'] }
     ]
@@ -51,12 +51,16 @@ const ALL_NAV_GROUPS = [
   }
 ];
 
-export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, userRole = '' }: { active: string; onNavigate: (page: string) => void; isOpen: boolean; collapsed: boolean; onCollapse: () => void; userRole?: string }) {
+export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, userRole = '', userPermissions = [] }: { active: string; onNavigate: (page: string) => void; isOpen: boolean; collapsed: boolean; onCollapse: () => void; userRole?: string; userPermissions?: string[] }) {
   const currentRole = userRole || 'client';
 
   const navGroups = ALL_NAV_GROUPS.map(group => ({
     title: group.title,
-    items: group.items.filter(item => item.roles.includes(currentRole))
+    items: group.items.filter(item => {
+      if (item.roles.includes(currentRole)) return true;
+      if (item.permission && userPermissions.includes(item.permission)) return true;
+      return false;
+    })
   })).filter(group => group.items.length > 0);
 
   return (

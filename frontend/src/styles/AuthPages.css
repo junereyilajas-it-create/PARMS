@@ -95,8 +95,8 @@
   color: #1e293b;
 }
 
-.auth-input, 
-.auth-plain, 
+.auth-input,
+.auth-plain,
 .auth-two input {
   margin-top: 6px;
   border: 1.5px solid #cbd5e1;
@@ -268,7 +268,7 @@
 /* 2. Right Column: Photographic Background with Green Overlay */
 .auth-image {
   position: relative;
-  background-image: 
+  background-image:
     linear-gradient(180deg, rgba(6, 78, 59, 0.45) 0%, rgba(4, 38, 28, 0.88) 100%),
     url('/images/login-assessor.jpg');
   background-size: cover;

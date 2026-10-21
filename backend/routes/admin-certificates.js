@@ -1,12 +1,16 @@
 import { Router } from 'express'
 import { pool } from '../config/db.js'
-import { authenticate, allowRoles } from '../middleware/auth.js'
+import { authenticate, allowRoles, loadPermissions } from '../middleware/auth.js'
 import { logActivity } from '../utils/logger.js'
 
 const router = Router()
 
-// Admin, Super Admin, Assessor, Staff can access certificate request processing
-router.use('/admin/certificate-requests', authenticate, allowRoles('admin', 'super_admin', 'staff', 'assessor'))
+// Admin and Super Admin have full certificate access. Assessor and Staff require MANAGE_CERTIFICATES permission.
+router.use('/admin/certificate-requests', authenticate, loadPermissions, (req, res, next) => {
+  if (['admin', 'super_admin'].includes(req.user.role)) return next();
+  if (req.user.permissions?.includes('MANAGE_CERTIFICATES')) return next();
+  return res.status(403).json({ message: 'Insufficient permissions. You require the MANAGE_CERTIFICATES permission.' });
+});
 
 // 1. List all certificate requests with full owner, property, and reviewer details
 router.get('/admin/certificate-requests', async (req, res, next) => {

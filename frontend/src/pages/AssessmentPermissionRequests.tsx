@@ -13,6 +13,7 @@ export type PermissionRequest = {
   requested_by_user_id: number;
   first_name: string;
   last_name: string;
+  requester_role?: string;
   requester_username?: string;
   requester_email?: string;
   reason: string;
@@ -98,6 +99,68 @@ export const AssessmentPermissionRequests: React.FC = () => {
   const [revokeReturnTo, setRevokeReturnTo] = useState<'pending' | 'revoked'>('pending');
   const [isSavingRevoke, setIsSavingRevoke] = useState(false);
   const [revokeError, setRevokeError] = useState('');
+
+  // Details Modal and URL Navigation State
+  const [highlightedRequestId, setHighlightedRequestId] = useState<number | null>(null);
+  const [selectedDetailsRequest, setSelectedDetailsRequest] = useState<PermissionRequest | null>(null);
+  const [isProcessingReview, setIsProcessingReview] = useState(false);
+  const [rejectReasonInput, setRejectReasonInput] = useState('');
+  const [isRejectingInline, setIsRejectingInline] = useState(false);
+
+  // Staff Request Permission Modal State
+  const [showRequestPermModal, setShowRequestPermModal] = useState(false);
+  const [requestPermForm, setRequestPermForm] = useState({
+    permission: 'MANAGE_CERTIFICATES',
+    reason: ''
+  });
+  const [isSubmittingPerm, setIsSubmittingPerm] = useState(false);
+
+  // Synchronize requestId from searchParams
+  useEffect(() => {
+    const urlReqId = searchParams.get('requestId');
+    if (urlReqId) {
+      const idNum = Number(urlReqId);
+      setHighlightedRequestId(idNum);
+      const allCombined = [...myRequests, ...allRequests];
+      const match = allCombined.find(r => r.request_id === idNum);
+      if (match) {
+        setSelectedDetailsRequest(match);
+      }
+    }
+  }, [searchParams, myRequests, allRequests]);
+
+  const handleOpenRequestPerm = () => {
+    setRequestPermForm({
+      permission: 'MANAGE_CERTIFICATES',
+      reason: ''
+    });
+    setShowRequestPermModal(true);
+  };
+
+  const handleSubmitPermRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!requestPermForm.reason.trim()) {
+      showError('Please provide a reason for requesting this permission.');
+      return;
+    }
+    setIsSubmittingPerm(true);
+    try {
+      await ensureSession();
+      await api.post('/assessments/requests', {
+        property_type: 'system',
+        request_action: 'PERMISSION',
+        target_id_str: requestPermForm.permission,
+        reason: requestPermForm.reason.trim()
+      });
+      showSuccess('Permission request submitted successfully. Administrator and Super Admin have been notified.', 'Request Submitted');
+      setShowRequestPermModal(false);
+      await loadData();
+    } catch (err: any) {
+      showError(err.response?.data?.message || 'Failed to submit permission request.');
+    } finally {
+      setIsSubmittingPerm(false);
+    }
+  };
 
   // Sync URL search params with state
   useEffect(() => {
@@ -250,32 +313,49 @@ export const AssessmentPermissionRequests: React.FC = () => {
 
   // Admin Actions
   const approveRequest = async (id: number) => {
-    showConfirm('Approve this request? This will create an active assessment assignment.', async () => {
+    showConfirm('Approve this request? This will immediately apply the requested access.', async () => {
+      setIsProcessingReview(true);
       try {
         await ensureSession();
         await api.post(`/assessments/requests/${id}/approve`);
         showSuccess('Request approved successfully.');
+        window.dispatchEvent(new Event('permissions_updated'));
+        if (selectedDetailsRequest?.request_id === id) {
+          setSelectedDetailsRequest(prev => prev ? { ...prev, request_status: 'approved' } : null);
+        }
         await loadData();
       } catch (err: any) {
         showError(err.response?.data?.message || 'Failed to approve request.');
+      } finally {
+        setIsProcessingReview(false);
       }
-    });
+    }, 'Confirm Approval');
   };
 
-  const rejectRequest = async (id: number) => {
-    const reason = window.prompt('Enter rejection reason:');
-    if (reason === null) return;
-    if (!reason.trim()) {
-      showError('A rejection reason is required.');
-      return;
+  const rejectRequest = async (id: number, reasonInput?: string) => {
+    let reason = reasonInput;
+    if (reason === undefined) {
+      reason = window.prompt('Enter rejection reason:') || '';
+      if (!reason.trim()) {
+        showError('A rejection reason is required.');
+        return;
+      }
     }
+    setIsProcessingReview(true);
     try {
       await ensureSession();
       await api.post(`/assessments/requests/${id}/reject`, { reason });
       showSuccess('Request rejected.');
+      setIsRejectingInline(false);
+      setRejectReasonInput('');
+      if (selectedDetailsRequest?.request_id === id) {
+        setSelectedDetailsRequest(prev => prev ? { ...prev, request_status: 'rejected', rejection_reason: reason } : null);
+      }
       await loadData();
     } catch (err: any) {
       showError(err.response?.data?.message || 'Failed to reject request.');
+    } finally {
+      setIsProcessingReview(false);
     }
   };
 
@@ -406,49 +486,66 @@ export const AssessmentPermissionRequests: React.FC = () => {
       key: 'request_id',
       label: 'REQUEST ID',
       render: (id: number) => (
-        <span className="font-mono text-xs font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+        <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded transition-all ${
+          highlightedRequestId === id
+            ? 'bg-amber-100 text-amber-900 border border-amber-400 ring-2 ring-amber-300 dark:bg-amber-950 dark:text-amber-200'
+            : 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800'
+        }`}>
           #{id}
         </span>
       )
     },
     {
       key: 'target_id_str',
-      label: 'PROPERTY ID',
-      render: (v: string, r: PermissionRequest) => (
-        <div className="flex flex-col">
-          <span className="font-semibold text-gray-900 dark:text-white">{v}</span>
-          <span className="text-[11px] text-gray-500 dark:text-gray-400 capitalize">
-            {r.property_type || 'Property'}
-          </span>
-        </div>
-      )
+      label: 'TARGET / PROPERTY',
+      render: (v: string, r: PermissionRequest) => {
+        const isPerm = r.property_type === 'system' || r.request_action === 'PERMISSION';
+        const label = v === 'MANAGE_CERTIFICATES' ? 'Manage Certificates' : v;
+        return (
+          <div className="flex flex-col">
+            <span className="font-semibold text-gray-900 dark:text-white">{isPerm ? label : v}</span>
+            <span className={`text-[11px] capitalize font-semibold ${isPerm ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`}>
+              {isPerm ? 'System Permission' : (r.property_type || 'Property')}
+            </span>
+          </div>
+        );
+      }
     },
     {
       key: 'property_or_lot_number',
       label: 'LOT / BLDG #',
-      render: (v: string, r: PermissionRequest) => (
-        <span className="text-xs text-gray-700 dark:text-gray-300 font-mono">
-          {v || r.target_id_str || '-'}
-        </span>
-      )
+      render: (v: string, r: PermissionRequest) => {
+        const isPerm = r.property_type === 'system' || r.request_action === 'PERMISSION';
+        return (
+          <span className="text-xs text-gray-700 dark:text-gray-300 font-mono">
+            {isPerm ? '-' : (v || r.target_id_str || '-')}
+          </span>
+        );
+      }
     },
     {
       key: 'owner_name',
-      label: 'OWNER',
-      render: (v: string) => (
-        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-          {v || 'Unassigned'}
-        </span>
-      )
+      label: 'OWNER / SCOPE',
+      render: (v: string, r: PermissionRequest) => {
+        const isPerm = r.property_type === 'system' || r.request_action === 'PERMISSION';
+        return (
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {isPerm ? 'System Scope' : (v || 'Unassigned')}
+          </span>
+        );
+      }
     },
     {
       key: 'property_address',
-      label: 'ADDRESS',
-      render: (v: string) => (
-        <span className="text-xs text-gray-600 dark:text-gray-400 max-w-[200px] truncate block" title={v}>
-          {v || 'Address not yet mapped'}
-        </span>
-      )
+      label: 'ADDRESS / MODULE',
+      render: (v: string, r: PermissionRequest) => {
+        const isPerm = r.property_type === 'system' || r.request_action === 'PERMISSION';
+        return (
+          <span className="text-xs text-gray-600 dark:text-gray-400 max-w-[200px] truncate block" title={isPerm ? 'Certificates Module' : v}>
+            {isPerm ? 'Certificates Module' : (v || 'Address not yet mapped')}
+          </span>
+        );
+      }
     },
     {
       key: 'created_at',
@@ -486,56 +583,77 @@ export const AssessmentPermissionRequests: React.FC = () => {
       key: 'request_id',
       label: 'REQUEST ID',
       render: (id: number) => (
-        <span className="font-mono text-xs font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+        <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded transition-all ${
+          highlightedRequestId === id
+            ? 'bg-amber-100 text-amber-900 border border-amber-400 ring-2 ring-amber-300 dark:bg-amber-950 dark:text-amber-200'
+            : 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800'
+        }`}>
           #{id}
         </span>
       )
     },
     {
       key: 'first_name',
-      label: 'REQUESTING ASSESSOR',
+      label: 'REQUESTING USER',
       render: (_: any, r: PermissionRequest) => (
         <div className="flex flex-col">
           <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
             {r.first_name} {r.last_name}
           </span>
-          {r.requester_username && (
-            <span className="text-[11px] text-gray-500 dark:text-gray-400">
-              @{r.requester_username}
-            </span>
-          )}
+          <div className="flex items-center gap-1.5 mt-0.5">
+            {r.requester_role && (
+              <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                {r.requester_role}
+              </span>
+            )}
+            {r.requester_username && (
+              <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                @{r.requester_username}
+              </span>
+            )}
+          </div>
         </div>
       )
     },
     {
       key: 'target_id_str',
-      label: 'PROPERTY ID',
-      render: (v: string, r: PermissionRequest) => (
-        <div className="flex flex-col">
-          <span className="font-semibold text-gray-900 dark:text-white">{v}</span>
-          <span className="text-[11px] text-gray-500 dark:text-gray-400 capitalize">
-            {r.property_type || 'Property'}
-          </span>
-        </div>
-      )
+      label: 'TARGET / PROPERTY',
+      render: (v: string, r: PermissionRequest) => {
+        const isPerm = r.property_type === 'system' || r.request_action === 'PERMISSION';
+        const label = v === 'MANAGE_CERTIFICATES' ? 'Manage Certificates' : v;
+        return (
+          <div className="flex flex-col">
+            <span className="font-semibold text-gray-900 dark:text-white">{isPerm ? label : v}</span>
+            <span className={`text-[11px] capitalize font-semibold ${isPerm ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`}>
+              {isPerm ? 'System Permission' : (r.property_type || 'Property')}
+            </span>
+          </div>
+        );
+      }
     },
     {
       key: 'owner_name',
-      label: 'OWNER',
-      render: (v: string) => (
-        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-          {v || 'Unassigned'}
-        </span>
-      )
+      label: 'OWNER / SCOPE',
+      render: (v: string, r: PermissionRequest) => {
+        const isPerm = r.property_type === 'system' || r.request_action === 'PERMISSION';
+        return (
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {isPerm ? 'System Scope' : (v || 'Unassigned')}
+          </span>
+        );
+      }
     },
     {
       key: 'property_address',
-      label: 'ADDRESS',
-      render: (v: string) => (
-        <span className="text-xs text-gray-600 dark:text-gray-400 max-w-[200px] truncate block" title={v}>
-          {v || 'Address not yet mapped'}
-        </span>
-      )
+      label: 'ADDRESS / MODULE',
+      render: (v: string, r: PermissionRequest) => {
+        const isPerm = r.property_type === 'system' || r.request_action === 'PERMISSION';
+        return (
+          <span className="text-xs text-gray-600 dark:text-gray-400 max-w-[200px] truncate block" title={isPerm ? 'Certificates Module' : v}>
+            {isPerm ? 'Certificates Module' : (v || 'Address not yet mapped')}
+          </span>
+        );
+      }
     },
     {
       key: 'created_at',
@@ -563,10 +681,20 @@ export const AssessmentPermissionRequests: React.FC = () => {
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
             {isAdminOrSuper
-              ? 'Review, assign, and manage property assessment requests across all assessors.'
-              : 'Track, submit, and manage your property assessment permission requests.'}
+              ? 'Review, assign, and manage permission and property assessment requests across all staff and assessors.'
+              : 'Track, submit, and manage your property and system permission requests.'}
           </p>
         </div>
+        {!isAdminOrSuper && (
+          <button
+            id="request-permission-btn"
+            data-testid="request-permission-btn"
+            onClick={handleOpenRequestPerm}
+            className="flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition shadow-sm cursor-pointer"
+          >
+            <ShieldAlert size={16} /> Request Permission
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -720,7 +848,11 @@ export const AssessmentPermissionRequests: React.FC = () => {
           <DataTable
             columns={activeTab === 'my' ? myRequestsColumns : allRequestsColumns}
             data={filteredRequests}
-            onView={() => {}}
+            onView={(record) => {
+              setSelectedDetailsRequest(record);
+              setIsRejectingInline(false);
+              setRejectReasonInput('');
+            }}
             showActions={true}
             customActions={(record: PermissionRequest) => {
               const isOwner = record.requested_by_user_id === currentUserId;
@@ -728,6 +860,21 @@ export const AssessmentPermissionRequests: React.FC = () => {
 
               return (
                 <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* View Details Button */}
+                  <button
+                    id={`view-details-btn-${record.request_id}`}
+                    data-testid={`view-details-btn-${record.request_id}`}
+                    onClick={() => {
+                      setSelectedDetailsRequest(record);
+                      setIsRejectingInline(false);
+                      setRejectReasonInput('');
+                    }}
+                    className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-300 rounded text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
+                    title="View Request Details"
+                  >
+                    <FileText size={13} />
+                    Details
+                  </button>
                   {/* Assessor Cancel Request Button (Only for Pending requests owned by logged-in user) */}
                   {isPending && isOwner && (
                     <button
@@ -1173,6 +1320,296 @@ export const AssessmentPermissionRequests: React.FC = () => {
                     </>
                   ) : (
                     'Confirm Revoke Approval'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- REQUEST DETAILS MODAL (CLICKABLE NOTIFICATION TARGET) ---------------- */}
+      {selectedDetailsRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl max-w-xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/40 dark:to-gray-900">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-green-600/10 dark:bg-green-500/20 text-green-700 dark:text-green-400 flex items-center justify-center font-bold">
+                  <FileText size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                      Request #{selectedDetailsRequest.request_id}
+                    </h2>
+                    {getStatusBadge(selectedDetailsRequest.request_status)}
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Requested on {selectedDetailsRequest.created_at ? new Date(selectedDetailsRequest.created_at).toLocaleString() : '-'}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setSelectedDetailsRequest(null);
+                  setIsRejectingInline(false);
+                }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+              {/* Requester Profile Information */}
+              <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700">
+                <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Requester Information</h4>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-gray-500">Name:</span> <strong className="text-gray-900 dark:text-white">{selectedDetailsRequest.first_name} {selectedDetailsRequest.last_name}</strong>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Username:</span> <span className="font-mono text-gray-700 dark:text-gray-300">@{selectedDetailsRequest.requester_username || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Role:</span> <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 ml-1">{selectedDetailsRequest.requester_role || 'Staff/Assessor'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Email:</span> <span className="text-gray-700 dark:text-gray-300 truncate block">{selectedDetailsRequest.requester_email || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Request Details */}
+              <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 space-y-2 text-xs">
+                <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Target & Scope</h4>
+                <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-500">Requested Action / Target:</span>
+                  <span className="font-bold text-gray-900 dark:text-white">
+                    {selectedDetailsRequest.target_id_str === 'MANAGE_CERTIFICATES' ? 'Manage Certificates' : selectedDetailsRequest.target_id_str}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-500">Request Type:</span>
+                  <span className="font-semibold text-gray-900 dark:text-white capitalize">
+                    {selectedDetailsRequest.property_type === 'system' ? 'System Permission' : selectedDetailsRequest.property_type}
+                  </span>
+                </div>
+                {selectedDetailsRequest.property_type !== 'system' && (
+                  <>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                      <span className="text-gray-500">Property / Lot #:</span>
+                      <span className="font-mono text-gray-900 dark:text-white">{selectedDetailsRequest.property_or_lot_number || selectedDetailsRequest.target_id_str}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                      <span className="text-gray-500">Owner Name:</span>
+                      <span className="text-gray-900 dark:text-white">{selectedDetailsRequest.owner_name || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-gray-700">
+                      <span className="text-gray-500">Property Address:</span>
+                      <span className="text-gray-900 dark:text-white text-right max-w-[240px] truncate">{selectedDetailsRequest.property_address || 'Address not yet mapped'}</span>
+                    </div>
+                  </>
+                )}
+                <div className="pt-2">
+                  <span className="text-gray-500 block mb-1">Reason / Notes:</span>
+                  <p className="p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 leading-relaxed font-sans">
+                    {selectedDetailsRequest.reason || 'No description provided.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Review Information (If already processed) */}
+              {selectedDetailsRequest.reviewed_by_user_id && (
+                <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-xs space-y-1.5">
+                  <h4 className="font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Review Details</h4>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Reviewed By:</span>
+                    <span className="font-semibold text-gray-900 dark:text-white">{selectedDetailsRequest.reviewer_first_name} {selectedDetailsRequest.reviewer_last_name}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Decision Date:</span>
+                    <span className="text-gray-700 dark:text-gray-300">{selectedDetailsRequest.reviewed_at ? new Date(selectedDetailsRequest.reviewed_at).toLocaleString() : '-'}</span>
+                  </div>
+                  {selectedDetailsRequest.rejection_reason && (
+                    <div className="pt-1 text-red-600 dark:text-red-400">
+                      <span className="font-semibold">Rejection Reason:</span> {selectedDetailsRequest.rejection_reason}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Inline Rejection Reason Field */}
+              {isRejectingInline && (
+                <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 space-y-3">
+                  <label className="block text-xs font-bold text-red-800 dark:text-red-300">
+                    Rejection Reason <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={rejectReasonInput}
+                    onChange={(e) => setRejectReasonInput(e.target.value)}
+                    placeholder="Enter the reason for rejecting this request..."
+                    className="w-full p-2.5 text-xs bg-white dark:bg-gray-900 border border-red-300 dark:border-red-700 rounded-lg outline-none focus:ring-2 focus:ring-red-500 text-gray-900 dark:text-white resize-none"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsRejectingInline(false)}
+                      className="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => rejectRequest(selectedDetailsRequest.request_id, rejectReasonInput)}
+                      disabled={isProcessingReview || !rejectReasonInput.trim()}
+                      className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition disabled:opacity-50 cursor-pointer"
+                    >
+                      {isProcessingReview ? 'Rejecting...' : 'Confirm Rejection'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer with Approve / Reject Controls */}
+            <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDetailsRequest(null);
+                  setIsRejectingInline(false);
+                }}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition cursor-pointer"
+              >
+                Close
+              </button>
+
+              <div className="flex items-center gap-2">
+                {isAdminOrSuper && selectedDetailsRequest.request_status === 'pending' && !isRejectingInline && (
+                  <>
+                    <button
+                      type="button"
+                      id="details-reject-btn"
+                      data-testid="details-reject-btn"
+                      onClick={() => setIsRejectingInline(true)}
+                      disabled={isProcessingReview}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                    >
+                      <XCircle size={16} /> Reject
+                    </button>
+                    <button
+                      type="button"
+                      id="details-approve-btn"
+                      data-testid="details-approve-btn"
+                      onClick={() => approveRequest(selectedDetailsRequest.request_id)}
+                      disabled={isProcessingReview}
+                      className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                    >
+                      {isProcessingReview ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={16} /> Approve Request
+                        </>
+                      )}
+                    </button>
+                  </>
+                )}
+
+                {selectedDetailsRequest.requested_by_user_id === currentUserId && selectedDetailsRequest.request_status === 'pending' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCancelTarget(selectedDetailsRequest);
+                      setSelectedDetailsRequest(null);
+                    }}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    <XCircle size={16} /> Cancel Request
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- STAFF REQUEST PERMISSION MODAL ---------------- */}
+      {showRequestPermModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl max-w-md w-full shadow-2xl overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/40 dark:to-gray-900">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-green-600/10 dark:bg-green-500/20 text-green-700 dark:text-green-400 flex items-center justify-center font-bold">
+                  <ShieldAlert size={18} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Request Permission</h2>
+                  <p className="text-xs text-gray-500">Submit a request to Admin & Super Admin</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowRequestPermModal(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitPermRequest} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                  Requested Permission
+                </label>
+                <select
+                  value={requestPermForm.permission}
+                  onChange={(e) => setRequestPermForm({ ...requestPermForm, permission: e.target.value })}
+                  className="w-full px-3.5 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-green-500 outline-none text-gray-900 dark:text-white cursor-pointer"
+                >
+                  <option value="MANAGE_CERTIFICATES">Manage Certificates (Issue, view, and process certifications)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                  Reason for Request <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  rows={4}
+                  required
+                  value={requestPermForm.reason}
+                  onChange={(e) => setRequestPermForm({ ...requestPermForm, reason: e.target.value })}
+                  placeholder="State your reason for needing this permission (e.g., Assigned to issue certificate of property holdings for clients in Lagonglong)..."
+                  className="w-full px-3.5 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-green-500 outline-none text-gray-900 dark:text-white resize-none"
+                />
+              </div>
+
+              <div className="pt-4 border-t border-gray-200 dark:border-gray-800 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowRequestPermModal(false)}
+                  disabled={isSubmittingPerm}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingPerm}
+                  className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-sm disabled:opacity-50 cursor-pointer"
+                >
+                  {isSubmittingPerm ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Request'
                   )}
                 </button>
               </div>

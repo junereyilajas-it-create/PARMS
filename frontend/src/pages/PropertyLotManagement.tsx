@@ -185,7 +185,7 @@ export function PropertyLotManagement() {
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Lots</h1>
           <p className="mt-1 text-gray-600 dark:text-gray-400">Manage all registered lot properties.</p>
         </div>
-        {['admin', 'staff', 'super_admin'].includes(userRole) && (
+        {['admin', 'staff'].includes(userRole) && (
           <button id="add-property-btn" onClick={() => setShowAddProperty(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium shadow-sm cursor-pointer">
             <Plus size={18} /> Add Property
           </button>
@@ -293,7 +293,7 @@ export function PropertyLotManagement() {
 
       {modal?.mode === 'view' && <CrudModal title="Lot Record" fields={fields} record={modal.record} readOnly onClose={() => setModal(null)} onSave={updateLot} />}
       {modal?.mode === 'edit' && modal.record && <LotRegistrationModal title="Edit Property Lot" initialValues={modal.record} close={() => setModal(null)} onSave={updateLot} />}
-      {showAddProperty && (
+      {showAddProperty && userRole !== 'super_admin' && (
         <AddPropertyWorkflow
           close={() => setShowAddProperty(false)}
           onSave={createProperty}

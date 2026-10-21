@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool } from '../config/db.js';
 import { authenticate, allowRoles } from '../middleware/auth.js';
 import { logActivity } from '../utils/logger.js';
-import { createNotification, notifyRole } from '../utils/notifications.js';
+import { createNotification, notifyRole, notifyRoles } from '../utils/notifications.js';
 
 const router = Router();
 
@@ -545,6 +545,7 @@ router.get('/assessments/requests', authenticate, async (req, res, next) => {
         r.*, 
         u.first_name, 
         u.last_name,
+        u.role AS requester_role,
         u.username AS requester_username,
         u.email AS requester_email,
         rev.first_name AS reviewer_first_name,
@@ -610,11 +611,44 @@ router.get('/assessments/requests', authenticate, async (req, res, next) => {
 });
 
 // POST create permission request
-router.post('/assessments/requests', authenticate, allowRoles('assessor'), async (req, res, next) => {
-  const { property_type, target_id_int, target_id_str, reason } = req.body;
+router.post('/assessments/requests', authenticate, allowRoles('assessor', 'staff'), async (req, res, next) => {
+  const { property_type, target_id_int, target_id_str, reason, request_action } = req.body;
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+
+    const requesterDisplayName = req.user.first_name ? `${req.user.first_name} ${req.user.last_name || ''}`.trim() : req.user.username;
+
+    if (request_action === 'PERMISSION' || property_type === 'system') {
+      const [existingPerm] = await connection.query(`
+        SELECT request_id FROM assessment_permission_requests 
+        WHERE requested_by_user_id = ? AND target_id_str = ? AND request_status = 'pending'
+      `, [req.user.id, target_id_str]);
+
+      if (existingPerm.length > 0) {
+        await connection.rollback();
+        connection.release();
+        return res.status(409).json({ message: `You already have a pending request for ${target_id_str}.` });
+      }
+
+      const [result] = await connection.query(`
+        INSERT INTO assessment_permission_requests (property_type, target_id_int, target_id_str, requested_by_user_id, request_action, reason)
+        VALUES ('system', ?, ?, ?, 'PERMISSION', ?)
+      `, [target_id_int || 0, target_id_str, req.user.id, reason || '']);
+
+      const permReadable = target_id_str === 'MANAGE_CERTIFICATES' ? 'manage certificates' : target_id_str.toLowerCase().replace(/_/g, ' ');
+      await logActivity(connection, req, 'REQUEST', 'Permissions', `ID ${result.insertId}`, `${requesterDisplayName} requested permission to ${permReadable}.`);
+      await notifyRoles(
+        ['admin', 'super_admin'],
+        'New Permission Request',
+        `${requesterDisplayName} has requested permission to ${permReadable}.`,
+        'PERMISSION_REQUEST',
+        result.insertId
+      );
+
+      await connection.commit();
+      return res.status(201).json({ message: 'Permission requested successfully.', request_id: result.insertId });
+    }
 
     const [existing] = await connection.query(`
       SELECT assignment_id FROM assessment_assignments 
@@ -632,10 +666,16 @@ router.post('/assessments/requests', authenticate, allowRoles('assessor'), async
       VALUES (?, ?, ?, ?, ?)
     `, [property_type, target_id_int, target_id_str, req.user.id, reason]);
 
-    await logActivity(connection, req, 'REQUEST', 'Assignments', `ID ${result.insertId}`, `Assessor ${req.user.first_name} requested permission to assess ${target_id_str}.`);
-    await notifyRole('admin', 'New Permission Request', `${req.user.first_name} requested permission to assess ${target_id_str}.`, 'PERMISSION_REQUEST', target_id_str);
+    await logActivity(connection, req, 'REQUEST', 'Assignments', `ID ${result.insertId}`, `Assessor ${requesterDisplayName} requested permission to assess ${target_id_str}.`);
+    await notifyRoles(
+      ['admin', 'super_admin'],
+      'New Permission Request',
+      `${requesterDisplayName} requested permission to assess ${target_id_str}.`,
+      'PERMISSION_REQUEST',
+      result.insertId
+    );
     await connection.commit();
-    res.status(201).json({ message: 'Permission requested successfully.' });
+    res.status(201).json({ message: 'Permission requested successfully.', request_id: result.insertId });
   } catch (err) {
     await connection.rollback();
     next(err);
@@ -661,14 +701,28 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
     // Approve the request
     await connection.query(`UPDATE assessment_permission_requests SET request_status = 'approved', reviewed_by_user_id = ?, reviewed_at = CURRENT_TIMESTAMP WHERE request_id = ?`, [req.user.id, id]);
 
-    if (request.request_action === 'ASSESSMENT') {
+    if (request.request_action === 'PERMISSION' || request.property_type === 'system') {
+      await connection.query(
+        'INSERT IGNORE INTO user_permissions (user_id, permission_name) VALUES (?, ?)',
+        [request.requested_by_user_id, request.target_id_str]
+      );
+      const permReadable = request.target_id_str === 'MANAGE_CERTIFICATES' ? 'manage certificates' : request.target_id_str.toLowerCase().replace(/_/g, ' ');
+      await logActivity(connection, req, 'APPROVE', 'Permissions', `PR ${id}`, `Admin approved permission ${request.target_id_str} for user ID ${request.requested_by_user_id}.`);
+      await createNotification(
+        request.requested_by_user_id,
+        'Permission Request Approved',
+        `Your permission request to ${permReadable} has been approved.`,
+        'PERMISSION_APPROVED',
+        id
+      );
+    } else if (request.request_action === 'ASSESSMENT') {
       // Create the assignment
       const [assignRes] = await connection.query(`
         INSERT INTO assessment_assignments (property_type, target_id_int, target_id_str, assigned_to_user_id, assigned_by_user_id, instructions)
         VALUES (?, ?, ?, ?, ?, 'Auto-assigned from approved permission request.')
       `, [request.property_type, request.target_id_int, request.target_id_str, request.requested_by_user_id, req.user.id]);
       await logActivity(connection, req, 'APPROVE', 'Assignments', `PR ${id}`, `Admin approved permission request PR-${id}. Assignment Created.`);
-      await createNotification(request.requested_by_user_id, 'Permission Request Approved', `Your request to assess ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', request.target_id_str);
+      await createNotification(request.requested_by_user_id, 'Permission Request Approved', `Your request to assess ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', id);
     } else if (request.request_action === 'ADDITION') {
       if (request.property_type === 'lot') {
         await connection.query('UPDATE property_lots SET lot_status = "active" WHERE lot_id = ?', [request.target_id_str]);
@@ -678,7 +732,7 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
         await connection.query('UPDATE properties SET property_status = "active" WHERE property_id = (SELECT property_id FROM property_buildings WHERE building_id = ?)', [request.target_id_str]);
       }
       await logActivity(connection, req, 'APPROVE', 'Properties', `PR ${id}`, `Admin approved addition of ${request.property_type} ${request.target_id_str}.`);
-      await createNotification(request.requested_by_user_id, `${request.property_type === 'lot' ? 'Lot' : 'Building'} Approved`, `Your request to add ${request.property_type} ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', request.target_id_str);
+      await createNotification(request.requested_by_user_id, `${request.property_type === 'lot' ? 'Lot' : 'Building'} Approved`, `Your request to add ${request.property_type} ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', id);
     } else if (request.request_action === 'MANAGEMENT') {
       let data = request.proposed_data;
       if (typeof data === 'string') data = JSON.parse(data);
@@ -700,7 +754,7 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
         }
       }
       await logActivity(connection, req, 'APPROVE', 'Properties', `PR ${id}`, `Admin approved changes to ${request.property_type} ${request.target_id_str}.`);
-      await createNotification(request.requested_by_user_id, `${request.property_type === 'lot' ? 'Lot' : 'Building'} Update Approved`, `Your request to update ${request.property_type} ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', request.target_id_str);
+      await createNotification(request.requested_by_user_id, `${request.property_type === 'lot' ? 'Lot' : 'Building'} Update Approved`, `Your request to update ${request.property_type} ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', id);
     } else if (request.request_action === 'GIS_UPDATE') {
       let data = request.proposed_data;
       if (typeof data === 'string') data = JSON.parse(data);
@@ -726,7 +780,7 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
       }
       
       await logActivity(connection, req, 'APPROVE', 'GIS', `PR ${id}`, `Admin approved GIS update for ${request.property_type} ${request.target_id_str}.`);
-      await createNotification(request.requested_by_user_id, 'GIS Update Approved', `Your request to update GIS for ${request.property_type} ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', request.target_id_str);
+      await createNotification(request.requested_by_user_id, 'GIS Update Approved', `Your request to update GIS for ${request.property_type} ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', id);
     } else if (request.request_action === 'SCAN_ADDITION') {
       let data = request.proposed_data;
       if (typeof data === 'string') data = JSON.parse(data);
@@ -788,7 +842,7 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
       }
       
       await logActivity(connection, req, 'APPROVE', 'Scanner', `PR ${id}`, `Admin approved blueprint lot creation. Lot ID: ${lotId}`);
-      await createNotification(request.requested_by_user_id, 'Blueprint Lot Created', `Your request to create lot ${data.lot_number} was approved.`, 'PERMISSION_APPROVED', lotId);
+      await createNotification(request.requested_by_user_id, 'Blueprint Lot Created', `Your request to create lot ${data.lot_number} was approved.`, 'PERMISSION_APPROVED', id);
     }
 
     await connection.commit();
@@ -821,16 +875,20 @@ router.post('/assessments/requests/:id/reject', authenticate, allowRoles('admin'
       await logActivity(connection, req, 'REJECT', request_action === 'ASSESSMENT' ? 'Assignments' : 'Properties', `PR ${id}`, `Admin rejected ${request_action} request PR-${id}. Reason: ${reason}`);
 
       let notifTitle = 'Permission Request Rejected';
-      let notifMsg = `Your request to assess ${target_id_str} was rejected. Reason: ${reason}`;
-      if (request_action === 'ADDITION') {
+      let notifMsg = `Your request to assess ${target_id_str} was rejected. Reason: ${reason || 'No reason provided.'}`;
+      if (request_action === 'PERMISSION' || property_type === 'system') {
+        const permReadable = target_id_str === 'MANAGE_CERTIFICATES' ? 'manage certificates' : target_id_str.toLowerCase().replace(/_/g, ' ');
+        notifTitle = 'Permission Request Rejected';
+        notifMsg = `Your permission request to ${permReadable} was rejected.${reason ? ' Reason: ' + reason : ''}`;
+      } else if (request_action === 'ADDITION') {
         notifTitle = `${property_type === 'lot' ? 'Lot' : 'Building'} Addition Rejected`;
-        notifMsg = `Your request to add ${property_type} ${target_id_str} was rejected. Reason: ${reason}`;
+        notifMsg = `Your request to add ${property_type} ${target_id_str} was rejected. Reason: ${reason || 'No reason provided.'}`;
       } else if (request_action === 'MANAGEMENT') {
         notifTitle = `${property_type === 'lot' ? 'Lot' : 'Building'} Update Rejected`;
-        notifMsg = `Your request to update ${property_type} ${target_id_str} was rejected. Reason: ${reason}`;
+        notifMsg = `Your request to update ${property_type} ${target_id_str} was rejected. Reason: ${reason || 'No reason provided.'}`;
       } else if (request_action === 'GIS_UPDATE') {
         notifTitle = 'GIS Update Rejected';
-        notifMsg = `Your request to update GIS for ${property_type} ${target_id_str} was rejected. Reason: ${reason}`;
+        notifMsg = `Your request to update GIS for ${property_type} ${target_id_str} was rejected. Reason: ${reason || 'No reason provided.'}`;
         if (reqRow[0].proposed_data) {
           let data = reqRow[0].proposed_data;
           if (typeof data === 'string') data = JSON.parse(data);
@@ -840,7 +898,7 @@ router.post('/assessments/requests/:id/reject', authenticate, allowRoles('admin'
         }
       } else if (request_action === 'SCAN_ADDITION') {
         notifTitle = 'Blueprint Scan Rejected';
-        notifMsg = `Your request to create a lot from a blueprint scan was rejected. Reason: ${reason}`;
+        notifMsg = `Your request to create a lot from a blueprint scan was rejected. Reason: ${reason || 'No reason provided.'}`;
         if (reqRow[0].proposed_data) {
           let data = reqRow[0].proposed_data;
           if (typeof data === 'string') data = JSON.parse(data);
@@ -849,7 +907,7 @@ router.post('/assessments/requests/:id/reject', authenticate, allowRoles('admin'
           }
         }
       }
-      await createNotification(requested_by_user_id, notifTitle, notifMsg, 'PERMISSION_REJECTED', target_id_str);
+      await createNotification(requested_by_user_id, notifTitle, notifMsg, 'PERMISSION_REJECTED', id);
     }
 
     await connection.commit();

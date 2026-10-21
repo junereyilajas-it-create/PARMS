@@ -34,7 +34,9 @@ interface PropertyDetailPanelProps {
   onOpenStreetView: () => void
   onOpenFullDetails: () => void
   onStartMapping?: () => void
+  onRequestMapping?: () => void
   canEditGis?: boolean
+  userRole?: string
 }
 
 export function PropertyDetailPanel({
@@ -44,7 +46,9 @@ export function PropertyDetailPanel({
   onOpenStreetView,
   onOpenFullDetails,
   onStartMapping,
-  canEditGis = false,
+  onRequestMapping,
+  canEditGis: _canEditGis = false,
+  userRole = '',
 }: PropertyDetailPanelProps) {
   const [copiedCoords, setCopiedCoords] = useState(false)
   const [photos, setPhotos] = useState<Array<{ photo_id?: number; file_path: string; file_name?: string | null; file_size?: number | null; is_primary?: number | boolean }>>([])
@@ -142,33 +146,114 @@ export function PropertyDetailPanel({
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar text-xs">
-        {/* Mapping Status Badge */}
-        <div>
+        {/* Mapping Status Badge & Workflow */}
+        <div className="space-y-2">
           {hasGis ? (
-            <div className="flex items-center justify-between p-2.5 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-lg">
-              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-semibold">
-                <CheckCircle2 size={16} />
-                <span>GIS Boundary Mapped</span>
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold">
+                  <CheckCircle2 size={16} />
+                  <span>GIS Boundary Mapped</span>
+                </div>
+                <span className="font-mono text-[11px] text-emerald-700 dark:text-emerald-300 font-bold">
+                  {feature.area_sqm ? `${Number(feature.area_sqm).toFixed(2)} m²` : 'Polygon'}
+                </span>
               </div>
-              <span className="font-mono text-[11px] text-emerald-700 dark:text-emerald-300 font-bold">
-                {feature.area_sqm ? `${Number(feature.area_sqm).toFixed(2)} m²` : 'Polygon'}
-              </span>
+              <div className="grid grid-cols-2 gap-1 text-[11px] text-gray-500 dark:text-gray-400 pt-1.5 border-t border-emerald-100 dark:border-emerald-800/30">
+                <div>Mapped by: <strong className="text-gray-700 dark:text-gray-300">{feature.mapped_by_name || 'Assessor Admin'}</strong></div>
+                <div>Date: <strong className="text-gray-700 dark:text-gray-300">{formatDate(feature.mapped_at)}</strong></div>
+              </div>
+              {/* Actions for Mapped property */}
+              <div className="pt-1 flex items-center justify-end">
+                {['admin', 'super_admin', 'assessor'].includes(userRole) ? (
+                  onStartMapping && (
+                    <button
+                      type="button"
+                      onClick={onStartMapping}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold text-xs transition shadow-sm"
+                    >
+                      <PencilRuler size={12} /> Edit Boundary
+                    </button>
+                  )
+                ) : userRole === 'staff' ? (
+                  feature.latest_request_status === 'approved' ? (
+                    onStartMapping && (
+                      <button
+                        type="button"
+                        onClick={onStartMapping}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-xs transition shadow-sm animate-pulse"
+                      >
+                        <PencilRuler size={12} /> Edit Boundary (Approved)
+                      </button>
+                    )
+                  ) : feature.latest_request_status === 'pending' ? (
+                    <span className="text-[11px] font-semibold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 px-2.5 py-1 rounded-lg border border-purple-200">
+                      Update Request Pending Approval
+                    </span>
+                  ) : (
+                    onRequestMapping && (
+                      <button
+                        type="button"
+                        onClick={onRequestMapping}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition shadow-sm"
+                      >
+                        Request Boundary Update
+                      </button>
+                    )
+                  )
+                ) : null}
+              </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between p-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg">
-              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-semibold">
-                <AlertTriangle size={16} />
-                <span>Needs GIS Mapping</span>
+            <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-bold">
+                  <AlertTriangle size={16} />
+                  <span>Needs GIS Mapping</span>
+                </div>
+                <span className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-300">
+                  Unmapped
+                </span>
               </div>
-              {canEditGis && onStartMapping && (
-                <button
-                  type="button"
-                  onClick={onStartMapping}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded font-medium text-[11px] transition shadow-sm"
-                >
-                  <PencilRuler size={12} /> Map Now
-                </button>
-              )}
+              <div className="pt-1 flex items-center justify-end">
+                {['admin', 'super_admin', 'assessor'].includes(userRole) ? (
+                  onStartMapping && (
+                    <button
+                      type="button"
+                      onClick={onStartMapping}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-xs transition shadow-sm"
+                    >
+                      <PencilRuler size={12} /> Map Property
+                    </button>
+                  )
+                ) : userRole === 'staff' ? (
+                  feature.latest_request_status === 'approved' ? (
+                    onStartMapping && (
+                      <button
+                        type="button"
+                        onClick={onStartMapping}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-xs transition shadow-sm animate-pulse"
+                      >
+                        <PencilRuler size={12} /> Map Property (Approved)
+                      </button>
+                    )
+                  ) : feature.latest_request_status === 'pending' ? (
+                    <span className="text-[11px] font-semibold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 px-2.5 py-1 rounded-lg border border-purple-200">
+                      Mapping Request Pending Approval
+                    </span>
+                  ) : (
+                    onRequestMapping && (
+                      <button
+                        type="button"
+                        onClick={onRequestMapping}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition shadow-sm"
+                      >
+                        Request to Map
+                      </button>
+                    )
+                  )
+                ) : null}
+              </div>
             </div>
           )}
         </div>

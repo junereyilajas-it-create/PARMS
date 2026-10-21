@@ -73,7 +73,10 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
 
 // Keep owner, address, and property creation atomic so incomplete records are
 // never left in the database when a registration fails.
-router.post('/properties/register', authenticate, allowRoles('staff', 'super_admin'), async (req, res, next) => {
+router.post('/properties/register', authenticate, allowRoles('admin', 'staff'), async (req, res, next) => {
+  if (req.user.role === 'super_admin') {
+    return res.status(403).json({ message: 'Super Admin is restricted from registering properties.' });
+  }
   const connection = await pool.getConnection()
   try {
     const { owner, street, barangay, type, lot_area, market_value, coordinates, document, lot_number, title_number } = req.body
@@ -277,7 +280,10 @@ router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'),
 })
 
 router.post('/buildings', authenticate, loadPermissions, async (req, res, next) => {
-  if (req.user.role !== 'super_admin' && !req.user.permissions?.includes('CREATE_BUILDING')) {
+  if (req.user.role === 'super_admin') {
+    return res.status(403).json({ message: 'Super Admin is restricted from creating buildings.' });
+  }
+  if (!req.user.permissions?.includes('CREATE_BUILDING')) {
      return res.status(403).json({ message: 'Insufficient permissions' })
   }
   const connection = await pool.getConnection()
@@ -401,31 +407,13 @@ router.put('/buildings/:id', authenticate, loadPermissions, async (req, res, nex
   }
 })
 
-router.delete('/buildings/:id', authenticate, allowRoles('super_admin'), async (req, res, next) => {
-  const connection = await pool.getConnection()
-  try {
-    await connection.beginTransaction()
-    const id = req.params.id
-    await connection.query('DELETE FROM building_history WHERE building_id = ?', [id])
-    await connection.query('DELETE FROM building_assessment_history WHERE building_id = ?', [id])
-    const [result] = await connection.query('DELETE FROM property_buildings WHERE building_id = ?', [id])
-    if (!result.affectedRows) {
-      await connection.rollback()
-      return res.status(404).json({ message: 'Record not found' })
-    }
-    await connection.commit()
-    res.status(204).end()
-  } catch (e) {
-    await connection.rollback()
-    next(e)
-  } finally {
-    connection.release()
-  }
-})
 
 // Custom endpoints for Lots to handle GIS locations
 router.post('/lots', authenticate, loadPermissions, async (req, res, next) => {
-  if (req.user.role !== 'super_admin' && !req.user.permissions?.includes('CREATE_LOT')) {
+  if (req.user.role === 'super_admin') {
+    return res.status(403).json({ message: 'Super Admin is restricted from creating lots.' });
+  }
+  if (!req.user.permissions?.includes('CREATE_LOT')) {
      return res.status(403).json({ message: 'Insufficient permissions' })
   }
   const connection = await pool.getConnection()
@@ -522,13 +510,28 @@ router.delete('/lots/:id', authenticate, loadPermissions, async (req, res, next)
   try {
     await connection.beginTransaction()
     const id = req.params.id
-    await connection.query('DELETE FROM lot_history WHERE lot_id = ?', [id])
-    await connection.query('DELETE FROM lot_assessment_history WHERE lot_id = ?', [id])
-    const [result] = await connection.query('DELETE FROM property_lots WHERE lot_id = ?', [id])
-    if (!result.affectedRows) {
+    const [lotRows] = await connection.query('SELECT property_id FROM property_lots WHERE lot_id = ?', [id])
+    if (!lotRows.length) {
       await connection.rollback()
       return res.status(404).json({ message: 'Record not found' })
     }
+    const propId = lotRows[0].property_id
+
+    await connection.query('DELETE FROM lot_history WHERE lot_id = ?', [id])
+    await connection.query('DELETE FROM lot_assessment_history WHERE lot_id = ?', [id])
+    await connection.query('DELETE FROM gis_locations WHERE lot_id = ?', [id])
+    await connection.query('DELETE FROM gis_mapping_requests WHERE target_id = ? AND property_type = "lot"', [id])
+    await connection.query('DELETE FROM property_photos WHERE lot_id = ?', [id])
+    await connection.query('DELETE FROM property_lots WHERE lot_id = ?', [id])
+
+    // If property has no other lot or building, remove the property record
+    const [otherLots] = await connection.query('SELECT lot_id FROM property_lots WHERE property_id = ?', [propId])
+    const [otherBldgs] = await connection.query('SELECT building_id FROM property_buildings WHERE property_id = ?', [propId])
+    if (otherLots.length === 0 && otherBldgs.length === 0) {
+      await connection.query('DELETE FROM property_photos WHERE property_id = ?', [propId])
+      await connection.query('DELETE FROM properties WHERE property_id = ?', [propId])
+    }
+
     await connection.commit()
     res.status(204).end()
   } catch (e) {
@@ -547,14 +550,28 @@ router.delete('/buildings/:id', authenticate, loadPermissions, async (req, res, 
   try {
     await connection.beginTransaction()
     const id = req.params.id
-    await connection.query('DELETE FROM building_history WHERE building_id = ?', [id])
-    await connection.query('DELETE FROM building_assessment_history WHERE building_id = ?', [id])
-    await connection.query('DELETE FROM gis_locations WHERE building_id = ?', [id])
-    const [result] = await connection.query('DELETE FROM property_buildings WHERE building_id = ?', [id])
-    if (!result.affectedRows) {
+    const [bldgRows] = await connection.query('SELECT property_id FROM property_buildings WHERE building_id = ?', [id])
+    if (!bldgRows.length) {
       await connection.rollback()
       return res.status(404).json({ message: 'Record not found' })
     }
+    const propId = bldgRows[0].property_id
+
+    await connection.query('DELETE FROM building_history WHERE building_id = ?', [id])
+    await connection.query('DELETE FROM building_assessment_history WHERE building_id = ?', [id])
+    await connection.query('DELETE FROM gis_locations WHERE building_id = ?', [id])
+    await connection.query('DELETE FROM gis_mapping_requests WHERE target_id = ? AND property_type = "building"', [id])
+    await connection.query('DELETE FROM property_photos WHERE building_id = ?', [id])
+    await connection.query('DELETE FROM property_buildings WHERE building_id = ?', [id])
+
+    // If property has no other lot or building, remove the property record
+    const [otherLots] = await connection.query('SELECT lot_id FROM property_lots WHERE property_id = ?', [propId])
+    const [otherBldgs] = await connection.query('SELECT building_id FROM property_buildings WHERE property_id = ?', [propId])
+    if (otherLots.length === 0 && otherBldgs.length === 0) {
+      await connection.query('DELETE FROM property_photos WHERE property_id = ?', [propId])
+      await connection.query('DELETE FROM properties WHERE property_id = ?', [propId])
+    }
+
     await connection.commit()
     res.status(204).end()
   } catch (e) {

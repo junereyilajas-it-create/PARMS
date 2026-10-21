@@ -7,7 +7,10 @@ import {
   Search, 
   Download, 
   RotateCcw, 
-  Loader2
+  Loader2,
+  ArrowLeft,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import api from '../lib/api';
 import { useModal } from '../contexts/ModalContext';
@@ -23,14 +26,21 @@ const LAGONGLONG_BARANGAYS = [
   'Tabok'
 ];
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
 export const OperationalIntelligenceReports: React.FC = () => {
   const { showSuccess, showError } = useModal();
   const [activeTab, setActiveTab] = useState<'generate' | 'history'>('generate');
 
   // Selected report type
-  const [reportType, setReportType] = useState('semi-annual');
+  const [reportType, setReportType] = useState('monthly');
 
   // Report Specific Filter States
+  const [month, setMonth] = useState((new Date().getMonth() + 1).toString());
+  const [monthlyCategory, setMonthlyCategory] = useState('all');
   const [semester, setSemester] = useState('January-June');
   const [year, setYear] = useState(new Date().getFullYear().toString());
 
@@ -46,6 +56,7 @@ export const OperationalIntelligenceReports: React.FC = () => {
   // Data states
   const [reportData, setReportData] = useState<any>(null);
   const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyDetailReport, setHistoryDetailReport] = useState<any>(null);
   const [assessorsList, setAssessorsList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -59,6 +70,7 @@ export const OperationalIntelligenceReports: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'history') {
       loadHistory();
+      setHistoryDetailReport(null);
     }
   }, [activeTab]);
 
@@ -81,6 +93,8 @@ export const OperationalIntelligenceReports: React.FC = () => {
     setStartDate('');
     setEndDate('');
     setSemester('January-June');
+    setMonth((new Date().getMonth() + 1).toString());
+    setMonthlyCategory('all');
     setYear(new Date().getFullYear().toString());
   };
 
@@ -88,7 +102,10 @@ export const OperationalIntelligenceReports: React.FC = () => {
   const handleGenerate = async () => {
     setIsLoading(true);
     try {
-      if (reportType === 'semi-annual') {
+      if (reportType === 'monthly') {
+        const res = await api.get(`/reports/monthly?month=${encodeURIComponent(month)}&year=${encodeURIComponent(year)}&category=${encodeURIComponent(monthlyCategory)}`);
+        setReportData({ type: 'monthly', data: res.data });
+      } else if (reportType === 'semi-annual') {
         const res = await api.get(`/reports/semi-annual?period=${encodeURIComponent(semester)}&year=${encodeURIComponent(year)}`);
         setReportData({ type: 'semi-annual', data: res.data });
       } else if (reportType === 'property-summary') {
@@ -132,6 +149,7 @@ export const OperationalIntelligenceReports: React.FC = () => {
 
   const getReportTitle = (type: string) => {
     const titles: Record<string, string> = {
+      'monthly': 'Monthly Cadastral & Assessment Report',
       'semi-annual': 'Semi-Annual Assessment Report',
       'property-summary': 'Property Assessment Summary',
       'gis-summary': 'GIS / Tax Mapping Report',
@@ -141,22 +159,42 @@ export const OperationalIntelligenceReports: React.FC = () => {
     return titles[type] || 'Official Assessment Report';
   };
 
+  const handleOpenHistoryReport = async (row: any) => {
+    try {
+      setIsLoading(true);
+      const res = await api.get(`/reports/history/${row.report_id}`);
+      setHistoryDetailReport(res.data);
+    } catch (e: any) {
+      showError(e.response?.data?.message || 'Failed to open historical report details.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSaveToHistory = async () => {
     if (!reportData) return;
     try {
-      const period = reportType === 'semi-annual' ? `${semester} ${year}` : new Date().toLocaleDateString();
+      let period = new Date().toLocaleDateString();
+      if (reportType === 'monthly') {
+        period = reportData.data?.reporting_period || `${MONTH_NAMES[parseInt(month) - 1]} ${year}`;
+      } else if (reportType === 'semi-annual') {
+        period = `${semester} ${year}`;
+      }
+
       const count = 
-        reportData.data?.summary?.record_count || 
-        reportData.data?.summary?.total_new_assessments ||
-        reportData.data?.summary?.total_properties || 
-        reportData.data?.total_properties || 
-        reportData.data?.total_mapped_properties || 
-        reportData.data?.records?.length || 0;
+        reportData.data?.monthly_activity?.assessments?.total_assessments ??
+        reportData.data?.summary?.record_count ?? 
+        reportData.data?.summary?.total_new_assessments ??
+        reportData.data?.summary?.total_properties ?? 
+        reportData.data?.total_properties ?? 
+        reportData.data?.total_mapped_properties ?? 
+        reportData.data?.records?.length ?? 0;
 
       await api.post('/reports/history', {
         report_type: getReportTitle(reportType),
         reporting_period: period,
-        record_count: count
+        record_count: count,
+        report_data: reportData
       });
       showSuccess('Official report successfully saved to report history.');
       loadHistory();
@@ -288,6 +326,42 @@ export const OperationalIntelligenceReports: React.FC = () => {
         'Barangay,Total Properties,Mapped Count,Unmapped Count,Coverage (%)',
         ...barangays.map((b: any) => `"${b.barangay_name}",${b.total_properties},${b.mapped_count},${b.unmapped_count},${b.coverage_pct}%`)
       ].join('\r\n');
+    } else if (reportType === 'monthly') {
+      const d = reportData.data || {};
+      const inv = d.inventory || {};
+      const act = d.monthly_activity || {};
+      const barangays = d.barangay_breakdown || [];
+
+      csvContent = [
+        `# MONTHLY CADASTRAL & ASSESSMENT REPORT`,
+        `# Reporting Period: ${d.reporting_period || ''} (${d.date_range?.start || ''} to ${d.date_range?.end || ''})`,
+        `# Generated: ${dateGenerated}`,
+        '',
+        'I. REAL PROPERTY INVENTORY (CUMULATIVE AS OF REPORT DATE),COUNT',
+        `Total Properties Registered,${inv.total_properties || 0}`,
+        `Total Lots Registered,${inv.total_lots || 0}`,
+        `Total Buildings Registered,${inv.total_buildings || 0}`,
+        `Total Mapped Properties,${inv.total_mapped || 0}`,
+        `Total Unmapped Properties,${inv.total_unmapped || 0}`,
+        `GIS Mapping Coverage Rate,${inv.mapping_coverage_pct || 0}%`,
+        '',
+        'II. MONTHLY ACTIVITIES (DURING SELECTED PERIOD),COUNT',
+        `Newly Recorded Lots,${act.properties?.new_lots || 0}`,
+        `Newly Recorded Buildings,${act.properties?.new_buildings || 0}`,
+        `Newly Registered Owners,${act.properties?.new_owners || 0}`,
+        `Assessments Created,${act.assessments?.total_assessments || 0}`,
+        `Approved Assessments,${act.assessments?.approved_assessments || 0}`,
+        `Pending Assessments,${act.assessments?.pending_assessments || 0}`,
+        `Total Assessed Value (PHP),${Number(act.assessments?.total_assessed_value || 0).toFixed(2)}`,
+        `Certificate Requests Submitted,${act.certificates?.total_requests || 0}`,
+        `Certificate Requests Approved,${act.certificates?.approved_requests || 0}`,
+        `Mapping Requests Submitted,${act.mapping_requests?.total_requests || 0}`,
+        `Mapping Requests Completed,${act.mapping_requests?.completed_requests || 0}`,
+        '',
+        'III. BARANGAY MONTHLY BREAKDOWN',
+        'Barangay,New Lots,New Buildings,Assessments,Total Assessed Value (PHP)',
+        ...barangays.map((b: any) => `"${b.barangay_name}",${b.new_lots || 0},${b.new_buildings || 0},${b.assessments || 0},${Number(b.assessed_value || 0).toFixed(2)}`)
+      ].join('\r\n');
     }
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -353,6 +427,7 @@ export const OperationalIntelligenceReports: React.FC = () => {
                   }} 
                   className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-300 rounded-xl dark:bg-gray-800 dark:border-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 font-medium"
                 >
+                  <option value="monthly">Monthly Cadastral & Assessment Report</option>
                   <option value="semi-annual">Semi-Annual Assessment Report</option>
                   <option value="property-summary">Property Assessment Summary</option>
                   <option value="assessed-value">Assessed Value Report</option>
@@ -362,6 +437,44 @@ export const OperationalIntelligenceReports: React.FC = () => {
               </div>
 
               {/* REPORT SPECIFIC FILTERS */}
+              {reportType === 'monthly' && (
+                <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Select Reporting Month</label>
+                    <select 
+                      value={month} 
+                      onChange={(e) => setMonth(e.target.value)} 
+                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-300 rounded-xl dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    >
+                      {MONTH_NAMES.map((mName, idx) => (
+                        <option key={idx + 1} value={(idx + 1).toString()}>{mName}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Calendar Year</label>
+                    <input 
+                      type="number" 
+                      value={year} 
+                      onChange={(e) => setYear(e.target.value)} 
+                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-300 rounded-xl dark:bg-gray-800 dark:border-gray-700 dark:text-white" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Report Focus Category</label>
+                    <select 
+                      value={monthlyCategory} 
+                      onChange={(e) => setMonthlyCategory(e.target.value)} 
+                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-300 rounded-xl dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    >
+                      <option value="all">Comprehensive Municipal Summary</option>
+                      <option value="properties">Properties & Registrations Only</option>
+                      <option value="assessments">Field Assessments & Approvals</option>
+                      <option value="certificates">Certificates & Mapping Requests</option>
+                    </select>
+                  </div>
+                </div>
+              )}
               {reportType === 'semi-annual' && (
                 <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-gray-700">
                   <div>
@@ -628,6 +741,199 @@ export const OperationalIntelligenceReports: React.FC = () => {
                   <h1 className="text-xl font-black uppercase mt-3 tracking-wide text-green-800 dark:text-green-400 print:text-black">Office of the Municipal Assessor</h1>
                   <p className="text-[11px] text-gray-500 print:text-black mt-1">Property Assessment and Records Management System (PARMS)</p>
                 </div>
+
+                {/* ========================================================================= */}
+                {/* 0. MONTHLY ASSESSMENT & CADASTRAL REPORT PREVIEW                          */}
+                {/* ========================================================================= */}
+                {reportType === 'monthly' && reportData.type === 'monthly' && (
+                  <div className="space-y-8">
+                    <div className="text-center">
+                      <h2 className="text-lg font-bold underline uppercase tracking-wide">
+                        MONTHLY CADASTRAL & ASSESSMENT REPORT
+                      </h2>
+                      <p className="text-xs font-semibold mt-1">
+                        Reporting Period: {reportData.data.reporting_period} ({reportData.data.date_range?.start} to {reportData.data.date_range?.end})
+                      </p>
+                      <p className="text-[11px] text-gray-500 print:text-black mt-0.5">
+                        Generated on {new Date(reportData.data.generated_date).toLocaleString()} • Scope: {reportData.data.category === 'all' ? 'Comprehensive Municipal Report' : reportData.data.category.toUpperCase()}
+                      </p>
+                    </div>
+
+                    {/* Section I: Real Property Inventory */}
+                    <div className="space-y-4 text-sm font-sans">
+                      <div className="flex items-center justify-between border-b pb-1 border-gray-300 dark:border-gray-700 print:border-black">
+                        <p className="font-bold underline text-sm font-serif">I. REAL PROPERTY INVENTORY (CUMULATIVE AS OF REPORT DATE)</p>
+                        <span className="text-[10px] text-gray-500 print:text-black font-semibold">Total Properties = Lots + Buildings</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800/50 print:bg-transparent rounded-xl border border-gray-200 dark:border-gray-700 print:border-black text-center">
+                          <span className="text-[11px] text-gray-500 print:text-black uppercase block font-semibold">Total Properties</span>
+                          <span className="text-2xl font-black text-gray-900 dark:text-white print:text-black">{reportData.data.inventory.total_properties}</span>
+                          <span className="text-[10px] text-gray-400 print:text-black block mt-0.5">Official Inventory</span>
+                        </div>
+                        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 print:bg-transparent rounded-xl border border-emerald-200 dark:border-emerald-800 print:border-black text-center">
+                          <span className="text-[11px] text-emerald-800 dark:text-emerald-300 print:text-black uppercase block font-semibold">Total Lots</span>
+                          <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400 print:text-black">{reportData.data.inventory.total_lots}</span>
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 print:text-black block mt-0.5">Land Parcels</span>
+                        </div>
+                        <div className="p-3 bg-purple-50 dark:bg-purple-950/30 print:bg-transparent rounded-xl border border-purple-200 dark:border-purple-800 print:border-black text-center">
+                          <span className="text-[11px] text-purple-800 dark:text-purple-300 print:text-black uppercase block font-semibold">Total Buildings</span>
+                          <span className="text-2xl font-black text-purple-700 dark:text-purple-400 print:text-black">{reportData.data.inventory.total_buildings}</span>
+                          <span className="text-[10px] text-purple-600 dark:text-purple-400 print:text-black block mt-0.5">Structures</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="p-2.5 bg-blue-50 dark:bg-blue-950/30 print:bg-transparent rounded-xl border border-blue-200 dark:border-blue-800 print:border-black text-center">
+                          <span className="text-[10px] text-blue-700 dark:text-blue-300 print:text-black uppercase block font-semibold">Mapped Properties</span>
+                          <span className="text-lg font-bold text-blue-800 dark:text-blue-300 print:text-black">{reportData.data.inventory.total_mapped}</span>
+                          <span className="text-[10px] text-gray-500 print:text-black block">({reportData.data.inventory.mapped_lots} Lots, {reportData.data.inventory.mapped_buildings} Bldgs)</span>
+                        </div>
+                        <div className="p-2.5 bg-amber-50 dark:bg-amber-950/30 print:bg-transparent rounded-xl border border-amber-200 dark:border-amber-800 print:border-black text-center">
+                          <span className="text-[10px] text-amber-700 dark:text-amber-300 print:text-black uppercase block font-semibold">Unmapped Properties</span>
+                          <span className="text-lg font-bold text-amber-800 dark:text-amber-300 print:text-black">{reportData.data.inventory.total_unmapped}</span>
+                          <span className="text-[10px] text-gray-500 print:text-black block">Awaiting GIS Mapping</span>
+                        </div>
+                        <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 print:bg-transparent rounded-xl border border-gray-200 dark:border-gray-700 print:border-black text-center">
+                          <span className="text-[10px] text-gray-600 dark:text-gray-400 print:text-black uppercase block font-semibold">Mapping Coverage</span>
+                          <span className="text-lg font-bold text-gray-900 dark:text-white print:text-black">{reportData.data.inventory.mapping_coverage_pct}%</span>
+                          <span className="text-[10px] text-gray-500 print:text-black block">Cadastral Completion</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section II: Monthly Real Property Registrations */}
+                    <div className="space-y-4 text-sm font-sans">
+                      <p className="font-bold underline text-sm font-serif">II. MONTHLY REGISTRATIONS & NEW ACTIVITY ({reportData.data.reporting_period})</p>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800/30 print:bg-transparent rounded-xl border border-gray-200 dark:border-gray-700 print:border-black text-center">
+                          <span className="text-[11px] text-gray-500 print:text-black uppercase block font-semibold">Newly Recorded Lots</span>
+                          <span className="text-xl font-bold text-gray-900 dark:text-white print:text-black">{reportData.data.monthly_activity.properties.new_lots}</span>
+                        </div>
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800/30 print:bg-transparent rounded-xl border border-gray-200 dark:border-gray-700 print:border-black text-center">
+                          <span className="text-[11px] text-gray-500 print:text-black uppercase block font-semibold">Newly Recorded Buildings</span>
+                          <span className="text-xl font-bold text-gray-900 dark:text-white print:text-black">{reportData.data.monthly_activity.properties.new_buildings}</span>
+                        </div>
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800/30 print:bg-transparent rounded-xl border border-gray-200 dark:border-gray-700 print:border-black text-center">
+                          <span className="text-[11px] text-gray-500 print:text-black uppercase block font-semibold">New Property Owners</span>
+                          <span className="text-xl font-bold text-gray-900 dark:text-white print:text-black">{reportData.data.monthly_activity.properties.new_owners}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section III: Monthly Field Assessments */}
+                    <div className="space-y-4 text-sm font-sans">
+                      <p className="font-bold underline text-sm font-serif">III. MONTHLY FIELD ASSESSMENTS & APPRAISALS</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        <div className="p-2.5 bg-gray-50 dark:bg-gray-800/40 print:bg-transparent rounded-xl border border-gray-200 dark:border-gray-700 print:border-black text-center">
+                          <span className="text-[10px] text-gray-500 print:text-black uppercase block font-semibold">Assessments Created</span>
+                          <span className="text-lg font-bold text-gray-900 dark:text-white print:text-black">{reportData.data.monthly_activity.assessments.total_assessments}</span>
+                        </div>
+                        <div className="p-2.5 bg-green-50 dark:bg-green-950/30 print:bg-transparent rounded-xl border border-green-200 dark:border-green-800 print:border-black text-center">
+                          <span className="text-[10px] text-green-700 dark:text-green-300 print:text-black uppercase block font-semibold">Approved</span>
+                          <span className="text-lg font-bold text-green-700 dark:text-green-400 print:text-black">{reportData.data.monthly_activity.assessments.approved_assessments}</span>
+                        </div>
+                        <div className="p-2.5 bg-amber-50 dark:bg-amber-950/30 print:bg-transparent rounded-xl border border-amber-200 dark:border-amber-800 print:border-black text-center">
+                          <span className="text-[10px] text-amber-700 dark:text-amber-300 print:text-black uppercase block font-semibold">Pending Review</span>
+                          <span className="text-lg font-bold text-amber-700 dark:text-amber-400 print:text-black">{reportData.data.monthly_activity.assessments.pending_assessments}</span>
+                        </div>
+                        <div className="p-2.5 bg-blue-50 dark:bg-blue-950/30 print:bg-transparent rounded-xl border border-blue-200 dark:border-blue-800 print:border-black text-center">
+                          <span className="text-[10px] text-blue-700 dark:text-blue-300 print:text-black uppercase block font-semibold">Assessor Assignments</span>
+                          <span className="text-lg font-bold text-blue-700 dark:text-blue-400 print:text-black">{reportData.data.monthly_activity.assignments.total_assigned}</span>
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-green-50/70 dark:bg-green-950/20 print:bg-transparent rounded-xl border border-green-200 dark:border-green-800 print:border-black flex items-center justify-between">
+                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 print:text-black">Total Assessed Value Generated (Approved in Month):</span>
+                        <span className="text-base font-bold text-green-700 dark:text-green-400 print:text-black">
+                          ₱{Number(reportData.data.monthly_activity.assessments.total_assessed_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Section IV: Certificates and GIS Mapping Requests */}
+                    <div className="space-y-4 text-sm font-sans">
+                      <p className="font-bold underline text-sm font-serif">IV. CERTIFICATE REQUESTS & GIS TAX MAPPING REQUESTS</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800/30 print:bg-transparent rounded-xl border border-gray-200 dark:border-gray-700 print:border-black">
+                          <p className="text-xs font-bold text-gray-800 dark:text-gray-200 print:text-black mb-2">Certificate Requests</p>
+                          <div className="space-y-1.5 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-gray-500 print:text-black">Total Submitted:</span>
+                              <span className="font-bold">{reportData.data.monthly_activity.certificates.total_requests}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-green-600 dark:text-green-400 print:text-black">Approved / Released:</span>
+                              <span className="font-bold text-green-700 dark:text-green-400">{reportData.data.monthly_activity.certificates.approved_requests}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-amber-600 dark:text-amber-400 print:text-black">Pending Processing:</span>
+                              <span className="font-bold text-amber-700 dark:text-amber-400">{reportData.data.monthly_activity.certificates.pending_requests}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-red-600 dark:text-red-400 print:text-black">Rejected:</span>
+                              <span className="font-bold text-red-700 dark:text-red-400">{reportData.data.monthly_activity.certificates.rejected_requests}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800/30 print:bg-transparent rounded-xl border border-gray-200 dark:border-gray-700 print:border-black">
+                          <p className="text-xs font-bold text-gray-800 dark:text-gray-200 print:text-black mb-2">GIS Tax Mapping Requests</p>
+                          <div className="space-y-1.5 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-gray-500 print:text-black">Total Submitted:</span>
+                              <span className="font-bold">{reportData.data.monthly_activity.mapping_requests.total_requests}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-emerald-600 dark:text-emerald-400 print:text-black">Approved by Admin:</span>
+                              <span className="font-bold text-emerald-700 dark:text-emerald-400">{reportData.data.monthly_activity.mapping_requests.approved_requests}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-blue-600 dark:text-blue-400 print:text-black">Completed / Coordinates Saved:</span>
+                              <span className="font-bold text-blue-700 dark:text-blue-400">{reportData.data.monthly_activity.mapping_requests.completed_requests}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-amber-600 dark:text-amber-400 print:text-black">Pending Approval:</span>
+                              <span className="font-bold text-amber-700 dark:text-amber-400">{reportData.data.monthly_activity.mapping_requests.pending_requests}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section V: Barangay Breakdown */}
+                    <div className="space-y-4 text-sm font-sans">
+                      <p className="font-bold underline text-sm font-serif">V. BARANGAY ACTIVITY IN SELECTED MONTH</p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse border border-gray-300 dark:border-gray-600 print:border-black">
+                          <thead>
+                            <tr className="bg-gray-100 dark:bg-gray-800 print:bg-transparent">
+                              <th className="border border-gray-300 dark:border-gray-600 print:border-black p-2 text-left">Barangay</th>
+                              <th className="border border-gray-300 dark:border-gray-600 print:border-black p-2 text-right">New Lots</th>
+                              <th className="border border-gray-300 dark:border-gray-600 print:border-black p-2 text-right">New Buildings</th>
+                              <th className="border border-gray-300 dark:border-gray-600 print:border-black p-2 text-right">Assessments</th>
+                              <th className="border border-gray-300 dark:border-gray-600 print:border-black p-2 text-right">Assessed Value Created</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {reportData.data.barangay_breakdown?.map((b: any) => (
+                              <tr key={b.barangay_name} className="hover:bg-gray-50/50">
+                                <td className="border border-gray-300 dark:border-gray-600 print:border-black p-2 font-medium">Brgy. {b.barangay_name}</td>
+                                <td className="border border-gray-300 dark:border-gray-600 print:border-black p-2 text-right">{b.new_lots}</td>
+                                <td className="border border-gray-300 dark:border-gray-600 print:border-black p-2 text-right">{b.new_buildings}</td>
+                                <td className="border border-gray-300 dark:border-gray-600 print:border-black p-2 text-right font-semibold">{b.assessments}</td>
+                                <td className="border border-gray-300 dark:border-gray-600 print:border-black p-2 text-right font-semibold text-green-700 dark:text-green-400 print:text-black">
+                                  ₱{Number(b.assessed_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* ========================================================================= */}
                 {/* 1. SEMI-ANNUAL ASSESSMENT REPORT PREVIEW                                  */}
@@ -1026,42 +1332,233 @@ export const OperationalIntelligenceReports: React.FC = () => {
         </div>
       ) : (
         /* ========================================================================= */
-        /* REPORT HISTORY TAB (DATABASE BACKED)                                      */
+        /* REPORT HISTORY TAB (DATABASE BACKED & CLICKABLE ROWS)                     */
         /* ========================================================================= */
-        <div className="glass-panel p-6 rounded-2xl border border-gray-100 dark:border-gray-700 print:hidden space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Generated Report History</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Historical official reports saved to persistent database audit records.</p>
-            </div>
-            <button
-              onClick={loadHistory}
-              className="text-xs font-semibold text-green-600 hover:text-green-700 dark:text-green-400 flex items-center gap-1"
-            >
-              <RotateCcw size={13} /> Refresh History
-            </button>
-          </div>
+        <div className="space-y-4">
+          {historyDetailReport ? (
+            <div className="space-y-6">
+              {/* Back Bar & Historical Meta */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm print:hidden">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setHistoryDetailReport(null)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white rounded-xl transition-colors"
+                  >
+                    <ArrowLeft size={16} /> Back to Report History
+                  </button>
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                      {historyDetailReport.report_type}
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Reporting Period: <span className="font-semibold text-gray-800 dark:text-gray-200">{historyDetailReport.reporting_period}</span> • Generated: {new Date(historyDetailReport.generated_date).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
 
-          <DataTable
-            columns={[
-              { key: 'report_id', label: 'Report ID' },
-              { key: 'report_type', label: 'Report Title' },
-              { key: 'reporting_period', label: 'Period' },
-              { key: 'record_count', label: 'Records' },
-              { 
-                key: 'status', 
-                label: 'Status',
-                render: (val) => (
-                  <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                    {val || 'Generated'}
-                  </span>
-                )
-              },
-              { key: 'generated_date', label: 'Generated Date', render: (val) => new Date(val).toLocaleString() },
-              { key: 'first_name', label: 'Generated By', render: (_, row) => `${row.first_name || ''} ${row.last_name || ''}` }
-            ]}
-            data={historyData}
-          />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handlePrint}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white rounded-xl transition"
+                  >
+                    <Printer size={14} /> Print
+                  </button>
+                </div>
+              </div>
+
+              {/* Saved Document View */}
+              <div className="glass-panel p-8 md:p-12 rounded-2xl bg-white dark:bg-gray-900 min-h-[700px] text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 print:border-none print:p-0">
+                {historyDetailReport.parsed_report_data ? (
+                  <div className="max-w-3xl mx-auto font-serif">
+                    {/* Header */}
+                    <div className="text-center mb-8 border-b-2 border-black dark:border-white print:border-black pb-5">
+                      <h2 className="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 print:text-black">Republic of the Philippines</h2>
+                      <h3 className="text-base font-bold text-gray-800 dark:text-gray-100 print:text-black">Province of Misamis Oriental</h3>
+                      <h3 className="text-base font-bold text-gray-800 dark:text-gray-100 print:text-black">Municipality of Lagonglong</h3>
+                      <h1 className="text-xl font-black uppercase mt-3 tracking-wide text-green-800 dark:text-green-400 print:text-black">Office of the Municipal Assessor</h1>
+                      <div className="inline-block mt-2 px-2.5 py-0.5 rounded-full text-[11px] font-sans font-bold bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 print:hidden">
+                        Historical Snapshot (Report #{historyDetailReport.report_id})
+                      </div>
+                    </div>
+
+                    {/* Snapshot Metadata Summary */}
+                    <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800/40 print:bg-transparent rounded-xl border border-gray-200 dark:border-gray-700 print:border-black text-xs font-sans grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div>
+                        <span className="text-gray-500 uppercase block font-semibold text-[10px]">Report ID</span>
+                        <span className="font-bold text-gray-900 dark:text-white">#{historyDetailReport.report_id}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 uppercase block font-semibold text-[10px]">Reporting Period</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{historyDetailReport.reporting_period}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 uppercase block font-semibold text-[10px]">Generated By</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{historyDetailReport.first_name || ''} {historyDetailReport.last_name || 'System Admin'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 uppercase block font-semibold text-[10px]">Record Count</span>
+                        <span className="font-bold text-green-700 dark:text-green-400">{historyDetailReport.record_count} items</span>
+                      </div>
+                    </div>
+
+                    {/* Previews based on saved type */}
+                    <div className="space-y-4">
+                      {historyDetailReport.parsed_report_data.type === 'monthly' && (
+                        <div className="space-y-6 font-sans">
+                          <h2 className="text-base font-bold uppercase underline font-serif text-center">MONTHLY CADASTRAL & ASSESSMENT REPORT</h2>
+                          {historyDetailReport.parsed_report_data.data?.inventory && (
+                            <div className="grid grid-cols-3 gap-3 text-center">
+                              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                                <span className="text-[10px] text-gray-500 uppercase block font-semibold">Total Properties</span>
+                                <span className="text-xl font-bold">{historyDetailReport.parsed_report_data.data.inventory.total_properties}</span>
+                              </div>
+                              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                                <span className="text-[10px] text-emerald-700 uppercase block font-semibold">Total Lots</span>
+                                <span className="text-xl font-bold text-emerald-700">{historyDetailReport.parsed_report_data.data.inventory.total_lots}</span>
+                              </div>
+                              <div className="p-3 bg-purple-50 dark:bg-purple-950/30 rounded-xl border border-purple-200 dark:border-purple-800">
+                                <span className="text-[10px] text-purple-700 uppercase block font-semibold">Total Buildings</span>
+                                <span className="text-xl font-bold text-purple-700">{historyDetailReport.parsed_report_data.data.inventory.total_buildings}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {historyDetailReport.parsed_report_data.data?.monthly_activity && (
+                            <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2 text-xs">
+                              <p className="font-bold font-serif text-sm underline">Monthly Activity Snapshot</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>Newly Recorded Lots: <span className="font-bold">{historyDetailReport.parsed_report_data.data.monthly_activity.properties?.new_lots || 0}</span></div>
+                                <div>Newly Recorded Buildings: <span className="font-bold">{historyDetailReport.parsed_report_data.data.monthly_activity.properties?.new_buildings || 0}</span></div>
+                                <div>New Property Owners: <span className="font-bold">{historyDetailReport.parsed_report_data.data.monthly_activity.properties?.new_owners || 0}</span></div>
+                                <div>Assessments Created: <span className="font-bold">{historyDetailReport.parsed_report_data.data.monthly_activity.assessments?.total_assessments || 0}</span></div>
+                                <div>Approved Assessments: <span className="font-bold text-green-600">{historyDetailReport.parsed_report_data.data.monthly_activity.assessments?.approved_assessments || 0}</span></div>
+                                <div>Assessed Value Created: <span className="font-bold text-green-700">₱{Number(historyDetailReport.parsed_report_data.data.monthly_activity.assessments?.total_assessed_value || 0).toLocaleString()}</span></div>
+                              </div>
+                            </div>
+                          )}
+
+                          {historyDetailReport.parsed_report_data.data?.barangay_breakdown && (
+                            <div className="space-y-2 text-xs">
+                              <p className="font-bold font-serif text-sm underline">Barangay Activity Breakdown</p>
+                              <table className="w-full border-collapse border border-gray-300 dark:border-gray-600 text-xs">
+                                <thead>
+                                  <tr className="bg-gray-100 dark:bg-gray-800">
+                                    <th className="border p-1.5 text-left">Barangay</th>
+                                    <th className="border p-1.5 text-right">New Lots</th>
+                                    <th className="border p-1.5 text-right">New Buildings</th>
+                                    <th className="border p-1.5 text-right">Assessments</th>
+                                    <th className="border p-1.5 text-right">Assessed Value</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {historyDetailReport.parsed_report_data.data.barangay_breakdown.map((b: any) => (
+                                    <tr key={b.barangay_name}>
+                                      <td className="border p-1.5 font-medium">Brgy. {b.barangay_name}</td>
+                                      <td className="border p-1.5 text-right">{b.new_lots}</td>
+                                      <td className="border p-1.5 text-right">{b.new_buildings}</td>
+                                      <td className="border p-1.5 text-right">{b.assessments}</td>
+                                      <td className="border p-1.5 text-right font-bold text-green-700">₱{Number(b.assessed_value || 0).toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {historyDetailReport.parsed_report_data.type !== 'monthly' && (
+                        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 text-xs space-y-2">
+                          <p className="font-semibold text-gray-700 dark:text-gray-300">Saved Report Parameters:</p>
+                          <pre className="p-3 bg-gray-100 dark:bg-gray-900 rounded-lg text-[11px] overflow-auto max-h-60 text-gray-800 dark:text-gray-200">
+                            {JSON.stringify(historyDetailReport.parsed_report_data, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Official Signatures */}
+                    <div className="mt-16 grid grid-cols-2 gap-8 text-center text-sm font-sans pt-6 border-t border-gray-300 dark:border-gray-700 print:border-black">
+                      <div>
+                        <p className="text-gray-500 print:text-black text-xs">Prepared by:</p>
+                        <div className="mt-8">
+                          <p className="font-bold uppercase underline decoration-black print:decoration-black dark:decoration-white underline-offset-4 text-gray-900 dark:text-white print:text-black">
+                            {historyDetailReport.first_name ? `${historyDetailReport.first_name} ${historyDetailReport.last_name || ''}` : 'Junerey D. Ilajas'}
+                          </p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 print:text-black font-semibold mt-0.5">Municipal Assessor</p>
+                          <p className="text-[11px] text-gray-400 print:text-black mt-1">Date: {new Date(historyDetailReport.generated_date).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 print:text-black text-xs">Submitted to:</p>
+                        <div className="mt-8">
+                          <p className="font-bold uppercase text-gray-900 dark:text-white print:text-black">Hon. Municipal Mayor</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 print:text-black font-semibold mt-0.5">& Sangguniang Bayan</p>
+                          <p className="text-[11px] text-gray-400 print:text-black mt-1">Municipality of Lagonglong</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="max-w-xl mx-auto py-12 text-center space-y-4 font-sans">
+                    <AlertCircle size={48} className="mx-auto text-amber-500" />
+                    <h3 className="text-base font-bold text-gray-900 dark:text-white">Historical Summary Record</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      This report entry (#{historyDetailReport.report_id}) was logged on {new Date(historyDetailReport.generated_date).toLocaleString()} with a recorded total of <strong>{historyDetailReport.record_count} items</strong> for reporting period <strong>{historyDetailReport.reporting_period}</strong>.
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Note: Raw JSON snapshot was not archived for this legacy entry. To generate a full archived document, please generate and save a new report.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="glass-panel p-6 rounded-2xl border border-gray-100 dark:border-gray-700 print:hidden space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Generated Report History</h2>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Historical official reports saved to persistent database audit records. Click on any row to open the complete report.
+                  </p>
+                </div>
+                <button
+                  onClick={loadHistory}
+                  className="text-xs font-semibold text-green-600 hover:text-green-700 dark:text-green-400 flex items-center gap-1 self-start sm:self-auto"
+                >
+                  <RotateCcw size={13} /> Refresh History
+                </button>
+              </div>
+
+              <div className="p-3 bg-green-50/70 dark:bg-green-950/20 rounded-xl border border-green-200 dark:border-green-800 text-xs text-green-800 dark:text-green-300 flex items-center gap-2">
+                <CheckCircle2 size={16} className="shrink-0 text-green-600 dark:text-green-400" />
+                <span><strong>Interactive History:</strong> Click any report row below to open and review its historical snapshot, detailed metrics, and official municipal print view.</span>
+              </div>
+
+              <DataTable
+                columns={[
+                  { key: 'report_id', label: 'Report ID' },
+                  { key: 'report_type', label: 'Report Title' },
+                  { key: 'reporting_period', label: 'Period' },
+                  { key: 'record_count', label: 'Records' },
+                  { 
+                    key: 'status', 
+                    label: 'Status',
+                    render: (val) => (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                        {val || 'Generated'}
+                      </span>
+                    )
+                  },
+                  { key: 'generated_date', label: 'Generated Date', render: (val) => new Date(val).toLocaleString() },
+                  { key: 'first_name', label: 'Generated By', render: (_, row) => `${row.first_name || ''} ${row.last_name || ''}` }
+                ]}
+                data={historyData}
+                onRowClick={handleOpenHistoryReport}
+                showActions={false}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

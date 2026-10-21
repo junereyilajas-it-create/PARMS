@@ -33,10 +33,27 @@ export type GISFeature = {
   coordinates?: any;
   area_sqm?: number | null;
   perimeter_m?: number | null;
-  mapping_status?: 'verified' | 'approximate' | 'draft' | string | null;
+  mapping_status?: 'verified' | 'approximate' | 'draft' | 'unmapped' | string | null;
   has_gis?: boolean;
+  is_mapped?: boolean | number;
   latitude?: number | null;
   longitude?: number | null;
+  mapped_by_user_id?: number | null;
+  mapped_at?: string | null;
+  mapped_by_name?: string | null;
+
+  // Latest mapping request details
+  latest_request_id?: number | null;
+  latest_request_type?: 'initial_mapping' | 'mapping_update' | null;
+  latest_request_status?: 'pending' | 'approved' | 'rejected' | 'completed' | 'cancelled' | null;
+  latest_request_reason?: string | null;
+  latest_request_notes?: string | null;
+  latest_rejection_reason?: string | null;
+  latest_requested_by_user_id?: number | null;
+  latest_requested_by_name?: string | null;
+  latest_request_created_at?: string | null;
+  latest_request_reviewed_at?: string | null;
+  latest_reviewed_by_name?: string | null;
 
   // Assessment details
   assessment_status?: string | null;
@@ -73,6 +90,32 @@ export type GISFeature = {
     is_primary?: number | boolean;
   }>;
 }
+
+export type GISMappingRequest = {
+  request_id: number;
+  property_id: number;
+  property_type: 'lot' | 'building';
+  target_id: number;
+  request_type: 'initial_mapping' | 'mapping_update';
+  reason: string;
+  notes?: string | null;
+  request_status: 'pending' | 'approved' | 'rejected' | 'completed' | 'cancelled';
+  rejection_reason?: string | null;
+  requested_by_user_id: number;
+  requested_by_name?: string | null;
+  reviewed_by_user_id?: number | null;
+  reviewed_by_name?: string | null;
+  completed_by_user_id?: number | null;
+  completed_by_name?: string | null;
+  created_at: string;
+  reviewed_at?: string | null;
+  completed_at?: string | null;
+  property_title?: string | null;
+  owner_name?: string | null;
+  barangay_name?: string | null;
+  full_address?: string | null;
+  current_mapping_status?: 'mapped' | 'unmapped';
+};
 
 export type MapMode = 'street' | 'satellite' | 'streetview'
 

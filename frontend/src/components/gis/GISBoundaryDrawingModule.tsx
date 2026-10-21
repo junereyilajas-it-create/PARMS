@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { MapContainer, TileLayer, useMap, Polygon as LeafletPolygon, Marker, Tooltip } from 'react-leaflet';
+import { MapContainer, TileLayer, useMap, Polygon as LeafletPolygon, Marker, Tooltip, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css';
 import '@geoman-io/leaflet-geoman-free';
@@ -229,6 +229,7 @@ export function GISBoundaryDrawingModule({
   const [rotationAngle, setRotationAngle] = useState<number>(0);
   const [isConfirmed, setIsConfirmed] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'auto' | 'tools' | 'measurements'>('auto');
+  const [activeSideIndex, setActiveSideIndex] = useState<number | null>(null);
   const [moveMode, setMoveMode] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
@@ -695,12 +696,18 @@ export function GISBoundaryDrawingModule({
                           step="0.1"
                           min="0.5"
                           value={val}
+                          onFocus={() => setActiveSideIndex(idx)}
+                          onBlur={() => setActiveSideIndex(null)}
+                          onMouseEnter={() => setActiveSideIndex(idx)}
+                          onMouseLeave={() => setActiveSideIndex(null)}
                           onChange={e => {
                             const updated = [...sideInputs];
                             updated[idx] = e.target.value;
                             setSideInputs(updated);
                           }}
-                          className="w-full px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg font-mono font-bold text-gray-900 dark:text-white"
+                          className={`w-full px-2.5 py-1.5 bg-white dark:bg-gray-800 border rounded-lg font-mono font-bold text-gray-900 dark:text-white transition ${
+                            activeSideIndex === idx ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-gray-300 dark:border-gray-700'
+                          }`}
                         />
                       </div>
                     ))}
@@ -924,7 +931,16 @@ export function GISBoundaryDrawingModule({
                   {liveStats.sides.map(s => {
                     const hasDiff = Math.abs(s.diff) > 0.1;
                     return (
-                      <div key={s.side} className="px-3 py-2 flex items-center justify-between text-[11px]">
+                      <div
+                        key={s.side}
+                        onMouseEnter={() => setActiveSideIndex(s.side - 1)}
+                        onMouseLeave={() => setActiveSideIndex(null)}
+                        className={`px-3 py-2 flex items-center justify-between text-[11px] transition cursor-pointer ${
+                          activeSideIndex === (s.side - 1)
+                            ? 'bg-amber-100/70 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200'
+                            : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                        }`}
+                      >
                         <div className="flex items-center gap-1.5">
                           <span className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-bold flex items-center justify-center text-[10px]">
                             {s.side}
@@ -1041,21 +1057,64 @@ export function GISBoundaryDrawingModule({
             {/* Polygon Geometry Display */}
             {vertices.length >= 3 && (
               <>
+                {/* 1. Base High-Contrast Dark Halo Outline (Visible over both Satellite & Street) */}
                 <LeafletPolygon
                   positions={liveStats.closedCoordinates}
                   pathOptions={{
-                    color: isConfirmed ? '#10b981' : '#f59e0b',
-                    weight: 3,
-                    dashArray: isConfirmed ? undefined : '6, 6',
-                    fillColor: isConfirmed ? '#10b981' : '#f59e0b',
-                    fillOpacity: 0.35,
+                    color: '#020617',
+                    weight: 7,
+                    opacity: 0.95,
+                    fill: false,
+                    interactive: false,
                   }}
                 />
 
-                {/* Draggable Corner Vertex Markers */}
+                {/* 2. Primary Vivid Property Boundary Line */}
+                <LeafletPolygon
+                  positions={liveStats.closedCoordinates}
+                  pathOptions={{
+                    color: isConfirmed ? '#10b981' : '#06b6d4',
+                    weight: 3.5,
+                    dashArray: isConfirmed ? undefined : '5, 5',
+                    fillColor: isConfirmed ? '#10b981' : '#06b6d4',
+                    fillOpacity: 0.25,
+                  }}
+                />
+
+                {/* 3. Highlighted Active Side Segment */}
+                {activeSideIndex !== null && vertices[activeSideIndex] && (
+                  <>
+                    <Polyline
+                      positions={[
+                        vertices[activeSideIndex],
+                        vertices[(activeSideIndex + 1) % vertices.length]
+                      ]}
+                      pathOptions={{
+                        color: '#ffffff',
+                        weight: 8,
+                        opacity: 0.95,
+                        interactive: false
+                      }}
+                    />
+                    <Polyline
+                      positions={[
+                        vertices[activeSideIndex],
+                        vertices[(activeSideIndex + 1) % vertices.length]
+                      ]}
+                      pathOptions={{
+                        color: '#f59e0b',
+                        weight: 5,
+                        opacity: 1,
+                        interactive: false
+                      }}
+                    />
+                  </>
+                )}
+
+                {/* 4. Corner Vertex Markers */}
                 {vertices.map((pos, idx) => (
                   <Marker
-                    key={idx}
+                    key={`vertex-${idx}`}
                     position={pos}
                     draggable={true}
                     eventHandlers={{
@@ -1069,67 +1128,107 @@ export function GISBoundaryDrawingModule({
                       className: 'custom-vertex-marker',
                       html: `
                         <div style="
-                          width: 22px; 
-                          height: 22px; 
+                          width: 24px; 
+                          height: 24px; 
                           border-radius: 50%; 
-                          background-color: ${isConfirmed ? '#10b981' : '#f59e0b'}; 
-                          color: white; 
-                          border: 2px solid white; 
-                          box-shadow: 0 2px 6px rgba(0,0,0,0.4); 
+                          background: linear-gradient(135deg, ${isConfirmed ? '#059669' : '#0284c7'}, ${isConfirmed ? '#10b981' : '#38bdf8'}); 
+                          color: #ffffff; 
+                          border: 2.5px solid #ffffff; 
+                          box-shadow: 0 3px 8px rgba(0,0,0,0.55); 
                           display: flex; 
                           align-items: center; 
                           justify-content: center; 
-                          font-size: 10px; 
+                          font-size: 11px; 
                           font-weight: 800; 
                           cursor: grab;
+                          user-select: none;
                         ">
                           ${idx + 1}
                         </div>
                       `,
-                      iconSize: [22, 22],
-                      iconAnchor: [11, 11],
+                      iconSize: [24, 24],
+                      iconAnchor: [12, 12],
                     })}
                   >
-                    <Tooltip direction="top" offset={[0, -10]}>
-                      Vertex {idx + 1} (Drag to adjust)
+                    <Tooltip direction="top" offset={[0, -12]}>
+                      Vertex ${idx + 1} (Drag to adjust boundary)
                     </Tooltip>
                   </Marker>
                 ))}
 
-                {/* Side Measurement Labels on Edges */}
+                {/* 5. Side-Length Labels Beside Their Respective Lines (Outward Offset) */}
                 {liveStats.sides.map((sideItem, i) => {
                   const p1 = vertices[i];
                   const p2 = vertices[(i + 1) % vertices.length];
+                  if (!p1 || !p2) return null;
+
                   const midLat = (p1[0] + p2[0]) / 2;
                   const midLng = (p1[1] + p2[1]) / 2;
 
+                  // Geographic distance projection
+                  const metersPerDegLat = 111139;
+                  const metersPerDegLng = 111139 * Math.cos((midLat * Math.PI) / 180);
+                  const dx = (p2[1] - p1[1]) * metersPerDegLng;
+                  const dy = (p2[0] - p1[0]) * metersPerDegLat;
+                  const segLen = Math.sqrt(dx * dx + dy * dy);
+
+                  let labelLat = midLat;
+                  let labelLng = midLng;
+
+                  if (segLen > 0) {
+                    // Normal vector perpendicular to segment
+                    let nx = -dy / segLen;
+                    let ny = dx / segLen;
+
+                    // Centroid vector
+                    const cdx = (midLng - centroid[1]) * metersPerDegLng;
+                    const cdy = (midLat - centroid[0]) * metersPerDegLat;
+
+                    // Dot product test to guarantee offset is on the exterior side
+                    if (cdx * nx + cdy * ny < 0) {
+                      nx = -nx;
+                      ny = -ny;
+                    }
+
+                    // 6.5 meters outward perpendicular offset
+                    const offsetMeters = 6.5;
+                    labelLat = midLat + (ny * offsetMeters) / metersPerDegLat;
+                    labelLng = midLng + (nx * offsetMeters) / metersPerDegLng;
+                  }
+
+                  const isActive = activeSideIndex === i;
+
                   return (
                     <Marker
-                      key={`side-${i}`}
-                      position={[midLat, midLng]}
+                      key={`side-label-${i}`}
+                      position={[labelLat, labelLng]}
+                      interactive={false}
                       icon={L.divIcon({
-                        className: 'edge-measurement-label',
+                        className: 'edge-measurement-label-clean',
                         html: `
                           <div style="
-                            background-color: rgba(255, 255, 255, 0.95); 
-                            color: #111827; 
-                            border: 1px solid #d1d5db; 
-                            padding: 2px 6px; 
-                            border-radius: 6px; 
-                            font-size: 11px; 
-                            font-weight: 800; 
-                            box-shadow: 0 1px 4px rgba(0,0,0,0.25); 
-                            white-space: nowrap; 
-                            pointer-events: none;
-                            display: flex;
+                            display: inline-flex;
                             align-items: center;
-                            gap: 3px;
+                            gap: 4px;
+                            background-color: ${isActive ? 'rgba(15, 23, 42, 0.98)' : 'rgba(15, 23, 42, 0.90)'};
+                            color: #ffffff;
+                            border: 1.5px solid ${isActive ? '#f59e0b' : '#38bdf8'};
+                            border-radius: 6px;
+                            padding: 2.5px 7px;
+                            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                            font-size: 11px;
+                            font-weight: 700;
+                            box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+                            white-space: nowrap;
+                            pointer-events: none;
+                            transform: translate(-50%, -50%);
                           ">
-                            <span style="color: #059669;">S${sideItem.side}:</span> ${sideItem.derived.toFixed(2)}m
+                            <span style="color: ${isActive ? '#fbbf24' : '#38bdf8'}; font-weight: 800;">S${sideItem.side}:</span>
+                            <span>${sideItem.derived.toFixed(2)} m</span>
                           </div>
                         `,
-                        iconSize: [60, 20],
-                        iconAnchor: [30, 10],
+                        iconSize: [80, 24],
+                        iconAnchor: [40, 12],
                       })}
                     />
                   );

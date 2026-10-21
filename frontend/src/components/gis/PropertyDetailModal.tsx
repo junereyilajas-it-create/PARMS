@@ -22,14 +22,18 @@ interface PropertyDetailModalProps {
   feature: GISFeature | null
   onClose: () => void
   onStartMapping?: () => void
+  onRequestMapping?: () => void
   canEditGis?: boolean
+  userRole?: string
 }
 
 export function PropertyDetailModal({
   feature,
   onClose,
   onStartMapping,
-  canEditGis = false,
+  onRequestMapping,
+  canEditGis: _canEditGis = false,
+  userRole = '',
 }: PropertyDetailModalProps) {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'overview' | 'owner' | 'assessment' | 'gis'>('overview')
@@ -456,19 +460,55 @@ export function PropertyDetailModal({
                   </div>
                 )}
 
-                {canEditGis && onStartMapping && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose()
-                      onStartMapping()
-                    }}
-                    className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition"
-                  >
-                    <PencilRuler size={14} />
-                    <span>{hasGis ? 'Edit / Redraw GIS Boundary' : 'Draw New GIS Boundary'}</span>
-                  </button>
-                )}
+                {['admin', 'super_admin', 'assessor'].includes(userRole) ? (
+                  onStartMapping && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose()
+                        onStartMapping()
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition"
+                    >
+                      <PencilRuler size={14} />
+                      <span>{hasGis ? 'Edit / Redraw GIS Boundary' : 'Draw New GIS Boundary'}</span>
+                    </button>
+                  )
+                ) : userRole === 'staff' ? (
+                  feature.latest_request_status === 'approved' ? (
+                    onStartMapping && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose()
+                          onStartMapping()
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition animate-pulse"
+                      >
+                        <PencilRuler size={14} />
+                        <span>{hasGis ? 'Edit GIS Boundary (Approved)' : 'Draw GIS Boundary (Approved)'}</span>
+                      </button>
+                    )
+                  ) : feature.latest_request_status === 'pending' ? (
+                    <div className="w-full p-2.5 text-center text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 rounded-lg border border-purple-200">
+                      Mapping Request Pending Admin Approval
+                    </div>
+                  ) : (
+                    onRequestMapping && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose()
+                          onRequestMapping()
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition"
+                      >
+                        <PencilRuler size={14} />
+                        <span>{hasGis ? 'Request Boundary Update' : 'Submit Request to Map'}</span>
+                      </button>
+                    )
+                  )
+                ) : null}
               </div>
             </div>
           )}

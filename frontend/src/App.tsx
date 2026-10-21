@@ -37,8 +37,33 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>
 }
 
-const RoleProtectedRoute = ({ allowedRoles, children, userRole }: { allowedRoles: string[], children: React.ReactNode, userRole: string }) => {
-  if (!allowedRoles.includes(userRole)) {
+const RoleProtectedRoute = ({ 
+  allowedRoles, 
+  requiredPermission,
+  userPermissions = [],
+  children, 
+  userRole 
+}: { 
+  allowedRoles?: string[], 
+  requiredPermission?: string,
+  userPermissions?: string[],
+  children: React.ReactNode, 
+  userRole: string 
+}) => {
+  if (userRole === 'super_admin') return <>{children}</>
+  if (requiredPermission) {
+    if (userPermissions.includes(requiredPermission)) return <>{children}</>
+    if (allowedRoles && allowedRoles.includes(userRole) && userRole === 'admin') return <>{children}</>
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center space-y-4">
+          <h2 className="text-2xl font-bold text-green-600">403 Forbidden</h2>
+          <p className="text-gray-600 dark:text-gray-400">You do not have the required permission ({requiredPermission}) to access this page.</p>
+        </div>
+      </div>
+    )
+  }
+  if (allowedRoles && !allowedRoles.includes(userRole)) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center space-y-4">
@@ -53,12 +78,33 @@ const RoleProtectedRoute = ({ allowedRoles, children, userRole }: { allowedRoles
 
 function App() {
   const [userRole, setUserRole] = useState(() => localStorage.getItem('accessor_role') || '')
+  const [userPermissions, setUserPermissions] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('accessor_permissions') || '[]')
+    } catch {
+      return []
+    }
+  })
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Re-read role when navigating to handle login
+  // Re-read role & permissions when navigating or on permissions_updated
   useEffect(() => {
-    setUserRole(localStorage.getItem('accessor_role') || '')
+    const syncUserAuth = () => {
+      setUserRole(localStorage.getItem('accessor_role') || '')
+      try {
+        setUserPermissions(JSON.parse(localStorage.getItem('accessor_permissions') || '[]'))
+      } catch {
+        setUserPermissions([])
+      }
+    }
+    syncUserAuth()
+    window.addEventListener('permissions_updated', syncUserAuth)
+    window.addEventListener('storage', syncUserAuth)
+    return () => {
+      window.removeEventListener('permissions_updated', syncUserAuth)
+      window.removeEventListener('storage', syncUserAuth)
+    }
   }, [location.pathname])
 
   const { theme, toggleTheme } = useTheme()
@@ -157,6 +203,10 @@ function App() {
   }
 
   const registerProperty = async (form: { owner: string; street: string; barangay: string; type: string; lot: string; market: string; coordinates: string; document: string; lotNumber: string; titleNumber: string }) => {
+    if (userRole === 'super_admin') {
+      showError('Super Admin is restricted from registering properties.')
+      return
+    }
     await ensureSession()
     const { data } = await api.post('/properties/register', { owner: form.owner, street: form.street, barangay: form.barangay, type: form.type, lot_area: form.lot, market_value: form.market, coordinates: form.coordinates, document: form.document, lot_number: form.lotNumber, title_number: form.titleNumber })
     await loadPropertyRecords()
@@ -290,6 +340,7 @@ function App() {
               collapsed={sidebarCollapsed}
               onCollapse={() => setSidebarCollapsed(value => !value)}
               userRole={userRole}
+              userPermissions={userPermissions}
             />
 
             <main className="flex-1 w-full overflow-x-hidden flex flex-col min-w-0 transition-all duration-300 h-screen">
@@ -338,10 +389,10 @@ function App() {
           userRole === 'super_admin' ? <Navigate to="/super-admin/dashboard" replace /> :
             <RoleProtectedRoute allowedRoles={['admin']} userRole={userRole}><OperationalIntelligenceReports /></RoleProtectedRoute>
         } />
-        <Route path="/documents" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin', 'staff']} userRole={userRole}><Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} /></RoleProtectedRoute>} />
-        <Route path="/certificates/generate" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin', 'staff']} userRole={userRole}><CertificateGenerator /></RoleProtectedRoute>} />
-        <Route path="/certificates/records" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin', 'staff']} userRole={userRole}><CertificateRecords /></RoleProtectedRoute>} />
-        <Route path="/admin/certificate-requests" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin', 'staff']} userRole={userRole}><AdminCertificateRequests /></RoleProtectedRoute>} />
+        <Route path="/documents" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} /></RoleProtectedRoute>} />
+        <Route path="/certificates/generate" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><CertificateGenerator /></RoleProtectedRoute>} />
+        <Route path="/certificates/records" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><CertificateRecords /></RoleProtectedRoute>} />
+        <Route path="/admin/certificate-requests" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><AdminCertificateRequests /></RoleProtectedRoute>} />
         <Route path="/client/my-properties" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientProperties /></RoleProtectedRoute>} />
         <Route path="/client/my-assessments" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientProperties /></RoleProtectedRoute>} />
         <Route path="/client/gis-map" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientGISMap /></RoleProtectedRoute>} />

@@ -16,10 +16,9 @@ router.get('/stats/super_admin', authenticate, allowRoles('super_admin'), async 
     const [registrations] = await pool.query('SELECT user_id, first_name, last_name, role, status, created_at FROM users ORDER BY created_at DESC LIMIT 10')
     const [totalUsers] = await pool.query('SELECT COUNT(*) as count FROM users')
     
-    // Additional requested stats
     const [propertyStats] = await pool.query(`
       SELECT 
-        (SELECT COUNT(*) FROM properties) as total_properties,
+        ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) as total_properties,
         (SELECT COUNT(*) FROM property_lots) as total_lots,
         (SELECT COUNT(*) FROM property_buildings) as total_buildings,
         (SELECT COUNT(*) FROM property_assessments) + (SELECT COUNT(*) FROM lot_assessment_history) + (SELECT COUNT(*) FROM building_assessment_history) as total_assessments,
@@ -47,14 +46,18 @@ router.get('/stats/health', authenticate, allowRoles('super_admin'), async (req,
   try {
     const [rows] = await pool.query('SELECT 1')
     const [users] = await pool.query('SELECT COUNT(*) as count FROM users')
-    const [properties] = await pool.query('SELECT COUNT(*) as count FROM properties')
+    const [lots] = await pool.query('SELECT COUNT(*) as count FROM property_lots')
+    const [bldgs] = await pool.query('SELECT COUNT(*) as count FROM property_buildings')
     const [assessments] = await pool.query('SELECT COUNT(*) as count FROM property_assessments')
+    const totalProperties = (lots[0]?.count || 0) + (bldgs[0]?.count || 0)
     
     res.json({
       status: 'ONLINE',
       dbName: process.env.DB_NAME || 'property_management_db',
       users: users[0].count,
-      properties: properties[0].count,
+      properties: totalProperties,
+      total_lots: lots[0]?.count || 0,
+      total_buildings: bldgs[0]?.count || 0,
       assessments: assessments[0].count,
       timestamp: new Date().toISOString()
     })
@@ -71,7 +74,9 @@ router.get('/stats/admin', authenticate, allowRoles('super_admin', 'admin'), asy
   try {
     const [properties] = await pool.query(`
       SELECT 
-        (SELECT COUNT(*) FROM properties) as total_properties,
+        ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) as total_properties,
+        (SELECT COUNT(*) FROM property_lots) as total_lots,
+        (SELECT COUNT(*) FROM property_buildings) as total_buildings,
         (SELECT COUNT(*) FROM property_lots l LEFT JOIN lot_assessment_history lah ON l.lot_id = lah.lot_id AND lah.assessment_status = 'approved' WHERE lah.lot_assessment_history_id IS NULL) as unassessed_lots,
         (SELECT COUNT(*) FROM property_buildings b LEFT JOIN building_assessment_history bah ON b.building_id = bah.building_id AND bah.assessment_status = 'approved' WHERE bah.building_assessment_history_id IS NULL) as unassessed_buildings,
         (SELECT COUNT(*) FROM property_assessments) + (SELECT COUNT(*) FROM lot_assessment_history) + (SELECT COUNT(*) FROM building_assessment_history) as total_assessments,
@@ -85,7 +90,7 @@ router.get('/stats/admin', authenticate, allowRoles('super_admin', 'admin'), asy
     // Dedicated Assessment Overview for new Admin Dashboard section
     const [overviewRows] = await pool.query(`
       SELECT 
-        (SELECT COUNT(*) FROM properties) as total_properties,
+        ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) as total_properties,
         (SELECT COUNT(*) FROM property_lots) as total_lots,
         (SELECT COUNT(*) FROM property_buildings) as total_buildings,
         (SELECT COUNT(*) FROM assessment_assignments) as total_assignments,
@@ -277,7 +282,7 @@ router.get('/stats/staff', authenticate, allowRoles('admin', 'staff'), async (re
   try {
     const [properties] = await pool.query(`
       SELECT 
-        (SELECT COUNT(*) FROM properties) as total_properties,
+        ((SELECT COUNT(*) FROM property_lots) + (SELECT COUNT(*) FROM property_buildings)) as total_properties,
         (SELECT COUNT(*) FROM property_owners) as total_owners,
         (SELECT COUNT(*) FROM property_lots) as total_lots,
         (SELECT COUNT(*) FROM property_buildings) as total_buildings,

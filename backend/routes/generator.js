@@ -1,9 +1,13 @@
 import { Router } from 'express'
 import { pool } from '../config/db.js'
-import { authenticate, allowRoles } from '../middleware/auth.js'
+import { authenticate, allowRoles, loadPermissions } from '../middleware/auth.js'
 
 const router = Router()
-router.use('/generator', authenticate, allowRoles('super_admin', 'admin', 'assessor', 'staff'))
+router.use('/generator', authenticate, loadPermissions, (req, res, next) => {
+  if (['admin', 'super_admin'].includes(req.user.role)) return next();
+  if (req.user.permissions?.includes('MANAGE_CERTIFICATES')) return next();
+  return res.status(403).json({ message: 'Insufficient permissions. You require the MANAGE_CERTIFICATES permission.' });
+})
 
 // Get owner's properties with detailed information needed for certificates
 router.get('/generator/owners/:id/properties', async (req, res, next) => {

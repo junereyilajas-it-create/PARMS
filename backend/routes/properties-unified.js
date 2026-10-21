@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { pool } from '../config/db.js'
 import { authenticate, allowRoles } from '../middleware/auth.js'
 import { logActivity, logPropertyHistory } from '../utils/logger.js'
-import { notifyRole } from '../utils/notifications.js'
+import { notifyRole, notifyRoles } from '../utils/notifications.js'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
@@ -117,7 +117,10 @@ async function getOrInsertBarangay(connection, municipalityId, barangayName) {
   return result.insertId
 }
 
-router.post('/properties/unified', authenticate, allowRoles('admin', 'staff', 'super_admin'), async (req, res, next) => {
+router.post('/properties/unified', authenticate, allowRoles('admin', 'staff'), async (req, res, next) => {
+  if (req.user?.role === 'super_admin') {
+    return res.status(403).json({ message: 'Super Admin is restricted from registering properties.' });
+  }
   const connection = await pool.getConnection()
   try {
     const data = req.body
@@ -357,7 +360,7 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'staff', 's
     if (req.user.role === 'staff') {
       const targetStr = data.propertyType === 'LOT' ? (lotNumber || `LOT-${lotId}`) : (bldgName || `BLDG-${buildingId}`);
       const targetInt = data.propertyType === 'LOT' ? lotId : buildingId;
-      await connection.query(`
+      const [prResult] = await connection.query(`
         INSERT INTO assessment_permission_requests 
         (property_type, target_id_str, target_id_int, requested_by_user_id, request_action, proposed_data, request_status, reason)
         VALUES (?, ?, ?, ?, 'ADDITION', ?, 'pending', ?)
@@ -369,7 +372,7 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'staff', 's
         JSON.stringify(data),
         `New ${data.propertyType.toLowerCase()} registration submitted by staff awaiting admin approval.`
       ]);
-      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name || 'Staff'} requested approval for a new ${data.propertyType.toLowerCase()}.`, 'PERMISSION_REQUEST', targetStr);
+      await notifyRoles(['admin', 'super_admin'], 'New Approval Request', `Staff ${req.user.first_name || 'Staff'} requested approval for a new ${data.propertyType.toLowerCase()}.`, 'PERMISSION_REQUEST', prResult.insertId);
     }
 
     // Commit transaction
@@ -568,6 +571,7 @@ router.get('/properties/overview', authenticate, allowRoles('assessor', 'admin',
       LEFT JOIN property_classifications pc ON p.classification_id = pc.classification_id
       LEFT JOIN property_lots l ON l.property_id = p.property_id
       LEFT JOIN property_buildings b ON b.property_id = p.property_id
+      WHERE (l.lot_id IS NOT NULL OR b.building_id IS NOT NULL)
       GROUP BY p.property_id, p.property_status, o.first_name, o.middle_name, o.last_name, o.suffix, ad.street, br.barangay_name, mu.municipality_name, pt.property_type_name, pc.classification_name
       ORDER BY p.property_id ASC
     `, [currentUserId, currentUserId]);
