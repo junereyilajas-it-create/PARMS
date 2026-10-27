@@ -129,10 +129,11 @@ router.get('/generator/properties/:id', async (req, res, next) => {
     // Fetch the latest generated certificate for this property if any exists
     const [latestCerts] = await pool.query(`
       SELECT gc.*,
-        CONCAT(po.first_name, ' ', po.last_name) AS owner_name,
-        CONCAT(u.first_name, ' ', u.last_name) AS generated_by_name
+        COALESCE(NULLIF(TRIM(gc.custom_owner_name), ''), CONCAT(po.first_name, ' ', po.last_name), 'Unassigned Owner') AS owner_name,
+        CONCAT(u.first_name, ' ', u.last_name) AS generated_by_name,
+        COALESCE(gc.status, 'Generated') AS status
       FROM generated_certificates gc
-      JOIN property_owners po ON po.owner_id = gc.owner_id
+      LEFT JOIN property_owners po ON po.owner_id = gc.owner_id
       LEFT JOIN users u ON u.user_id = gc.issued_by_user_id
       WHERE gc.property_id = ?
       ORDER BY gc.certificate_id DESC
@@ -195,10 +196,11 @@ router.get('/generator/certificates', async (req, res, next) => {
   try {
     const [rows] = await pool.query(`
       SELECT gc.*,
-        CONCAT(po.first_name, ' ', po.last_name) AS owner_name,
-        CONCAT(u.first_name, ' ', u.last_name) AS generated_by_name
+        COALESCE(NULLIF(TRIM(gc.custom_owner_name), ''), CONCAT(po.first_name, ' ', po.last_name), 'Unassigned Owner') AS owner_name,
+        CONCAT(u.first_name, ' ', u.last_name) AS generated_by_name,
+        COALESCE(gc.status, 'Generated') AS status
       FROM generated_certificates gc
-      JOIN property_owners po ON po.owner_id = gc.owner_id
+      LEFT JOIN property_owners po ON po.owner_id = gc.owner_id
       LEFT JOIN users u ON u.user_id = gc.issued_by_user_id
       ORDER BY gc.issued_at DESC
     `)
@@ -263,10 +265,11 @@ router.post('/generator/certificates', async (req, res, next) => {
 
     const [newCert] = await pool.query(`
       SELECT gc.*,
-        CONCAT(po.first_name, ' ', po.last_name) AS owner_name,
-        CONCAT(u.first_name, ' ', u.last_name) AS generated_by_name
+        COALESCE(NULLIF(TRIM(gc.custom_owner_name), ''), CONCAT(po.first_name, ' ', po.last_name), 'Unassigned Owner') AS owner_name,
+        CONCAT(u.first_name, ' ', u.last_name) AS generated_by_name,
+        COALESCE(gc.status, 'Generated') AS status
       FROM generated_certificates gc
-      JOIN property_owners po ON po.owner_id = gc.owner_id
+      LEFT JOIN property_owners po ON po.owner_id = gc.owner_id
       LEFT JOIN users u ON u.user_id = gc.issued_by_user_id
       WHERE certificate_id = ?
     `, [result.insertId])
@@ -323,10 +326,11 @@ router.put('/generator/certificates/:id', async (req, res, next) => {
 
     const [updatedCert] = await pool.query(`
       SELECT gc.*,
-        CONCAT(po.first_name, ' ', po.last_name) AS owner_name,
-        CONCAT(u.first_name, ' ', u.last_name) AS generated_by_name
+        COALESCE(NULLIF(TRIM(gc.custom_owner_name), ''), CONCAT(po.first_name, ' ', po.last_name), 'Unassigned Owner') AS owner_name,
+        CONCAT(u.first_name, ' ', u.last_name) AS generated_by_name,
+        COALESCE(gc.status, 'Generated') AS status
       FROM generated_certificates gc
-      JOIN property_owners po ON po.owner_id = gc.owner_id
+      LEFT JOIN property_owners po ON po.owner_id = gc.owner_id
       LEFT JOIN users u ON u.user_id = gc.issued_by_user_id
       WHERE certificate_id = ?
     `, [certId])

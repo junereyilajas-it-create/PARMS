@@ -266,7 +266,6 @@ function App() {
       case 'Certificate Requests':
         navigate(currentRole === 'client' || currentRole === 'owner' ? '/client/certificate-requests' : (currentRole === 'admin' ? '/dashboard' : '/admin/certificate-requests'));
         break;
-      case 'Assigned Tasks': navigate('/assigned-tasks'); break;
       case 'Activity Logs': navigate('/logs'); break;
       case 'System Settings': navigate('/settings'); break;
 
@@ -309,7 +308,6 @@ function App() {
     if (path.startsWith('/documents') || path.startsWith('/certificates/generate') || path.startsWith('/certificates/records')) return 'Certificates'
     if (path.startsWith('/admin/certificate-requests') || path.startsWith('/client/certificate-requests')) return 'Certificate Requests'
 
-    if (path.startsWith('/assigned-tasks')) return 'Assigned Tasks'
     if (path.startsWith('/logs')) return 'Activity Logs'
     if (path.startsWith('/settings')) return 'System Settings'
 
@@ -421,7 +419,7 @@ function App() {
         <Route path="/properties" element={<RoleProtectedRoute allowedRoles={['assessor', 'admin', 'super_admin']} userRole={userRole}><AssessorPropertiesView /></RoleProtectedRoute>} />
         <Route path="/assigned-properties" element={<RoleProtectedRoute allowedRoles={['assessor', 'admin', 'super_admin']} userRole={userRole}><AssessorPropertiesView /></RoleProtectedRoute>} />
         <Route path="/my-requests" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin', 'assessor', 'staff']} userRole={userRole}><AssessmentPermissionRequests /></RoleProtectedRoute>} />
-        <Route path="/assigned-tasks" element={<RoleProtectedRoute allowedRoles={['staff']} userRole={userRole}><StaffDashboard /></RoleProtectedRoute>} />
+        <Route path="/assigned-tasks" element={<Navigate to="/dashboard" replace />} />
         <Route path="/account-settings" element={<AccountSettings />} />
         <Route path="/help-support" element={<HelpSupport />} />
         <Route path="/users" element={<RoleProtectedRoute allowedRoles={['super_admin']} userRole={userRole}><UserManagement /></RoleProtectedRoute>} />

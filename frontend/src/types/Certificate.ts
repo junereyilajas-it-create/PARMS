@@ -11,6 +11,11 @@ export interface GeneratedCertificate {
   issued_by_user_id: number
   owner_name: string
   generated_by_name: string
+  custom_owner_name?: string | null
+  custom_tax_declaration_no?: string | null
+  signer_name?: string | null
+  signer_title?: string | null
+  or_number?: string | null
 }
 
 export interface CertificatePropertyInfo {

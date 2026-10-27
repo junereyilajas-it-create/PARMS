@@ -220,6 +220,7 @@ router.get('/client/certificate-requests', async (req, res, next) => {
         c.requested_at,
         c.reviewed_at,
         c.completed_at,
+        c.released_at,
         c.certificate_id,
         gc.certificate_number,
         p.property_type_id,
@@ -230,7 +231,8 @@ router.get('/client/certificate-requests', async (req, res, next) => {
         CONCAT_WS(', ', NULLIF(ad.street, ''), br.barangay_name, mu.municipality_name) AS location,
         CONCAT(u.first_name, ' ', u.last_name) AS client_name,
         CONCAT(r.first_name, ' ', r.last_name) AS reviewer_name,
-        CONCAT(st.first_name, ' ', st.last_name) AS staff_name
+        CONCAT(st.first_name, ' ', st.last_name) AS staff_name,
+        CONCAT(rel.first_name, ' ', rel.last_name) AS released_by_name
       FROM certificate_requests c
       JOIN users u ON u.user_id = c.user_id
       LEFT JOIN properties p ON p.property_id = c.property_id
@@ -243,6 +245,7 @@ router.get('/client/certificate-requests', async (req, res, next) => {
       LEFT JOIN municipalities mu ON br.municipality_id = mu.municipality_id
       LEFT JOIN users r ON r.user_id = c.reviewed_by
       LEFT JOIN users st ON st.user_id = c.assigned_to
+      LEFT JOIN users rel ON rel.user_id = c.released_by
       LEFT JOIN generated_certificates gc ON gc.certificate_id = c.certificate_id
       WHERE c.user_id = ?
       ORDER BY c.requested_at DESC
@@ -252,7 +255,12 @@ router.get('/client/certificate-requests', async (req, res, next) => {
 })
 
 // 6. Create Certificate Request
-router.post('/client/certificate-requests', requireOwnership, async (req, res, next) => {
+router.post('/client/certificate-requests', (req, res, next) => {
+  if (req.body.certificate_type === 'Certificate of No Property Holdings' && !req.body.property_id) {
+    return next()
+  }
+  return requireOwnership(req, res, next)
+}, async (req, res, next) => {
   try {
     const { property_id, certificate_type, purpose, remarks, contact_number } = req.body
     
@@ -263,12 +271,27 @@ router.post('/client/certificate-requests', requireOwnership, async (req, res, n
       return res.status(400).json({ message: 'Purpose of request is required.' })
     }
 
+    const cleanPropId = property_id ? Number(String(property_id).replace(/[^0-9]/g, '')) : null
+
+    // Prevent duplicate active requests for the same property and certificate type
+    if (cleanPropId) {
+      const [existingActive] = await pool.query(`
+        SELECT request_id, reference_number, status 
+        FROM certificate_requests 
+        WHERE property_id = ? AND certificate_type = ? AND status NOT IN ('REJECTED', 'RELEASED', 'COMPLETED', 'CANCELLED')
+      `, [cleanPropId, certificate_type.trim()])
+
+      if (existingActive.length > 0) {
+        return res.status(400).json({ 
+          message: `An active certificate request (${existingActive[0].reference_number}) is already in progress for this property and certificate type (Status: ${existingActive[0].status}).` 
+        })
+      }
+    }
+
     // Generate unique reference number: REQ-YYYYMMDD-XXXX
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     const rand = Math.floor(1000 + Math.random() * 9000)
     const reference_number = `REQ-${dateStr}-${rand}`
-
-    const cleanPropId = property_id ? Number(String(property_id).replace(/[^0-9]/g, '')) : null
 
     // Get owner contact number fallback if not supplied
     let contact = contact_number?.trim() || null

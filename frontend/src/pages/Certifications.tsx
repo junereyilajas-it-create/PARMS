@@ -13,6 +13,8 @@ import {
 import api from '../lib/api'
 import { useModal } from '../contexts/ModalContext'
 import { PropertyTable } from '../components/common/PropertyTable'
+import { CertificateTable } from '../components/common/CertificateTable'
+import { AdminCertificateRequests } from './AdminCertificateRequests'
 import { SearchBox } from '../components/common/SearchBox'
 import type { Property } from '../types/property'
 import { format } from 'date-fns'
@@ -74,6 +76,21 @@ export function Certifications({ query, onQueryChange, rows, onDelete }: Certifi
 
   const paramPropertyId = searchParams.get('propertyId')
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(paramPropertyId)
+  const [subTab, setSubTab] = useState<'requests' | 'records' | 'properties'>('requests')
+  const [pendingRequestsCount, setPendingRequestsCount] = useState<number>(0)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+
+  // Track pending count for tab badge
+  useEffect(() => {
+    api.get('/admin/certificate-requests')
+      .then(res => {
+        if (Array.isArray(res.data)) {
+          const count = res.data.filter((r: any) => r.status === 'PENDING').length
+          setPendingRequestsCount(count)
+        }
+      })
+      .catch(() => {})
+  }, [refreshTrigger])
 
   // Remote data state
   const [propertyData, setPropertyData] = useState<DetailedProperty | null>(null)
@@ -288,6 +305,7 @@ export function Certifications({ query, onQueryChange, rows, onDelete }: Certifi
 
       const updated = res.data
       setLatestCert(updated)
+      setRefreshTrigger(prev => prev + 1)
 
       // Update checkpoint
       setLastSavedValues({
@@ -370,56 +388,136 @@ export function Certifications({ query, onQueryChange, rows, onDelete }: Certifi
             )}
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-green-800 dark:text-green-400">
-            {selectedPropertyId ? 'Official Certificate Workspace' : 'Print Certifications'}
+            {selectedPropertyId 
+              ? 'Official Certificate Workspace' 
+              : subTab === 'requests'
+                ? 'Owner Certificate Requests'
+                : subTab === 'records' 
+                  ? 'Issued Official Certificates' 
+                  : 'Select Property to Generate Certificate'}
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
             {selectedPropertyId
               ? 'Preview, customize, save, and print official certified documents with live database synchronization.'
-              : 'Locate a property record and click on any row to open its official Certificate workspace.'}
+              : subTab === 'requests'
+                ? 'Review, verify, and process official certificate applications submitted by property owners.'
+                : subTab === 'records'
+                  ? 'Review issued certificates, check document numbers, search records, or print official copies.'
+                  : 'Locate a property record and click on any row to open its official Certificate workspace.'}
           </p>
         </div>
 
-        {selectedPropertyId && (
+        {selectedPropertyId ? (
           <div className="flex items-center gap-2">
             <button
               onClick={handleBackToList}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors shadow-sm cursor-pointer"
             >
-              <ArrowLeft size={16} /> Back to Property List
+              <ArrowLeft size={16} /> Back to Certificate Desk
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800/80 p-1 rounded-xl border border-gray-200 dark:border-gray-700/60 self-start md:self-auto flex-wrap">
+            <button
+              id="tab-certificate-requests"
+              onClick={() => setSubTab('requests')}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-2 ${
+                subTab === 'requests'
+                  ? 'bg-white dark:bg-gray-900 text-green-700 dark:text-green-400 shadow-sm border border-gray-200/60 dark:border-gray-700/60'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <span>Certificate Requests</span>
+              {pendingRequestsCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white animate-pulse">
+                  {pendingRequestsCount}
+                </span>
+              )}
+            </button>
+            <button
+              id="tab-issued-certificates"
+              onClick={() => setSubTab('records')}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                subTab === 'records'
+                  ? 'bg-white dark:bg-gray-900 text-green-700 dark:text-green-400 shadow-sm border border-gray-200/60 dark:border-gray-700/60'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              Issued Certificates
+            </button>
+            <button
+              id="tab-select-property"
+              onClick={() => setSubTab('properties')}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                subTab === 'properties'
+                  ? 'bg-white dark:bg-gray-900 text-green-700 dark:text-green-400 shadow-sm border border-gray-200/60 dark:border-gray-700/60'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              Direct Generator
             </button>
           </div>
         )}
       </div>
 
-      {/* VIEW 1: PROPERTY SELECTION TABLE */}
+      {/* VIEW 1: WHEN NO PROPERTY IS SELECTED */}
       {!selectedPropertyId && (
-        <div className="card records mt-4">
-          <div className="card-head">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Select Property for Certification</h2>
-              <p className="text-gray-500 text-sm mt-1">
-                Click any row below to automatically retrieve the property's database records and open its certificate workspace.
-              </p>
+        <>
+          {subTab === 'requests' ? (
+            <AdminCertificateRequests
+              isEmbedded={true}
+              onOpenWorkspace={(propertyId) => {
+                const cleanId = String(propertyId).replace(/[^0-9]/g, '')
+                setSelectedPropertyId(cleanId)
+                setSearchParams({ propertyId: cleanId })
+              }}
+            />
+          ) : subTab === 'records' ? (
+            <CertificateTable
+              onOpenWorkspace={(propertyId) => {
+                const cleanId = String(propertyId).replace(/[^0-9]/g, '')
+                setSelectedPropertyId(cleanId)
+                setSearchParams({ propertyId: cleanId })
+              }}
+              onIssueNewCertificate={() => setSubTab('properties')}
+              refreshTrigger={refreshTrigger}
+            />
+          ) : (
+            <div className="card records mt-4">
+              <div className="card-head flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Select Property for Certification</h2>
+                  <p className="text-gray-500 text-sm mt-1">
+                    Click any property row below to automatically retrieve the property's database records and open its certificate workspace.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSubTab('records')}
+                  className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition cursor-pointer"
+                >
+                  ← Back to Certificates
+                </button>
+              </div>
+
+              <div className="mb-4">
+                <SearchBox value={query} onChange={onQueryChange} />
+              </div>
+
+              <div className="border border-green-200 dark:border-green-800/40 bg-green-50/50 dark:bg-green-950/20 p-3 rounded-lg flex items-center gap-3 text-sm text-green-800 dark:text-green-300 mb-4">
+                <ShieldCheck size={20} className="shrink-0 text-green-600 dark:text-green-400" />
+                <span>
+                  <strong>Tip:</strong> Click anywhere on a property row to open the Certificate workspace. Property details and owner records will be pre-filled automatically from the live database.
+                </span>
+              </div>
+
+              <PropertyTable 
+                rows={rows} 
+                onDelete={onDelete} 
+                onSelect={handleSelectProperty}
+              />
             </div>
-          </div>
-
-          <div className="mb-4">
-            <SearchBox value={query} onChange={onQueryChange} />
-          </div>
-
-          <div className="border border-green-200 dark:border-green-800/40 bg-green-50/50 dark:bg-green-950/20 p-3 rounded-lg flex items-center gap-3 text-sm text-green-800 dark:text-green-300 mb-4">
-            <ShieldCheck size={20} className="shrink-0 text-green-600 dark:text-green-400" />
-            <span>
-              <strong>Tip:</strong> You can click anywhere on a property row to open the Certificate page. Property details and owner records will be pre-filled automatically from the live database.
-            </span>
-          </div>
-
-          <PropertyTable 
-            rows={rows} 
-            onDelete={onDelete} 
-            onSelect={handleSelectProperty}
-          />
-        </div>
+          )}
+        </>
       )}
 
       {/* VIEW 2: CERTIFICATE WORKSPACE (SIMILAR TO REPORT PAGE) */}

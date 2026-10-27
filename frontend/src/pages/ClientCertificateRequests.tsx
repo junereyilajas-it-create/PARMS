@@ -102,8 +102,9 @@ export function ClientCertificateRequests() {
     return {
       total: requests.length,
       pending: requests.filter(r => r.status === 'PENDING').length,
-      processing: requests.filter(r => ['PROCESSING', 'UNDER_REVIEW'].includes(r.status)).length,
-      approved: requests.filter(r => ['APPROVED', 'COMPLETED'].includes(r.status)).length,
+      inProgress: requests.filter(r => ['APPROVED', 'IN_PROGRESS', 'PROCESSING', 'UNDER_REVIEW'].includes(r.status)).length,
+      readyForPickup: requests.filter(r => r.status === 'READY_FOR_PICKUP').length,
+      released: requests.filter(r => ['RELEASED', 'COMPLETED'].includes(r.status)).length,
       rejected: requests.filter(r => ['REJECTED', 'RETURNED'].includes(r.status)).length
     }
   }, [requests])
@@ -136,8 +137,10 @@ export function ClientCertificateRequests() {
       // Status filter
       if (statusFilter !== 'all') {
         if (statusFilter === 'pending' && req.status !== 'PENDING') return false
-        if (statusFilter === 'processing' && !['PROCESSING', 'UNDER_REVIEW'].includes(req.status)) return false
-        if (statusFilter === 'approved' && !['APPROVED', 'COMPLETED'].includes(req.status)) return false
+        if (statusFilter === 'approved' && req.status !== 'APPROVED') return false
+        if (statusFilter === 'in_progress' && !['IN_PROGRESS', 'PROCESSING', 'UNDER_REVIEW', 'APPROVED'].includes(req.status)) return false
+        if (statusFilter === 'ready' && req.status !== 'READY_FOR_PICKUP') return false
+        if (statusFilter === 'released' && !['RELEASED', 'COMPLETED'].includes(req.status)) return false
         if (statusFilter === 'rejected' && !['REJECTED', 'RETURNED'].includes(req.status)) return false
       }
 
@@ -224,27 +227,42 @@ export function ClientCertificateRequests() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'APPROVED':
+      case 'RELEASED':
       case 'COMPLETED':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
             <CheckCircle2 size={12} />
-            {status}
+            Released
+          </span>
+        )
+      case 'READY_FOR_PICKUP':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800">
+            <CheckCircle2 size={12} />
+            Ready for Pickup
+          </span>
+        )
+      case 'APPROVED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300 border border-teal-300 dark:border-teal-800">
+            <CheckCircle2 size={12} />
+            Approved
           </span>
         )
       case 'PENDING':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
             <Clock size={12} />
-            Pending
+            Pending Review
           </span>
         )
+      case 'IN_PROGRESS':
       case 'PROCESSING':
       case 'UNDER_REVIEW':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
             <FileCheck size={12} />
-            {status === 'UNDER_REVIEW' ? 'For Review' : 'Processing'}
+            In Progress
           </span>
         )
       case 'REJECTED':
@@ -300,71 +318,84 @@ export function ClientCertificateRequests() {
         </div>
       )}
 
-      {/* 5 Summary Cards (Reports Page Pattern) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      {/* 6 Summary Cards (Workflow aligned) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div 
           onClick={() => setStatusFilter('all')}
-          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
             statusFilter === 'all'
               ? 'bg-white dark:bg-gray-800 border-green-500 shadow-md ring-2 ring-green-500/20'
               : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-gray-300 shadow-sm'
           }`}
         >
-          <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 block">Total Requests</span>
-          <span className="text-2xl font-black text-gray-900 dark:text-white mt-1 block">{metrics.total}</span>
-          <span className="text-[11px] text-gray-400 mt-1 block">All records</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 block">Total</span>
+          <span className="text-2xl font-black text-gray-900 dark:text-white mt-0.5 block">{metrics.total}</span>
+          <span className="text-[10px] text-gray-400 mt-0.5 block">All submissions</span>
         </div>
 
         <div 
           onClick={() => setStatusFilter('pending')}
-          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
             statusFilter === 'pending'
               ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-500 shadow-md ring-2 ring-amber-500/20'
               : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-amber-300 shadow-sm'
           }`}
         >
           <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block">Pending</span>
-          <span className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1 block">{metrics.pending}</span>
-          <span className="text-[11px] text-gray-400 mt-1 block">In queue</span>
+          <span className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-0.5 block">{metrics.pending}</span>
+          <span className="text-[10px] text-gray-400 mt-0.5 block">In queue</span>
         </div>
 
         <div 
-          onClick={() => setStatusFilter('processing')}
-          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
-            statusFilter === 'processing'
+          onClick={() => setStatusFilter('in_progress')}
+          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+            statusFilter === 'in_progress'
               ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-500 shadow-md ring-2 ring-blue-500/20'
               : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-blue-300 shadow-sm'
           }`}
         >
-          <span className="text-[11px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block">Processing</span>
-          <span className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1 block">{metrics.processing}</span>
-          <span className="text-[11px] text-gray-400 mt-1 block">Staff review</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block">In Progress</span>
+          <span className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-0.5 block">{metrics.inProgress}</span>
+          <span className="text-[10px] text-gray-400 mt-0.5 block">Staff preparing</span>
         </div>
 
         <div 
-          onClick={() => setStatusFilter('approved')}
-          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
-            statusFilter === 'approved'
+          onClick={() => setStatusFilter('ready')}
+          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+            statusFilter === 'ready'
+              ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-500 shadow-md ring-2 ring-indigo-500/20'
+              : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-indigo-300 shadow-sm'
+          }`}
+        >
+          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block">Ready for Pickup</span>
+          <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5 block">{metrics.readyForPickup}</span>
+          <span className="text-[10px] text-indigo-600/70 mt-0.5 block">Available now</span>
+        </div>
+
+        <div 
+          onClick={() => setStatusFilter('released')}
+          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+            statusFilter === 'released'
               ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 shadow-md ring-2 ring-emerald-500/20'
               : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-emerald-300 shadow-sm'
           }`}
         >
-          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">Approved</span>
-          <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1 block">{metrics.approved}</span>
-          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 block">Ready to print</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">Released</span>
+          <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block">{metrics.released}</span>
+          <span className="text-[10px] text-emerald-600/70 mt-0.5 block">Completed</span>
         </div>
 
         <div 
           onClick={() => setStatusFilter('rejected')}
-          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
             statusFilter === 'rejected'
               ? 'bg-rose-50 dark:bg-rose-950/30 border-rose-500 shadow-md ring-2 ring-rose-500/20'
               : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-rose-300 shadow-sm'
           }`}
         >
           <span className="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 block">Rejected</span>
-          <span className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1 block">{metrics.rejected}</span>
-          <span className="text-[11px] text-gray-400 mt-1 block">Action required</span>
+          <span className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-0.5 block">{metrics.rejected}</span>
+          <span className="text-[10px] text-gray-400 mt-0.5 block">Office returned</span>
         </div>
       </div>
 
@@ -758,20 +789,68 @@ export function ClientCertificateRequests() {
                     </span>
                   </div>
                 )}
+
+                {/* Status Dates / Audit Timeline */}
+                <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-1 text-[11px]">
+                  {selectedRequest.reviewed_at && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Reviewed / Approved:</span>
+                      <span className="text-gray-700 dark:text-gray-300">
+                        {new Date(selectedRequest.reviewed_at).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                  {selectedRequest.completed_at && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Ready for Pickup Since:</span>
+                      <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                        {new Date(selectedRequest.completed_at).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                  {selectedRequest.released_at && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Released Date:</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        {new Date(selectedRequest.released_at).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 {selectedRequest.rejection_reason && (
                   <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-rose-700 dark:text-rose-300 mt-2">
-                    <strong className="block text-[11px] uppercase mb-0.5">Office Feedback / Reason:</strong>
+                    <strong className="block text-[11px] uppercase mb-0.5">Office Feedback / Rejection Reason:</strong>
                     <span>{selectedRequest.rejection_reason}</span>
                   </div>
                 )}
               </div>
 
-              {['APPROVED', 'COMPLETED'].includes(selectedRequest.status) && (
+              {/* Ready for Pickup Official Banner */}
+              {selectedRequest.status === 'READY_FOR_PICKUP' && (
+                <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-ping" />
+                    <span className="font-bold text-xs uppercase tracking-wider">Ready for In-Person Pickup</span>
+                  </div>
+                  <p className="text-xs leading-relaxed">
+                    Your <strong>{selectedRequest.certificate_type}</strong> for property <strong>PROPERTY-{selectedRequest.property_id || 'RECORD'}</strong> is ready for pickup at the Assessor's Office. Please bring your valid identification and request reference number (<strong>{selectedRequest.reference_number || selectedRequest.request_id}</strong>) when claiming your certificate.
+                  </p>
+                  {selectedRequest.completed_at && (
+                    <p className="text-[11px] text-indigo-600 dark:text-indigo-400">
+                      Prepared date: {new Date(selectedRequest.completed_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Released Notice & Document Access */}
+              {['RELEASED', 'COMPLETED'].includes(selectedRequest.status) && (
                 <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
                   <div>
-                    <span className="font-bold text-xs block">Certificate Ready for Printing</span>
+                    <span className="font-bold text-xs block">Certificate Released</span>
                     <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
-                      Official document has been generated and approved by the Municipal Assessor.
+                      Official certified document has been released to you. You may preview and print a copy anytime.
                     </span>
                   </div>
                   <button

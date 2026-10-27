@@ -26,7 +26,7 @@ export type CertificateRequest = {
   purpose: string;
   remarks?: string | null;
   contact_number?: string | null;
-  status: 'PENDING' | 'PROCESSING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'READY_FOR_CLAIMING' | 'COMPLETED' | 'RETURNED' | 'CANCELLED';
+  status: 'PENDING' | 'APPROVED' | 'IN_PROGRESS' | 'PROCESSING' | 'UNDER_REVIEW' | 'READY_FOR_PICKUP' | 'READY_FOR_CLAIMING' | 'RELEASED' | 'COMPLETED' | 'REJECTED' | 'RETURNED' | 'CANCELLED';
   rejection_reason?: string | null;
   processing_notes?: string | null;
   requested_at: string;
@@ -34,6 +34,9 @@ export type CertificateRequest = {
   reviewed_by?: number | null;
   assigned_to?: number | null;
   completed_at?: string | null;
+  released_at?: string | null;
+  released_by?: number | null;
+  released_by_name?: string | null;
   certificate_id?: number | null;
   certificate_number?: string | null;
   certificate_issued_at?: string | null;
@@ -41,12 +44,14 @@ export type CertificateRequest = {
   property_type_id?: number;
   property_type_name?: string;
   lot_number?: string | null;
+  title_number?: string | null;
   tax_declaration_no?: string | null;
   client_name?: string;
   client_username?: string;
   client_email?: string;
   owner_name?: string;
   owner_id?: number;
+  owner_contact?: string | null;
   reviewer_name?: string;
   assigned_staff_name?: string;
 }
