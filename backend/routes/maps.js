@@ -9,6 +9,8 @@ const LOT_MAP_QUERY = `
     l.lot_id AS id,
     l.lot_id,
     l.property_id,
+    p.property_code,
+    l.lot_number,
     l.lot_number AS title,
     l.lot_area AS area,
     l.lot_status AS status,
@@ -52,6 +54,8 @@ const BLDG_MAP_QUERY = `
     b.building_id AS id,
     b.building_id,
     b.property_id,
+    p.property_code,
+    b.building_code,
     b.building_name AS title,
     b.floor_area AS area,
     b.building_status AS status,
@@ -102,11 +106,22 @@ router.get('/maps/properties', authenticate, allowRoles('admin', 'assessor', 'st
 
 router.get('/maps/property/:id', authenticate, allowRoles('admin', 'assessor', 'staff', 'super_admin', 'client', 'owner'), async (req, res, next) => {
   try {
-    const id = req.params.id
-    const [lots] = await pool.query(`${LOT_MAP_QUERY} WHERE l.lot_id = ? OR l.property_id = ? LIMIT 1`, [id, id])
+    const rawId = req.params.id ? String(req.params.id).trim() : ''
+    const isNum = /^\d+$/.test(rawId)
+    const numId = isNum ? parseInt(rawId, 10) : null
+
+    const [lots] = await pool.query(
+      `${LOT_MAP_QUERY} WHERE (? = 1 AND (l.lot_id = ? OR l.property_id = ?)) OR l.lot_number = ? OR p.property_code = ? LIMIT 1`,
+      [numId !== null ? 1 : 0, numId || 0, numId || 0, rawId, rawId]
+    )
     if (lots[0]) return res.json(lots[0])
-    const [bldgs] = await pool.query(`${BLDG_MAP_QUERY} WHERE b.building_id = ? OR b.property_id = ? LIMIT 1`, [id, id])
+
+    const [bldgs] = await pool.query(
+      `${BLDG_MAP_QUERY} WHERE (? = 1 AND (b.building_id = ? OR b.property_id = ?)) OR b.building_code = ? OR b.building_name = ? OR p.property_code = ? LIMIT 1`,
+      [numId !== null ? 1 : 0, numId || 0, numId || 0, rawId, rawId, rawId]
+    )
     if (bldgs[0]) return res.json(bldgs[0])
+
     res.status(404).json({ message: 'Property not found' })
   } catch (e) {
     next(e)

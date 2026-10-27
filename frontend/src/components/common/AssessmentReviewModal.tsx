@@ -40,6 +40,9 @@ export const AssessmentReviewModal: React.FC<AssessmentReviewModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  const userRole = (localStorage.getItem('accessor_role') || '').toLowerCase();
+  const canReview = userRole === 'admin';
+
   if (!isOpen || !record) return null;
 
   const handleApprove = async () => {
@@ -229,39 +232,41 @@ export const AssessmentReviewModal: React.FC<AssessmentReviewModalProps> = ({
             >
               Close
             </button>
-            <div className="flex gap-2">
-              <button
-                id="return-for-correction-btn"
-                data-testid="return-for-correction-btn"
-                type="button"
-                onClick={() => setIsReturning(true)}
-                disabled={isSubmitting}
-                className="px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 rounded-xl text-sm font-semibold transition flex items-center gap-1.5"
-              >
-                <RotateCcw size={16} />
-                Return for Correction
-              </button>
-              <button
-                id="approve-assessment-btn"
-                data-testid="approve-assessment-btn"
-                type="button"
-                onClick={handleApprove}
-                disabled={isSubmitting}
-                className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-              >
-                {isSubmitting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Approving...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 size={16} />
-                    Approve Assessment
-                  </>
-                )}
-              </button>
-            </div>
+            {canReview && (
+              <div className="flex gap-2">
+                <button
+                  id="return-for-correction-btn"
+                  data-testid="return-for-correction-btn"
+                  type="button"
+                  onClick={() => setIsReturning(true)}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 rounded-xl text-sm font-semibold transition flex items-center gap-1.5"
+                >
+                  <RotateCcw size={16} />
+                  Return for Correction
+                </button>
+                <button
+                  id="approve-assessment-btn"
+                  data-testid="approve-assessment-btn"
+                  type="button"
+                  onClick={handleApprove}
+                  disabled={isSubmitting}
+                  className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Approving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={16} />
+                      Approve Assessment
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

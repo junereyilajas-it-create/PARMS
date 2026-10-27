@@ -45,6 +45,8 @@ export function AdminCertificateRequests() {
   const [selectedRequest, setSelectedRequest] = useState<CertificateRequest | null>(null)
   const [processingNotes, setProcessingNotes] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')
+  const [customOwnerName, setCustomOwnerName] = useState('')
+  const [customTaxDecNo, setCustomTaxDecNo] = useState('')
   const [signerName, setSignerName] = useState('MARIE MAE P. UBALDE')
   const [signerTitle, setSignerTitle] = useState('OIC - Municipal Assessor')
   const [orNumber, setOrNumber] = useState('4567695')
@@ -78,8 +80,8 @@ export function AdminCertificateRequests() {
     loadData()
   }, [])
 
-  const isAdminOrSuper = ['admin', 'super_admin'].includes(userRole)
-  const isStaff = userRole === 'staff'
+  const isAuthorizedToProcess = ['staff', 'super_admin'].includes(userRole)
+  const isAdminOrSuper = ['super_admin'].includes(userRole)
 
   // Summary Metrics
   const metrics = useMemo(() => {
@@ -140,6 +142,8 @@ export function AdminCertificateRequests() {
     setSelectedRequest(req)
     setProcessingNotes(req.processing_notes || '')
     setRejectionReason(req.rejection_reason || '')
+    setCustomOwnerName(req.owner_name || '')
+    setCustomTaxDecNo(req.tax_declaration_no || '')
   }
 
   // Update Status Action
@@ -170,7 +174,7 @@ export function AdminCertificateRequests() {
     }
   }
 
-  // Generate & Issue Certificate (Admin action)
+  // Generate & Issue Certificate (Staff & Super Admin action)
   const handleGenerateAndApprove = async () => {
     if (!selectedRequest) return
 
@@ -180,7 +184,9 @@ export function AdminCertificateRequests() {
         certificate_type: selectedRequest.certificate_type,
         signer_name: signerName.trim(),
         signer_title: signerTitle.trim(),
-        or_number: orNumber.trim()
+        or_number: orNumber.trim(),
+        custom_owner_name: customOwnerName.trim() || undefined,
+        custom_tax_declaration_no: customTaxDecNo.trim() || undefined
       })
 
       showSuccess(`Certificate ${res.data.certificate_number} generated and request completed!`)
@@ -535,7 +541,7 @@ export function AdminCertificateRequests() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-gray-900 dark:text-white">
-                    {isAdminOrSuper ? 'Official Certificate Review & Approval' : 'Staff Certificate Processing'}
+                    Official Certificate Review & Processing
                   </h2>
                   <p className="text-xs font-mono text-gray-500">
                     {selectedRequest.reference_number || `REQ-${String(selectedRequest.request_id).padStart(5, '0')}`}
@@ -596,6 +602,35 @@ export function AdminCertificateRequests() {
                 )}
               </div>
 
+              {/* Editable Certificate Information (Staff Authorized Details) */}
+              <div className="p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 space-y-3">
+                <span className="font-bold text-xs text-blue-900 dark:text-blue-300 block">
+                  Certificate Details & Verification (Staff Authorized)
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-0.5">Owner Name (for Certificate)</label>
+                    <input
+                      type="text"
+                      value={customOwnerName}
+                      onChange={(e) => setCustomOwnerName(e.target.value)}
+                      placeholder={selectedRequest.owner_name || 'Owner Name'}
+                      className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-0.5">Tax Declaration Number</label>
+                    <input
+                      type="text"
+                      value={customTaxDecNo}
+                      onChange={(e) => setCustomTaxDecNo(e.target.value)}
+                      placeholder={selectedRequest.tax_declaration_no || 'TD Number'}
+                      className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-2 text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Staff / Admin Notes */}
               <div>
                 <label className="block font-bold text-gray-700 dark:text-gray-300 mb-1">
@@ -624,8 +659,8 @@ export function AdminCertificateRequests() {
                 />
               </div>
 
-              {/* Admin Signatory Controls */}
-              {isAdminOrSuper && (
+              {/* Signatory Controls for Authorized Staff & Super Admin */}
+              {isAuthorizedToProcess && (
                 <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-3">
                   <span className="font-bold text-xs text-emerald-900 dark:text-emerald-300 block">
                     Certificate Issuance Parameters
@@ -673,8 +708,7 @@ export function AdminCertificateRequests() {
               </button>
 
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Staff Actions */}
-                {isStaff && (
+                {isAuthorizedToProcess && (
                   <>
                     {selectedRequest.status === 'PENDING' && (
                       <button
@@ -687,40 +721,19 @@ export function AdminCertificateRequests() {
                     )}
 
                     <button
-                      onClick={() => handleUpdateStatus('UNDER_REVIEW')}
-                      disabled={actionLoading}
-                      className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-sm transition cursor-pointer"
-                    >
-                      Submit for Admin Review
-                    </button>
-
-                    <button
                       onClick={() => handleUpdateStatus('RETURNED')}
                       disabled={actionLoading}
-                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition cursor-pointer"
+                      className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition cursor-pointer"
                     >
-                      Return for Info
+                      Return for Correction
                     </button>
-                  </>
-                )}
 
-                {/* Admin Actions */}
-                {isAdminOrSuper && (
-                  <>
                     <button
                       onClick={() => handleUpdateStatus('REJECTED')}
                       disabled={actionLoading}
                       className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition cursor-pointer"
                     >
                       Reject
-                    </button>
-
-                    <button
-                      onClick={() => handleUpdateStatus('RETURNED')}
-                      disabled={actionLoading}
-                      className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition cursor-pointer"
-                    >
-                      Return for Correction
                     </button>
 
                     <button

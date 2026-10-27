@@ -9,6 +9,7 @@ const router = Router()
 const propertySelect = `
   SELECT 
     p.property_id, 
+    p.property_code,
     p.property_status, 
     l.lot_id, 
     l.lot_number, 
@@ -16,6 +17,7 @@ const propertySelect = `
     l.lot_area, 
     l.lot_status,
     b.building_id,
+    b.building_code,
     b.building_name,
     b.floor_area,
     COALESCE(l.lot_area, b.floor_area, 0) AS area,
@@ -439,5 +441,283 @@ router.get('/client/certificate-requests/:id/document', async (req, res, next) =
     })
   } catch (e) { next(e) }
 })
+
+// =========================================================================
+// CLIENT TAX PORTAL: TAX DECLARATIONS
+// =========================================================================
+router.get('/client/tax-declarations', async (req, res, next) => {
+  try {
+    if (!req.user.owner_id) return res.json([]);
+
+    const [rows] = await pool.query(`
+      SELECT 
+        td.*,
+        COALESCE(brgy.barangay_name, 'Lagonglong') AS barangay,
+        COALESCE(
+          NULLIF(CONCAT_WS(', ', NULLIF(TRIM(addr.street), ''), brgy.barangay_name), ''),
+          brgy.barangay_name,
+          'Lagonglong, Misamis Oriental'
+        ) AS property_address,
+        u_app.first_name AS approver_first_name, u_app.last_name AS approver_last_name
+      FROM tax_declarations td
+      JOIN properties p ON td.property_id = p.property_id
+      LEFT JOIN addresses addr ON p.address_id = addr.address_id
+      LEFT JOIN barangays brgy ON addr.barangay_id = brgy.barangay_id
+      LEFT JOIN users u_app ON td.approved_by_user_id = u_app.user_id
+      WHERE td.owner_id = ?
+      ORDER BY td.tax_declaration_id DESC
+    `, [req.user.owner_id]);
+
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/client/tax-declarations/:id', async (req, res, next) => {
+  try {
+    if (!req.user.owner_id) return res.status(404).json({ message: 'No linked owner' });
+    const id = req.params.id;
+    const isNum = /^\d+$/.test(String(id).trim());
+    const numId = isNum ? parseInt(id, 10) : null;
+
+    const [rows] = await pool.query(`
+      SELECT 
+        td.*,
+        CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner_name,
+        o.email AS owner_email,
+        o.contact_number AS owner_contact,
+        COALESCE(brgy.barangay_name, 'Lagonglong') AS barangay,
+        COALESCE(
+          NULLIF(CONCAT_WS(', ', NULLIF(TRIM(addr.street), ''), brgy.barangay_name), ''),
+          brgy.barangay_name,
+          'Lagonglong, Misamis Oriental'
+        ) AS property_address,
+        u_prep.first_name AS preparer_first_name, u_prep.last_name AS preparer_last_name,
+        u_app.first_name AS approver_first_name, u_app.last_name AS approver_last_name
+      FROM tax_declarations td
+      JOIN properties p ON td.property_id = p.property_id
+      JOIN property_owners o ON td.owner_id = o.owner_id
+      LEFT JOIN addresses addr ON p.address_id = addr.address_id
+      LEFT JOIN barangays brgy ON addr.barangay_id = brgy.barangay_id
+      LEFT JOIN users u_prep ON td.prepared_by_user_id = u_prep.user_id
+      LEFT JOIN users u_app ON td.approved_by_user_id = u_app.user_id
+      WHERE td.owner_id = ? AND ((? = 1 AND td.tax_declaration_id = ?) OR td.declaration_number = ?)
+    `, [req.user.owner_id, numId !== null ? 1 : 0, numId || 0, String(id).trim()]);
+
+    if (rows.length === 0) return res.status(404).json({ message: 'Tax declaration not found or access denied.' });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =========================================================================
+// CLIENT TAX PORTAL: TAX BILLS
+// =========================================================================
+router.get('/client/tax-bills', async (req, res, next) => {
+  try {
+    if (!req.user.owner_id) return res.json([]);
+
+    const [rows] = await pool.query(`
+      SELECT 
+        tb.*,
+        td.declaration_number,
+        td.property_type,
+        td.target_id_str,
+        td.classification,
+        COALESCE(brgy.barangay_name, 'Lagonglong') AS barangay,
+        COALESCE(
+          NULLIF(CONCAT_WS(', ', NULLIF(TRIM(addr.street), ''), brgy.barangay_name), ''),
+          brgy.barangay_name,
+          'Lagonglong, Misamis Oriental'
+        ) AS property_address
+      FROM tax_bills tb
+      JOIN tax_declarations td ON tb.tax_declaration_id = td.tax_declaration_id
+      JOIN properties p ON tb.property_id = p.property_id
+      LEFT JOIN addresses addr ON p.address_id = addr.address_id
+      LEFT JOIN barangays brgy ON addr.barangay_id = brgy.barangay_id
+      WHERE tb.owner_id = ?
+      ORDER BY tb.tax_year DESC, tb.bill_id DESC
+    `, [req.user.owner_id]);
+
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/client/tax-bills/:id', async (req, res, next) => {
+  try {
+    if (!req.user.owner_id) return res.status(404).json({ message: 'No linked owner' });
+    const id = req.params.id;
+    const isNum = /^\d+$/.test(String(id).trim());
+    const numId = isNum ? parseInt(id, 10) : null;
+
+    const [bills] = await pool.query(`
+      SELECT 
+        tb.*,
+        td.declaration_number,
+        td.property_type,
+        td.target_id_str,
+        td.classification,
+        td.actual_use,
+        td.land_area,
+        td.building_area,
+        td.market_value,
+        td.assessment_level,
+        CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner_name,
+        COALESCE(brgy.barangay_name, 'Lagonglong') AS barangay,
+        COALESCE(
+          NULLIF(CONCAT_WS(', ', NULLIF(TRIM(addr.street), ''), brgy.barangay_name), ''),
+          brgy.barangay_name,
+          'Lagonglong, Misamis Oriental'
+        ) AS property_address,
+        u_prep.first_name AS preparer_first_name, u_prep.last_name AS preparer_last_name,
+        u_app.first_name AS approver_first_name, u_app.last_name AS approver_last_name
+      FROM tax_bills tb
+      JOIN tax_declarations td ON tb.tax_declaration_id = td.tax_declaration_id
+      JOIN properties p ON tb.property_id = p.property_id
+      JOIN property_owners o ON tb.owner_id = o.owner_id
+      LEFT JOIN addresses addr ON p.address_id = addr.address_id
+      LEFT JOIN barangays brgy ON addr.barangay_id = brgy.barangay_id
+      LEFT JOIN users u_prep ON tb.prepared_by_user_id = u_prep.user_id
+      LEFT JOIN users u_app ON tb.approved_by_user_id = u_app.user_id
+      WHERE tb.owner_id = ? AND ((? = 1 AND tb.bill_id = ?) OR tb.bill_number = ?)
+    `, [req.user.owner_id, numId !== null ? 1 : 0, numId || 0, String(id).trim()]);
+
+    if (bills.length === 0) return res.status(404).json({ message: 'Tax bill not found or access denied.' });
+    const bill = bills[0];
+
+    const [items] = await pool.query('SELECT * FROM tax_bill_items WHERE bill_id = ? ORDER BY item_id ASC', [bill.bill_id]);
+    const [payments] = await pool.query(`
+      SELECT 
+        pt.*,
+        u.first_name AS cashier_first_name, u.last_name AS cashier_last_name
+      FROM payment_transactions pt
+      JOIN users u ON pt.cashier_user_id = u.user_id
+      WHERE pt.bill_id = ?
+      ORDER BY pt.transaction_id DESC
+    `, [bill.bill_id]);
+
+    res.json({ ...bill, items, payments });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =========================================================================
+// CLIENT TAX PORTAL: OFFICIAL RECEIPTS & PAYMENTS
+// =========================================================================
+router.get('/client/receipts', async (req, res, next) => {
+  try {
+    if (!req.user.owner_id) return res.json([]);
+
+    const [rows] = await pool.query(`
+      SELECT 
+        pt.*,
+        tb.bill_number,
+        tb.tax_year,
+        td.declaration_number,
+        td.property_type,
+        td.target_id_str,
+        u.first_name AS cashier_first_name, u.last_name AS cashier_last_name
+      FROM payment_transactions pt
+      JOIN tax_bills tb ON pt.bill_id = tb.bill_id
+      JOIN tax_declarations td ON tb.tax_declaration_id = td.tax_declaration_id
+      JOIN users u ON pt.cashier_user_id = u.user_id
+      WHERE pt.owner_id = ?
+      ORDER BY pt.transaction_id DESC
+    `, [req.user.owner_id]);
+
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/client/receipts/:id', async (req, res, next) => {
+  try {
+    if (!req.user.owner_id) return res.status(404).json({ message: 'No linked owner' });
+    const id = req.params.id;
+    const isNum = /^\d+$/.test(String(id).trim());
+    const numId = isNum ? parseInt(id, 10) : null;
+
+    const [rows] = await pool.query(`
+      SELECT 
+        pt.*,
+        tb.bill_number,
+        tb.tax_year,
+        tb.total_amount_due,
+        tb.remaining_balance,
+        td.declaration_number,
+        td.property_type,
+        td.target_id_str,
+        td.classification,
+        td.assessed_value,
+        CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner_name,
+        COALESCE(brgy.barangay_name, 'Lagonglong') AS barangay,
+        u.first_name AS cashier_first_name, u.last_name AS cashier_last_name
+      FROM payment_transactions pt
+      JOIN tax_bills tb ON pt.bill_id = tb.bill_id
+      JOIN tax_declarations td ON tb.tax_declaration_id = td.tax_declaration_id
+      JOIN properties p ON tb.property_id = p.property_id
+      JOIN property_owners o ON pt.owner_id = o.owner_id
+      LEFT JOIN addresses addr ON p.address_id = addr.address_id
+      LEFT JOIN barangays brgy ON addr.barangay_id = brgy.barangay_id
+      JOIN users u ON pt.cashier_user_id = u.user_id
+      WHERE pt.owner_id = ? AND ((? = 1 AND pt.transaction_id = ?) OR pt.transaction_number = ? OR pt.or_number = ?)
+    `, [req.user.owner_id, numId !== null ? 1 : 0, numId || 0, String(id).trim(), String(id).trim()]);
+
+    if (rows.length === 0) return res.status(404).json({ message: 'Receipt not found or access denied.' });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =========================================================================
+// CLIENT TAX PORTAL: SUMMARY OVERVIEW
+// =========================================================================
+router.get('/client/tax-summary', async (req, res, next) => {
+  try {
+    if (!req.user.owner_id) {
+      return res.json({
+        total_declarations: 0,
+        total_bills: 0,
+        total_outstanding: 0,
+        total_paid_this_year: 0,
+        pending_bills_count: 0
+      });
+    }
+
+    const currentYear = new Date().getFullYear();
+    const [tdCount] = await pool.query('SELECT COUNT(*) AS cnt FROM tax_declarations WHERE owner_id = ?', [req.user.owner_id]);
+    const [billStats] = await pool.query(`
+      SELECT 
+        COUNT(*) AS total_bills,
+        COALESCE(SUM(remaining_balance), 0) AS total_outstanding,
+        SUM(CASE WHEN remaining_balance > 0 THEN 1 ELSE 0 END) AS pending_bills_count
+      FROM tax_bills
+      WHERE owner_id = ? AND bill_status NOT IN ('cancelled')
+    `, [req.user.owner_id]);
+
+    const [paidThisYear] = await pool.query(`
+      SELECT COALESCE(SUM(amount_paid), 0) AS total_paid
+      FROM payment_transactions
+      WHERE owner_id = ? AND status = 'completed' AND YEAR(payment_date) = ?
+    `, [req.user.owner_id, currentYear]);
+
+    res.json({
+      total_declarations: tdCount[0]?.cnt || 0,
+      total_bills: billStats[0]?.total_bills || 0,
+      total_outstanding: Number(billStats[0]?.total_outstanding || 0),
+      pending_bills_count: billStats[0]?.pending_bills_count || 0,
+      total_paid_this_year: Number(paidThisYear[0]?.total_paid || 0)
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router

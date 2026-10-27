@@ -11,7 +11,11 @@ import {
   MapPin,
   Plus,
   Trash2,
-  Layers
+  Layers,
+  Building,
+  Search,
+  CheckCircle2,
+  Compass
 } from 'lucide-react';
 import api, { ensureSession } from '../lib/api';
 import { useModal } from '../contexts/ModalContext';
@@ -20,6 +24,36 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { formatPointPair, detectSelfIntersection } from '../lib/gisGeometry';
 import { createCornerPointIcon, createSideLengthIcon } from '../lib/gisUtils';
+import { GISBoundaryDrawingModule } from '../components/gis/GISBoundaryDrawingModule';
+import { adjustFourSidedDimensions } from '../lib/gisValidationService';
+
+const LAGONGLONG_BARANGAYS = [
+  'Banglay',
+  'Dampil',
+  'Gaston',
+  'Kabulawan',
+  'Kauswagan',
+  'Lumbo',
+  'Mabini',
+  'Manaol',
+  'Poblacion',
+  'Tabok',
+  'Umagos'
+];
+
+const BARANGAY_CENTERS: Record<string, [number, number]> = {
+  poblacion: [8.8062, 124.7900],
+  kauswagan: [8.8150, 124.7850],
+  gaston: [8.8250, 124.7820],
+  tabok: [8.8020, 124.7950],
+  mabini: [8.7950, 124.8050],
+  dampil: [8.8350, 124.7800],
+  lumbo: [8.8100, 124.8100],
+  banglay: [8.8400, 124.7750],
+  kabulawan: [8.8200, 124.8000],
+  manaol: [8.8000, 124.8200],
+  umagos: [8.7900, 124.8100],
+};
 
 const MapController = ({ bounds, zoom, setZoom, fitTrigger }: { bounds: any; zoom: number; setZoom: any; fitTrigger: number }) => {
   const map = useMap();
@@ -91,6 +125,127 @@ export function BlueprintScanner() {
   const [isSendingToGis, setIsSendingToGis] = useState(false);
   const [targetPropertyId, setTargetPropertyId] = useState<string>('');
 
+  // Property Connection & ID Assignment State
+  const [propertyMode, setPropertyMode] = useState<'existing' | 'new'>('existing');
+  const [propertySearchQuery, setPropertySearchQuery] = useState('');
+  const [propertyLookupResults, setPropertyLookupResults] = useState<any[]>([]);
+  const [isSearchingProperties, setIsSearchingProperties] = useState(false);
+  const [selectedProperty, setSelectedProperty] = useState<any | null>(null);
+  const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
+
+  // New Property Auto-ID Preview State
+  const [nextPropertyIdPreview, setNextPropertyIdPreview] = useState<string>('');
+  const [newPropertyBarangay, setNewPropertyBarangay] = useState('Poblacion');
+  const [newPropertyClassification, setNewPropertyClassification] = useState('Residential');
+
+  // Interactive GIS Drawing Workspace Modal State
+  const [showGisDrawer, setShowGisDrawer] = useState(false);
+  const [adjustmentNotice, setAdjustmentNotice] = useState<string>('');
+
+  // Authoritative official property area ceiling
+  const authoritativeArea = useMemo(() => {
+    if (selectedProperty?.lot_area) return Number(selectedProperty.lot_area);
+    if (activeScan?.stated_area) return Number(activeScan.stated_area);
+    return 0;
+  }, [selectedProperty, activeScan]);
+
+  const fetchNextPropertyId = async () => {
+    try {
+      const { data } = await api.get('/scanner/next-property-id');
+      if (data?.nextPropertyId) {
+        setNextPropertyIdPreview(data.nextPropertyId);
+        setTargetPropertyId(data.nextPropertyId);
+      }
+    } catch (e) {
+      console.warn('Failed to preview next property ID', e);
+    }
+  };
+
+  const searchProperties = async (q: string) => {
+    setIsSearchingProperties(true);
+    try {
+      const { data } = await api.get(`/scanner/properties-lookup?q=${encodeURIComponent(q)}`);
+      setPropertyLookupResults(data.properties || []);
+      setShowPropertyDropdown(true);
+    } catch (e) {
+      console.warn('Property lookup failed', e);
+    } finally {
+      setIsSearchingProperties(false);
+    }
+  };
+
+  const handleSelectProperty = (prop: any) => {
+    setSelectedProperty(prop);
+    setTargetPropertyId(prop.property_code || String(prop.property_id));
+    setShowPropertyDropdown(false);
+    setPropertySearchQuery(`${prop.property_code} - ${prop.lot_number || 'Lot'} (${prop.owner || 'Owner'})`);
+    if (prop.owner) setOwnerName(prop.owner);
+    if (activeScan) {
+      setActiveScan({
+        ...activeScan,
+        lot_number: prop.lot_number || activeScan.lot_number,
+        barangay: prop.barangay || activeScan.barangay,
+        stated_area: prop.lot_area ? Number(prop.lot_area) : activeScan.stated_area
+      });
+    }
+  };
+
+  const handleAdjustRectangularSides = () => {
+    if (!authoritativeArea || authoritativeArea <= 0) {
+      showError('Valid official property area is required to auto-adjust rectangular dimensions.');
+      return;
+    }
+    if (segments.length !== 4) {
+      showError('Automatic rectangular adjustment requires exactly 4 sides.');
+      return;
+    }
+    try {
+      const currentLength = Number(segments[0].distance) || 20;
+      const result = adjustFourSidedDimensions(0, currentLength, authoritativeArea);
+      const updated = segments.map((seg, i) => ({
+        ...seg,
+        distance: result.sideLengths[i],
+        is_corrected: true
+      }));
+      setSegments(updated);
+      setAdjustmentNotice(result.message);
+      showSuccess(result.message);
+    } catch (err: any) {
+      showError(err.message || 'Cannot adjust dimensions.');
+    }
+  };
+
+  const handleConfirmedFromDrawer = (geom: any, areaSqm: number, _perimeterM: number, sideMeasurements?: any[]) => {
+    setShowGisDrawer(false);
+    if (!activeScan) return;
+
+    if (authoritativeArea > 0 && areaSqm > authoritativeArea + 0.05) {
+      showError(`Survey area (${areaSqm.toFixed(2)} m²) exceeds official area (${authoritativeArea.toFixed(2)} m²). Please adjust boundary.`);
+      return;
+    }
+
+    const newPolygon = geom?.geometry || geom;
+    setActiveScan({
+      ...activeScan,
+      calculated_area: areaSqm,
+      gis_geometry: newPolygon
+    });
+
+    if (sideMeasurements && sideMeasurements.length > 0) {
+      const newSegs: Segment[] = sideMeasurements.map((s, idx) => ({
+        segment_number: idx + 1,
+        from_point: String(s.fromPoint),
+        to_point: String(s.toPoint),
+        bearing: '',
+        distance: s.derived,
+        is_corrected: true
+      }));
+      setSegments(newSegs);
+    }
+
+    showSuccess(`GIS boundary updated (${areaSqm.toFixed(2)} m²)! Click "Map Lot in GIS" to save.`);
+  };
+
   useEffect(() => {
     if (activeScan?.stored_filepath) {
       setImageBounds(null);
@@ -107,6 +262,7 @@ export function BlueprintScanner() {
 
   useEffect(() => {
     loadScans();
+    fetchNextPropertyId();
   }, []);
 
   const loadScans = async () => {
@@ -252,16 +408,28 @@ export function BlueprintScanner() {
     });
   };
 
-  // Direct GIS Mapping Action
+  // Direct GIS Mapping Action with strict area enforcement
   const handleSendToGIS = async () => {
-    if (!activeScan || !targetPropertyId) {
-      showError('Please enter a target Property ID to map this lot boundary.');
+    if (!activeScan) {
+      showError('Please select a blueprint scan first.');
       return;
     }
+    const propIdToUse = selectedProperty?.property_code || selectedProperty?.property_id || targetPropertyId;
+    if (!propIdToUse) {
+      showError('Please select an existing property or specify a target Property ID.');
+      return;
+    }
+
+    // Strict Area Check before sending
+    if (authoritativeArea > 0 && (activeScan.calculated_area || 0) > authoritativeArea + 0.05) {
+      showError(`Cannot save to GIS: Mapped survey area (${(activeScan.calculated_area || 0).toFixed(2)} m²) exceeds official property area (${authoritativeArea.toFixed(2)} m²). Mapped area cannot exceed official area.`);
+      return;
+    }
+
     setIsSendingToGis(true);
     try {
       const { data } = await api.post(`/scanner/${activeScan.scan_id}/to-gis`, {
-        property_id: Number(targetPropertyId)
+        property_id: propIdToUse
       });
       showSuccess(data.message || 'Lot boundary saved to GIS!');
     } catch (err: any) {
@@ -300,15 +468,22 @@ export function BlueprintScanner() {
       }
     }
 
+    // Strict area validation against authoritative property ceiling
+    const officialLimit = authoritativeArea;
+    const calcArea = Number(activeScan?.calculated_area) || 0;
+    if (officialLimit > 0 && calcArea > officialLimit + 0.05) {
+      errors.push(`Survey mapped area (${calcArea.toFixed(2)} m²) EXCEEDS official property area (${officialLimit.toFixed(2)} m²). Mapped survey area cannot exceed recorded official area.`);
+    }
+
     if (activeScan?.stated_area && activeScan?.calculated_area) {
       const diffArea = Math.abs(Number(activeScan.stated_area) - Number(activeScan.calculated_area));
-      if (diffArea > 2) {
+      if (diffArea > 2 && !(officialLimit > 0 && calcArea > officialLimit + 0.05)) {
         warnings.push(`Calculated area (${activeScan.calculated_area} m²) differs from the recorded property area (${activeScan.stated_area} m²).`);
       }
     }
 
     return { warnings, errors };
-  }, [segments, activeScan]);
+  }, [segments, activeScan, authoritativeArea]);
 
   // Derived Leaflet coordinates from Cartesian local geometry
   const polygonGeo = useMemo(() => {
@@ -504,6 +679,150 @@ export function BlueprintScanner() {
         <div className="lg:w-1/2 flex flex-col bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden shadow-sm">
           {activeScan ? (
             <div className="flex flex-col h-full">
+              {/* PROPERTY CONNECTION & IDENTIFICATION */}
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Building className="text-emerald-600 dark:text-emerald-400" size={17} />
+                    <span className="font-bold text-sm text-gray-900 dark:text-white">Property Connection</span>
+                  </div>
+                  <div className="flex items-center bg-gray-100 dark:bg-gray-700 p-0.5 rounded-lg text-xs">
+                    <button
+                      type="button"
+                      id="mode-existing-prop"
+                      onClick={() => { setPropertyMode('existing'); }}
+                      className={`px-3 py-1 rounded-md font-semibold transition cursor-pointer ${
+                        propertyMode === 'existing'
+                          ? 'bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                          : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      Select Existing Property
+                    </button>
+                    <button
+                      type="button"
+                      id="mode-new-prop"
+                      onClick={() => {
+                        setPropertyMode('new');
+                        fetchNextPropertyId();
+                      }}
+                      className={`px-3 py-1 rounded-md font-semibold transition cursor-pointer ${
+                        propertyMode === 'new'
+                          ? 'bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                          : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      Create New Property
+                    </button>
+                  </div>
+                </div>
+
+                {propertyMode === 'existing' ? (
+                  <div className="relative">
+                    <label className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 block mb-1">
+                      Search & Select Authoritative Property Record
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        id="property-search-input"
+                        placeholder="Type property code, lot #, or owner name..."
+                        value={propertySearchQuery}
+                        onChange={e => {
+                          setPropertySearchQuery(e.target.value);
+                          searchProperties(e.target.value);
+                        }}
+                        onFocus={() => {
+                          if (propertyLookupResults.length > 0) setShowPropertyDropdown(true);
+                          else searchProperties(propertySearchQuery);
+                        }}
+                        className="w-full pl-8 pr-4 py-1.5 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-700 dark:text-white"
+                      />
+                      <Search size={14} className="absolute left-2.5 top-2 text-gray-400" />
+                    </div>
+
+                    {showPropertyDropdown && (
+                      <div className="absolute z-50 left-0 right-0 mt-1 max-h-52 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl">
+                        {isSearchingProperties ? (
+                          <div className="p-3 text-center text-xs text-gray-400">Loading properties...</div>
+                        ) : propertyLookupResults.length === 0 ? (
+                          <div className="p-3 text-center text-xs text-gray-400">No matching properties found</div>
+                        ) : (
+                          propertyLookupResults.map(p => (
+                            <div
+                              key={p.property_id}
+                              onClick={() => handleSelectProperty(p)}
+                              className="p-2.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer border-b border-gray-100 dark:border-gray-700/50 flex items-center justify-between text-xs"
+                            >
+                              <div>
+                                <span className="font-bold text-gray-900 dark:text-white font-mono">{p.property_code}</span>
+                                <span className="ml-2 text-gray-500 font-semibold">{p.lot_number || 'No Lot Assigned'}</span>
+                                <div className="text-[11px] text-gray-400 mt-0.5">{p.owner} • Brgy. {p.barangay || 'Lagonglong'}</div>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{p.lot_area || 0} m²</span>
+                                <div className="text-[10px] text-gray-400 uppercase">{p.classification_name || 'Class'}</div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+
+                    {selectedProperty && (
+                      <div className="mt-2 p-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg flex items-center justify-between text-xs">
+                        <div>
+                          <span className="font-bold text-emerald-800 dark:text-emerald-300">Connected Property:</span>{' '}
+                          <span className="font-mono font-extrabold">{selectedProperty.property_code}</span> ({selectedProperty.lot_number})
+                        </div>
+                        <div className="font-mono text-emerald-700 dark:text-emerald-300">
+                          Official Limit: <strong>{selectedProperty.lot_area} m²</strong>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-3 bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 rounded-xl space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-gray-500">Auto-Generated Unique Property ID:</span>
+                      <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 rounded font-mono font-extrabold">
+                        {nextPropertyIdPreview || 'PROP_...'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <label className="text-[10px] text-gray-500 block mb-0.5">Barangay</label>
+                        <select
+                          className="w-full border rounded px-2 py-1 dark:bg-gray-800 dark:border-gray-700 dark:text-white text-xs"
+                          value={newPropertyBarangay}
+                          onChange={e => {
+                            setNewPropertyBarangay(e.target.value);
+                            if (activeScan) setActiveScan({ ...activeScan, barangay: e.target.value });
+                          }}
+                        >
+                          {LAGONGLONG_BARANGAYS.map(b => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-500 block mb-0.5">Classification</label>
+                        <select
+                          className="w-full border rounded px-2 py-1 dark:bg-gray-800 dark:border-gray-700 dark:text-white text-xs"
+                          value={newPropertyClassification}
+                          onChange={e => setNewPropertyClassification(e.target.value)}
+                        >
+                          <option value="Residential">Residential</option>
+                          <option value="Commercial">Commercial</option>
+                          <option value="Agricultural">Agricultural</option>
+                          <option value="Industrial">Industrial</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Properties Header */}
               <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/80">
                 <h3 className="font-bold text-base dark:text-white mb-2.5">Survey & Lot Details</h3>
@@ -533,7 +852,7 @@ export function BlueprintScanner() {
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] text-gray-500 block mb-0.5">Stated Area (m²)</label>
+                    <label className="text-[11px] text-gray-500 block mb-0.5">Official Stated Area (m²)</label>
                     <input
                       type="number"
                       className="w-full border rounded-lg px-2.5 py-1 dark:bg-gray-800 dark:border-gray-700 dark:text-white font-mono font-bold"
@@ -543,14 +862,20 @@ export function BlueprintScanner() {
                   </div>
                 </div>
 
-                {/* Area Comparison & Closure Error Summary */}
-                <div className="grid grid-cols-2 gap-3 text-xs mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                {/* Area Comparison & Status Summary */}
+                <div className="grid grid-cols-3 gap-2 text-xs mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                   <div className="p-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                    <span className="text-[10px] text-gray-500 block uppercase font-bold">Calculated Area</span>
+                    <span className="text-[10px] text-gray-500 block uppercase font-bold">Official Limit</span>
+                    <strong className="text-sm font-mono text-gray-900 dark:text-white">
+                      {authoritativeArea > 0 ? `${authoritativeArea.toFixed(2)} m²` : 'Not Set'}
+                    </strong>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                    <span className="text-[10px] text-gray-500 block uppercase font-bold">Survey Mapped</span>
                     <strong
-                      className={`text-base font-mono ${
-                        Math.abs((activeScan.stated_area || 0) - (activeScan.calculated_area || 0)) > 2
-                          ? 'text-amber-600'
+                      className={`text-sm font-mono ${
+                        authoritativeArea > 0 && (activeScan.calculated_area || 0) > authoritativeArea + 0.05
+                          ? 'text-rose-600 font-extrabold'
                           : 'text-emerald-600'
                       }`}
                     >
@@ -558,17 +883,45 @@ export function BlueprintScanner() {
                     </strong>
                   </div>
                   <div className="p-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                    <span className="text-[10px] text-gray-500 block uppercase font-bold">Traverse Closure</span>
+                    <span className="text-[10px] text-gray-500 block uppercase font-bold">Area Status</span>
                     <strong
-                      className={`text-base font-mono ${
-                        (activeScan.closure_error || 0) > 0.5 ? 'text-amber-600' : 'text-emerald-600'
+                      className={`text-[11px] font-bold block truncate ${
+                        authoritativeArea > 0 && (activeScan.calculated_area || 0) > authoritativeArea + 0.05
+                          ? 'text-rose-600'
+                          : 'text-emerald-600'
                       }`}
+                      title={authoritativeArea > 0 && (activeScan.calculated_area || 0) > authoritativeArea + 0.05 ? 'Exceeds official limit' : 'Within allowable limit'}
                     >
-                      {activeScan.closure_error !== undefined ? `${activeScan.closure_error}m` : '0.00m'}
+                      {authoritativeArea > 0 && (activeScan.calculated_area || 0) > authoritativeArea + 0.05
+                        ? `Exceeds +${((activeScan.calculated_area || 0) - authoritativeArea).toFixed(2)}m²`
+                        : 'Valid ✓'}
                     </strong>
                   </div>
                 </div>
               </div>
+
+              {/* Red Area Validation Error Banner */}
+              {validationAnalysis.errors.length > 0 && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border-b border-rose-300 dark:border-rose-900 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-rose-800 dark:text-rose-300 text-xs">
+                    <AlertTriangle size={14} className="text-rose-600" />
+                    <span>Boundary Geometry Error:</span>
+                  </div>
+                  {validationAnalysis.errors.map((err, i) => (
+                    <p key={i} className="text-[11px] text-rose-900/90 dark:text-rose-200/90 font-medium">
+                      • {err}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {/* Adjustment Notice Banner */}
+              {adjustmentNotice && (
+                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/30 border-b border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 text-xs flex items-center gap-2">
+                  <CheckCircle2 size={14} className="text-blue-600 shrink-0" />
+                  <span>{adjustmentNotice}</span>
+                </div>
+              )}
 
               {/* Validation Warnings */}
               {validationAnalysis.warnings.length > 0 && (
@@ -674,14 +1027,27 @@ export function BlueprintScanner() {
                 </table>
 
                 {/* Table Footer Actions */}
-                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-gray-100 dark:border-gray-700">
-                  <button
-                    type="button"
-                    onClick={handleAddSegment}
-                    className="flex items-center gap-1 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg hover:bg-emerald-100 transition cursor-pointer font-semibold"
-                  >
-                    <Plus size={13} /> Add Line Segment
-                  </button>
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleAddSegment}
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg hover:bg-emerald-100 transition cursor-pointer font-semibold"
+                    >
+                      <Plus size={13} /> Add Line Segment
+                    </button>
+                    {segments.length === 4 && authoritativeArea > 0 && (
+                      <button
+                        type="button"
+                        id="auto-adjust-rectangle-btn"
+                        onClick={handleAdjustRectangularSides}
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 rounded-lg hover:bg-blue-100 transition cursor-pointer font-semibold"
+                        title="Automatically calculate dependent width to keep exactly official area (A = L × W)"
+                      >
+                        <Compass size={13} /> Auto-Adjust Rectangle ({authoritativeArea} m²)
+                      </button>
+                    )}
+                  </div>
                   <button
                     onClick={saveSegments}
                     disabled={isSaving || segments.length < 3}
@@ -694,10 +1060,21 @@ export function BlueprintScanner() {
               </div>
 
               {/* GIS Map Preview with Numbered Points & Distances */}
-              <div className="h-56 border-t border-gray-200 dark:border-gray-700 relative bg-gray-100 dark:bg-gray-900">
-                <div className="absolute top-2 left-2 z-[1000] bg-white/95 dark:bg-gray-800/95 px-2.5 py-1 rounded-lg shadow text-xs font-bold flex items-center gap-1.5 dark:text-white border border-gray-200 dark:border-gray-700">
-                  <MapPin size={14} className="text-emerald-500" />
-                  <span>Reconstructed Cadastral Lot Boundary</span>
+              <div className="h-60 border-t border-gray-200 dark:border-gray-700 relative bg-gray-100 dark:bg-gray-900">
+                <div className="absolute top-2 left-2 z-[1000] flex items-center gap-2">
+                  <div className="bg-white/95 dark:bg-gray-800/95 px-2.5 py-1 rounded-lg shadow text-xs font-bold flex items-center gap-1.5 dark:text-white border border-gray-200 dark:border-gray-700">
+                    <MapPin size={14} className="text-emerald-500" />
+                    <span>Cadastral Lot Boundary</span>
+                  </div>
+                  <button
+                    type="button"
+                    id="open-gis-drawer-btn"
+                    onClick={() => setShowGisDrawer(true)}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow text-xs font-bold flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <Layers size={13} />
+                    <span>Open Interactive GIS Boundary Editor</span>
+                  </button>
                 </div>
                 <MapContainer
                   center={[8.834, 124.786]}
@@ -748,18 +1125,19 @@ export function BlueprintScanner() {
               {/* Direct GIS Save & Submit Actions */}
               <div className="p-3.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50/90 dark:bg-gray-900/90 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    placeholder="Property ID"
-                    value={targetPropertyId}
-                    onChange={e => setTargetPropertyId(e.target.value)}
-                    className="w-28 px-2.5 py-1 text-xs border rounded-lg dark:bg-gray-800 dark:border-gray-700 dark:text-white font-mono"
-                    title="Enter Property ID to map directly to GIS"
-                  />
+                  <span className="text-xs font-bold text-gray-500 font-mono">
+                    ID: <strong>{selectedProperty?.property_code || targetPropertyId || nextPropertyIdPreview || 'PROP_...'}</strong>
+                  </span>
                   <button
                     type="button"
+                    id="map-lot-to-gis-btn"
                     onClick={handleSendToGIS}
-                    disabled={isSendingToGis || !targetPropertyId || !polygonGeo}
+                    disabled={
+                      isSendingToGis || 
+                      !targetPropertyId || 
+                      !polygonGeo || 
+                      validationAnalysis.errors.length > 0
+                    }
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition disabled:opacity-50 cursor-pointer"
                   >
                     {isSendingToGis ? <Loader2 size={13} className="animate-spin" /> : <Layers size={13} />}
@@ -772,7 +1150,8 @@ export function BlueprintScanner() {
                   disabled={
                     activeScan.status !== 'draft' ||
                     (activeScan.closure_error || 0) > 1.0 ||
-                    activeScan.municipality?.toUpperCase() !== 'LAGONGLONG'
+                    activeScan.municipality?.toUpperCase() !== 'LAGONGLONG' ||
+                    validationAnalysis.errors.length > 0
                   }
                   className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 transition cursor-pointer shadow"
                 >
@@ -791,6 +1170,25 @@ export function BlueprintScanner() {
           )}
         </div>
       </div>
+
+      {/* Interactive GIS Boundary Editor Modal embedded in Scanner */}
+      {showGisDrawer && activeScan && (
+        <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/75 backdrop-blur-sm p-2 sm:p-4 animate-fade-in">
+          <div className="w-full max-w-6xl shadow-2xl">
+            <GISBoundaryDrawingModule
+              propertyType="LOT"
+              targetTitle={selectedProperty?.property_code ? `${selectedProperty.property_code} (${selectedProperty.lot_number || 'Lot'})` : `Blueprint Scan #${activeScan.scan_id}`}
+              lotAreaEntered={authoritativeArea > 0 ? authoritativeArea : activeScan.stated_area}
+              initialCoordinates={activeScan.gis_geometry}
+              centerOverride={BARANGAY_CENTERS[(activeScan.barangay || 'poblacion').toLowerCase().trim()] || [8.834, 124.786]}
+              onConfirmBoundary={(geom, area, perim, sides) => {
+                handleConfirmedFromDrawer(geom, area, perim, sides);
+              }}
+              onClose={() => setShowGisDrawer(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

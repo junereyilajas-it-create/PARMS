@@ -1,4 +1,8 @@
-import { ClipboardCheck, Building2, FileText, Home, LayoutDashboard, Map, PanelLeftClose, Settings, Users, SquareDashed, Shield, ScanLine } from 'lucide-react'
+import { 
+  ClipboardCheck, Building2, FileText, Home, LayoutDashboard, Map, 
+  PanelLeftClose, Settings, Users, SquareDashed, Shield, ScanLine, 
+  Receipt
+} from 'lucide-react'
 import { SystemLogo } from '../common/SystemLogo'
 
 const ALL_NAV_GROUPS = [
@@ -9,6 +13,8 @@ const ALL_NAV_GROUPS = [
       { label: 'My Properties', icon: Building2, roles: ['owner', 'client'] },
       { label: 'My GIS Property', icon: Map, roles: ['owner', 'client'] },
       { label: 'My Assessments', icon: ClipboardCheck, roles: ['owner', 'client'] },
+      { label: 'My Tax Declarations', icon: FileText, roles: ['owner', 'client'] },
+      { label: 'My Tax Computations', icon: Receipt, roles: ['owner', 'client'] },
       { label: 'Reports', icon: FileText, roles: ['admin'] }
     ]
   },
@@ -33,11 +39,10 @@ const ALL_NAV_GROUPS = [
   {
     title: 'Operations',
     items: [
-      { label: 'Assessments', icon: ClipboardCheck, roles: ['admin', 'assessor'] },
-      { label: 'Assessment Assignments', icon: ClipboardCheck, roles: ['admin', 'super_admin'] },
+      { label: 'Assessments', icon: ClipboardCheck, roles: ['admin', 'assessor', 'super_admin', 'staff'] },
       { label: 'Permission Requests', icon: FileText, roles: ['admin', 'super_admin'] },
       { label: 'My Requests', icon: FileText, roles: ['assessor', 'staff'] },
-      { label: 'Certificates', icon: FileText, roles: ['super_admin', 'admin'], permission: 'MANAGE_CERTIFICATES' },
+      { label: 'Certificates', icon: FileText, roles: ['super_admin', 'staff'], permission: 'MANAGE_CERTIFICATES' },
       { label: 'Certificate Requests', icon: FileText, roles: ['owner', 'client'] },
       { label: 'Assigned Tasks', icon: ClipboardCheck, roles: ['staff'] }
     ]
@@ -57,8 +62,11 @@ export function AppSidebar({ active, onNavigate, isOpen, collapsed, onCollapse, 
   const navGroups = ALL_NAV_GROUPS.map(group => ({
     title: group.title,
     items: group.items.filter(item => {
+      if (currentRole === 'admin' && (item.label === 'Certificates' || item.label === 'Certificate Requests')) {
+        return false;
+      }
       if (item.roles.includes(currentRole)) return true;
-      if (item.permission && userPermissions.includes(item.permission)) return true;
+      if (item.permission && userPermissions.includes(item.permission) && currentRole !== 'admin') return true;
       return false;
     })
   })).filter(group => group.items.length > 0);

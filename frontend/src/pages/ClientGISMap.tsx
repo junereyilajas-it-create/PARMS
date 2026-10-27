@@ -6,7 +6,7 @@ import {
   Ruler
 } from 'lucide-react'
 import api from '../lib/api'
-import { MapContainer, TileLayer, Polygon, Marker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polygon, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { GISFeature, MapMode } from '../types/gis'
 import {
@@ -21,6 +21,15 @@ import { PropertyDetailPanel } from '../components/gis/PropertyDetailPanel'
 import { PropertyDetailModal } from '../components/gis/PropertyDetailModal'
 
 const LAGONGLONG_CENTER: [number, number] = [8.8062, 124.7900]
+
+function MapEventsHandler({ onDeselect }: { onDeselect: () => void }) {
+  useMapEvents({
+    click: () => {
+      onDeselect()
+    }
+  })
+  return null
+}
 
 function MapFlyController({
   targetCenter,
@@ -232,6 +241,8 @@ export function ClientGISMap() {
                   targetBounds={flyTargetBounds}
                 />
 
+                <MapEventsHandler onDeselect={() => setSelectedFeature(null)} />
+
                 {mapMode === 'street' ? (
                   <TileLayer
                     key="client-tile-street"
@@ -278,17 +289,27 @@ export function ClientGISMap() {
                             weight: isSelected ? 4 : 2,
                           }}
                           eventHandlers={{
-                            click: () => handleSelectFeature(f),
+                            click: (e) => {
+                              e.originalEvent?.stopPropagation()
+                              handleSelectFeature(f)
+                            },
                           }}
                         >
-                          <Popup>
-                            <div className="p-1 space-y-1 text-xs">
-                              <div className="font-bold text-gray-900">{f.title}</div>
-                              <div>Area: {f.area_sqm || f.area} m²</div>
+                          <Popup eventHandlers={{ remove: () => setSelectedFeature(null) }}>
+                            <div className="p-1.5 space-y-1 text-xs">
+                              <div className="font-bold text-gray-900 flex items-center justify-between gap-2 border-b border-gray-100 pb-1">
+                                <span>{f.title}</span>
+                                <span className="text-[10px] text-gray-500 font-mono">
+                                  {f.property_code || (f.property_id ? `PROP_${f.property_id}` : '')}
+                                </span>
+                              </div>
+                              <div className="text-gray-600">Owner: <strong>{f.owner}</strong></div>
+                              <div className="text-gray-600">Barangay: <strong>{f.barangay_name || 'Lagonglong'}</strong></div>
+                              <div className="text-gray-600">Area: <strong>{f.area_sqm || f.area} m²</strong></div>
                               <button
                                 type="button"
                                 onClick={() => handleSelectFeature(f)}
-                                className="w-full mt-2 py-1 px-2 bg-emerald-600 text-white rounded font-medium text-[11px]"
+                                className="w-full mt-2 py-1 px-2 bg-emerald-600 text-white rounded font-medium text-[11px] hover:bg-emerald-700 transition"
                               >
                                 View Details
                               </button>
@@ -302,12 +323,15 @@ export function ClientGISMap() {
                           position={f.markerPos}
                           icon={createCustomMarkerIcon(f.type, isSelected, false)}
                           eventHandlers={{
-                            click: () => handleSelectFeature(f),
+                            click: (e) => {
+                              e.originalEvent?.stopPropagation()
+                              handleSelectFeature(f)
+                            },
                           }}
                         />
                       )}
 
-                      {showMeasurements && f.geomDetails?.sideLengths && (
+                      {showMeasurements && isSelected && f.geomDetails?.sideLengths && (
                         <>
                           {f.geomDetails.sideLengths.map((side, idx) => (
                             <Marker

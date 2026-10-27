@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { pool } from '../config/db.js'
 import { authenticate, allowRoles } from '../middleware/auth.js'
 import { logActivity } from '../utils/logger.js'
+import { validateGISBoundary } from '../utils/gisValidationService.js'
 
 const router = Router()
 
@@ -10,6 +11,8 @@ const LOT_GIS_QUERY = `
     l.lot_id AS id,
     l.lot_id,
     l.property_id,
+    p.property_code,
+    l.lot_number,
     l.lot_number AS title,
     l.title_number,
     l.lot_area AS area,
@@ -137,6 +140,8 @@ const BLDG_GIS_QUERY = `
     b.building_id AS id,
     b.building_id,
     b.property_id,
+    p.property_code,
+    b.building_code,
     b.building_name AS title,
     b.building_type,
     b.floor_area AS area,
@@ -248,7 +253,7 @@ const BLDG_GIS_QUERY = `
   LEFT JOIN users u ON u.user_id = COALESCE(bah.assessor_user_id, pa.assessor_user_id)
   LEFT JOIN assessment_assignments aa ON aa.assignment_id = (
     SELECT a2.assignment_id FROM assessment_assignments a2 
-    WHERE a2.property_type = 'building' AND (a2.target_id_int = b.building_id OR a2.target_id_str = b.building_name)
+    WHERE a2.property_type = 'building' AND (a2.target_id_int = b.building_id OR a2.target_id_str = b.building_code OR a2.target_id_str = b.building_name)
     AND a2.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted')
     ORDER BY a2.assignment_id DESC LIMIT 1
   )
@@ -292,9 +297,15 @@ router.get('/gis/client-properties', authenticate, allowRoles('client', 'owner')
 // Get single property details by unique entity or property id
 router.get('/gis/property/:id', authenticate, allowRoles('admin', 'assessor', 'staff', 'super_admin', 'client', 'owner'), async (req, res, next) => {
   try {
-    const id = req.params.id
+    const rawId = req.params.id ? String(req.params.id).trim() : ''
+    const isNum = /^\d+$/.test(rawId)
+    const numId = isNum ? parseInt(rawId, 10) : null
+
     // Check if it's a lot
-    const [lotRows] = await pool.query(`${LOT_GIS_QUERY} WHERE l.lot_id = ? OR l.property_id = ? OR l.lot_number = ? LIMIT 1`, [id, id, id])
+    const [lotRows] = await pool.query(
+      `${LOT_GIS_QUERY} WHERE (? = 1 AND (l.lot_id = ? OR l.property_id = ?)) OR l.lot_number = ? OR p.property_code = ? LIMIT 1`,
+      [numId !== null ? 1 : 0, numId || 0, numId || 0, rawId, rawId]
+    )
     if (lotRows.length > 0) {
       const lot = lotRows[0]
       // Privacy check: client or owner can only view their own properties
@@ -312,7 +323,10 @@ router.get('/gis/property/:id', authenticate, allowRoles('admin', 'assessor', 's
     }
 
     // Check if it's a building
-    const [bldgRows] = await pool.query(`${BLDG_GIS_QUERY} WHERE b.building_id = ? OR b.property_id = ? OR b.building_name = ? LIMIT 1`, [id, id, id])
+    const [bldgRows] = await pool.query(
+      `${BLDG_GIS_QUERY} WHERE (? = 1 AND (b.building_id = ? OR b.property_id = ?)) OR b.building_code = ? OR b.building_name = ? OR p.property_code = ? LIMIT 1`,
+      [numId !== null ? 1 : 0, numId || 0, numId || 0, rawId, rawId, rawId]
+    )
     if (bldgRows.length > 0) {
       const bldg = bldgRows[0]
       // Privacy check: client or owner can only view their own properties
@@ -626,12 +640,30 @@ router.post('/gis/lots/:lotId', authenticate, allowRoles('admin', 'assessor', 's
 
     await connection.beginTransaction()
     
-    // Check if lot exists
-    const [lotCheck] = await connection.query('SELECT lot_id FROM property_lots WHERE lot_id = ?', [lot_id])
+    // Check if lot exists and retrieve authoritative official lot area
+    const [lotCheck] = await connection.query('SELECT lot_id, lot_area FROM property_lots WHERE lot_id = ?', [lot_id])
     if (!lotCheck.length) {
       await connection.rollback()
       return res.status(404).json({ message: 'Lot not found' })
     }
+
+    const officialLotArea = Number(lotCheck[0].lot_area) || 0;
+    const validation = validateGISBoundary(cleanCoords, officialLotArea);
+    if (!validation.isValid) {
+      await connection.rollback()
+      return res.status(400).json({ 
+        message: validation.error,
+        calculatedArea: validation.calculatedArea,
+        officialArea: validation.officialArea,
+        difference: validation.difference,
+        exceedsOfficialArea: validation.exceedsOfficialArea,
+        hasSelfIntersection: validation.hasSelfIntersection
+      })
+    }
+
+    const finalAreaSqm = validation.calculatedArea;
+    const finalPerimeterM = validation.perimeter;
+    const finalCoords = validation.normalizedCoordinates ? [validation.normalizedCoordinates] : cleanCoords;
 
     // Prevent duplicates: Check if GIS already exists for this lot or property
     const [existingGis] = await connection.query(
@@ -643,12 +675,12 @@ router.post('/gis/lots/:lotId', authenticate, allowRoles('admin', 'assessor', 's
         UPDATE gis_locations 
         SET property_id = ?, lot_id = ?, building_id = NULL, geometry_type = 'Polygon', coordinates = ?, area_sqm = ?, perimeter_m = ?, mapping_status = ?, mapped_by_user_id = ?, mapped_at = NOW()
         WHERE gis_id = ?
-      `, [property_id, lot_id, JSON.stringify(cleanCoords), Number(area_sqm) || 0, Number(perimeter_m) || 0, statusToSave, req.user.id, existingGis[0].gis_id])
+      `, [property_id, lot_id, JSON.stringify(finalCoords), finalAreaSqm, finalPerimeterM, statusToSave, req.user.id, existingGis[0].gis_id])
     } else {
       await connection.query(`
         INSERT INTO gis_locations (property_id, lot_id, geometry_type, coordinates, area_sqm, perimeter_m, mapping_status, mapped_by_user_id, mapped_at) 
         VALUES (?, ?, 'Polygon', ?, ?, ?, ?, ?, NOW())
-      `, [property_id, lot_id, JSON.stringify(cleanCoords), Number(area_sqm) || 0, Number(perimeter_m) || 0, statusToSave, req.user.id])
+      `, [property_id, lot_id, JSON.stringify(finalCoords), finalAreaSqm, finalPerimeterM, statusToSave, req.user.id])
     }
 
     // If an approved mapping request exists for this lot, mark it completed
@@ -662,7 +694,7 @@ router.post('/gis/lots/:lotId', authenticate, allowRoles('admin', 'assessor', 's
     await logActivity(connection, req, 'CREATE', 'GIS', `Lot ${lot_id}`, `Updated GIS boundary for Lot ${lot_id}`)
     
     await connection.commit()
-    res.status(201).json({ message: 'Lot GIS saved successfully', lot_id, property_id, mapping_status: statusToSave })
+    res.status(201).json({ message: 'Lot GIS saved successfully', lot_id, property_id, mapping_status: statusToSave, area_sqm: finalAreaSqm, perimeter_m: finalPerimeterM })
   } catch (e) {
     await connection.rollback()
     next(e)
@@ -715,12 +747,30 @@ router.post('/gis/buildings/:buildingId', authenticate, allowRoles('admin', 'ass
 
     await connection.beginTransaction()
     
-    // Check if building exists
-    const [bldgCheck] = await connection.query('SELECT building_id FROM property_buildings WHERE building_id = ?', [building_id])
+    // Check if building exists and retrieve official floor area
+    const [bldgCheck] = await connection.query('SELECT building_id, floor_area FROM property_buildings WHERE building_id = ?', [building_id])
     if (!bldgCheck.length) {
       await connection.rollback()
       return res.status(404).json({ message: 'Building not found' })
     }
+
+    const officialFloorArea = Number(bldgCheck[0].floor_area) || 0;
+    const validation = validateGISBoundary(cleanCoords, officialFloorArea > 0 ? officialFloorArea : undefined);
+    if (!validation.isValid) {
+      await connection.rollback()
+      return res.status(400).json({ 
+        message: validation.error,
+        calculatedArea: validation.calculatedArea,
+        officialArea: validation.officialArea,
+        difference: validation.difference,
+        exceedsOfficialArea: validation.exceedsOfficialArea,
+        hasSelfIntersection: validation.hasSelfIntersection
+      })
+    }
+
+    const finalAreaSqm = validation.calculatedArea;
+    const finalPerimeterM = validation.perimeter;
+    const finalCoords = validation.normalizedCoordinates ? [validation.normalizedCoordinates] : cleanCoords;
 
     // Prevent duplicates: Check if GIS already exists for this building or property
     const [existingGis] = await connection.query(
@@ -732,12 +782,12 @@ router.post('/gis/buildings/:buildingId', authenticate, allowRoles('admin', 'ass
         UPDATE gis_locations 
         SET property_id = ?, building_id = ?, lot_id = NULL, geometry_type = 'Polygon', coordinates = ?, area_sqm = ?, perimeter_m = ?, mapping_status = ?, mapped_by_user_id = ?, mapped_at = NOW()
         WHERE gis_id = ?
-      `, [property_id, building_id, JSON.stringify(cleanCoords), Number(area_sqm) || 0, Number(perimeter_m) || 0, statusToSave, req.user.id, existingGis[0].gis_id])
+      `, [property_id, building_id, JSON.stringify(finalCoords), finalAreaSqm, finalPerimeterM, statusToSave, req.user.id, existingGis[0].gis_id])
     } else {
       await connection.query(`
         INSERT INTO gis_locations (property_id, building_id, geometry_type, coordinates, area_sqm, perimeter_m, mapping_status, mapped_by_user_id, mapped_at) 
         VALUES (?, ?, 'Polygon', ?, ?, ?, ?, ?, NOW())
-      `, [property_id, building_id, JSON.stringify(cleanCoords), Number(area_sqm) || 0, Number(perimeter_m) || 0, statusToSave, req.user.id])
+      `, [property_id, building_id, JSON.stringify(finalCoords), finalAreaSqm, finalPerimeterM, statusToSave, req.user.id])
     }
 
     // If an approved mapping request exists for this building, mark it completed
@@ -751,7 +801,8 @@ router.post('/gis/buildings/:buildingId', authenticate, allowRoles('admin', 'ass
     await logActivity(connection, req, 'CREATE', 'GIS', `Building ${building_id}`, `Updated GIS boundary for Building ${building_id}`)
     
     await connection.commit()
-    res.status(201).json({ message: 'Building GIS saved successfully', building_id, property_id })
+    res.status(201).json({ message: 'Building GIS saved successfully', building_id, property_id, area_sqm: finalAreaSqm, perimeter_m: finalPerimeterM })
+
   } catch (e) {
     await connection.rollback()
     next(e)

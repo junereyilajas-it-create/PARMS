@@ -19,7 +19,7 @@ import {
   Clock,
   Send
 } from 'lucide-react'
-import { MapContainer, TileLayer, Polygon, Marker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polygon, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import api, { ensureSession } from '../lib/api'
 import { useModal } from '../contexts/ModalContext'
@@ -42,6 +42,16 @@ import { GISReviewRequestModal } from '../components/gis/GISReviewRequestModal'
 
 // Lagonglong, Misamis Oriental coordinates
 const LAGONGLONG_CENTER: [number, number] = [8.8062, 124.7900]
+
+// Deselect property when clicking on empty map canvas
+function MapEventsHandler({ onDeselect }: { onDeselect: () => void }) {
+  useMapEvents({
+    click: () => {
+      onDeselect()
+    }
+  })
+  return null
+}
 
 // Leaflet Map Controller for programmatic flyTo and fitBounds
 function MapFlyController({
@@ -992,6 +1002,9 @@ export function PropertyMapView() {
                 zoom={15}
                 style={{ height: '100%', width: '100%', zIndex: 0 }}
               >
+                {/* Deselect property when clicking on empty map space */}
+                <MapEventsHandler onDeselect={() => setSelectedFeature(null)} />
+
                 {/* Programmatic fly-to controller */}
                 <MapFlyController
                   targetCenter={flyTargetCenter}
@@ -1065,7 +1078,7 @@ export function PropertyMapView() {
                             },
                           }}
                         >
-                          <Popup>
+                          <Popup eventHandlers={{ remove: () => setSelectedFeature(null) }}>
                             <div className="p-1 space-y-1.5 text-xs">
                               <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-1">
                                 <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -1083,7 +1096,9 @@ export function PropertyMapView() {
 
                               <div className="font-bold text-gray-900 flex items-center justify-between">
                                 <span>{f.title}</span>
-                                <span className="text-[10px] text-gray-400 font-mono">P-{f.property_id}</span>
+                                <span className="text-[10px] text-gray-400 font-mono">
+                                  {f.property_code || (f.property_id ? `PROP_${f.property_id}` : '')}
+                                </span>
                               </div>
 
                               <div className="text-gray-600">Owner: <strong>{f.owner}</strong></div>
@@ -1174,8 +1189,8 @@ export function PropertyMapView() {
                         />
                       )}
 
-                      {/* Side Lengths & Measurements Labels with 1–2 Notation and Corner Point Numbers */}
-                      {showMeasurements && f.geomDetails?.sideLengths && (
+                      {/* Side Lengths & Measurements Labels with 1–2 Notation and Corner Point Numbers (Only when Selected) */}
+                      {showMeasurements && isSelected && f.geomDetails?.sideLengths && (
                         <>
                           {f.geomDetails.sideLengths.map((side, idx) => (
                             <Marker

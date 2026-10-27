@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Routes, Route, useNavigate, useLocation, Navigate, Outlet } from 'react-router-dom'
-import './styles/App.css'
-import { PropertyAssessments, BuildingDirectory, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, ForgotPasswordPage, ResetPasswordPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, AccountSettings, HelpSupport, CertificateGenerator, CertificateRecords, AdminDashboard, AssessorDashboard, StaffDashboard, UserManagement, ActivityLogsView, PropertyHistoryView, StaffPropertySearch, SuperAdminDashboard, RoleManagement, AssessmentAssignments, AssessmentPermissionRequests, BlueprintScanner, AssessorPropertiesView } from './pages'
+import { PropertyAssessments, BuildingDirectory, LandingPage, LoginPage, OperationalIntelligenceReports, PropertyLotManagement, PropertyMapView, PropertyOwnershipTransfer, RegisterPage, ForgotPasswordPage, ResetPasswordPage, Certifications, SystemSettings, ClientDashboard, ClientProperties, ClientGISMap, ClientCertificateRequests, AdminCertificateRequests, AccountSettings, HelpSupport, CertificateGenerator, CertificateRecords, AdminDashboard, AssessorDashboard, StaffDashboard, UserManagement, ActivityLogsView, PropertyHistoryView, StaffPropertySearch, SuperAdminDashboard, RoleManagement, AssessmentPermissionRequests, BlueprintScanner, AssessorPropertiesView, ClientTaxPortal } from './pages'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { AppHeader } from './components/layout/AppHeader'
 import { RegisterPropertyModal } from './components/common/RegisterPropertyModal'
@@ -51,24 +50,24 @@ const RoleProtectedRoute = ({
   userRole: string 
 }) => {
   if (userRole === 'super_admin') return <>{children}</>
-  if (requiredPermission) {
-    if (userPermissions.includes(requiredPermission)) return <>{children}</>
-    if (allowedRoles && allowedRoles.includes(userRole) && userRole === 'admin') return <>{children}</>
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center space-y-4">
-          <h2 className="text-2xl font-bold text-green-600">403 Forbidden</h2>
-          <p className="text-gray-600 dark:text-gray-400">You do not have the required permission ({requiredPermission}) to access this page.</p>
-        </div>
-      </div>
-    )
-  }
   if (allowedRoles && !allowedRoles.includes(userRole)) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center space-y-4">
           <h2 className="text-2xl font-bold text-green-600">403 Forbidden</h2>
           <p className="text-gray-600 dark:text-gray-400">You do not have permission to access this page.</p>
+        </div>
+      </div>
+    )
+  }
+  if (requiredPermission) {
+    if (userPermissions.includes(requiredPermission)) return <>{children}</>
+    if (allowedRoles && allowedRoles.includes(userRole)) return <>{children}</>
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center space-y-4">
+          <h2 className="text-2xl font-bold text-green-600">403 Forbidden</h2>
+          <p className="text-gray-600 dark:text-gray-400">You do not have the required permission ({requiredPermission}) to access this page.</p>
         </div>
       </div>
     )
@@ -203,8 +202,8 @@ function App() {
   }
 
   const registerProperty = async (form: { owner: string; street: string; barangay: string; type: string; lot: string; market: string; coordinates: string; document: string; lotNumber: string; titleNumber: string }) => {
-    if (userRole === 'super_admin') {
-      showError('Super Admin is restricted from registering properties.')
+    if (userRole === 'super_admin' || userRole === 'admin') {
+      showError('Admin is restricted from registering properties.')
       return
     }
     await ensureSession()
@@ -230,6 +229,13 @@ function App() {
           navigate('/dashboard');
         }
         break;
+      case 'Tax Declarations': navigate('/assessments?tab=declarations'); break;
+      case 'Tax Billing':
+      case 'Tax Computation Reports': navigate('/assessments?tab=billing'); break;
+      case 'Tax Configuration': navigate('/assessments?tab=tax-config'); break;
+      case 'My Tax Declarations': navigate('/client/tax-declarations'); break;
+      case 'My Tax Bills & Receipts':
+      case 'My Tax Computations': navigate('/client/tax-bills'); break;
       case 'My Properties': navigate('/client/my-properties'); break;
       case 'My GIS Property': navigate('/client/gis-map'); break;
       case 'My Assessments': navigate('/client/my-assessments'); break;
@@ -243,16 +249,22 @@ function App() {
       case 'Properties':
       case 'Assigned Properties': navigate('/properties'); break;
       case 'GIS Map': navigate('/gis'); break;
-      case 'Assessments': navigate('/assessments'); break;
-      case 'Assessment Assignments': navigate('/assessment-assignments'); break;
+      case 'Assessments': navigate('/assessments?tab=assessments'); break;
+      case 'Assessment Assignments': navigate('/assessments?tab=assignments'); break;
       case 'My Requests': navigate('/my-requests'); break;
       case 'Assessment Requests':
       case 'Permission Requests':
         navigate(currentRole === 'assessor' || currentRole === 'staff' ? '/my-requests' : '/permission-requests');
         break;
-      case 'Certificates': navigate('/documents'); break;
+      case 'Certificates': 
+        if (currentRole === 'admin') {
+          navigate('/dashboard');
+        } else {
+          navigate('/documents');
+        }
+        break;
       case 'Certificate Requests':
-        navigate(currentRole === 'client' || currentRole === 'owner' ? '/client/certificate-requests' : '/admin/certificate-requests');
+        navigate(currentRole === 'client' || currentRole === 'owner' ? '/client/certificate-requests' : (currentRole === 'admin' ? '/dashboard' : '/admin/certificate-requests'));
         break;
       case 'Assigned Tasks': navigate('/assigned-tasks'); break;
       case 'Activity Logs': navigate('/logs'); break;
@@ -271,13 +283,15 @@ function App() {
   const getActivePageName = () => {
     const path = location.pathname
 
-    // Ordered from most specific to least specific
-    if (path.startsWith('/assessment-assignments')) return 'Assessment Assignments'
+    if (path.startsWith('/tax-configuration')) return 'Tax Configuration'
+    if (path.startsWith('/client/tax-declarations')) return 'My Tax Declarations'
+    if (path.startsWith('/client/tax-bills')) return 'My Tax Computations'
+
+    if (path.startsWith('/tax-declarations') || path.startsWith('/tax-billing') || path.startsWith('/assessment-assignments') || path.startsWith('/assessments')) return 'Assessments'
     if (path.startsWith('/my-requests')) return 'My Requests'
     if (path.startsWith('/permission-requests') || path.startsWith('/assessment-requests')) {
       return (userRole === 'assessor' || userRole === 'staff') ? 'My Requests' : 'Permission Requests'
     }
-    if (path.startsWith('/assessments')) return 'Assessments'
 
     if (path.startsWith('/client/my-properties')) return 'My Properties'
     if (path.startsWith('/client/gis-map')) return 'My GIS Property'
@@ -356,7 +370,7 @@ function App() {
               </section>
             </main>
 
-            {showRegisterModal && <RegisterPropertyModal close={() => setShowRegisterModal(false)} onSave={registerProperty} />}
+            {showRegisterModal && userRole !== 'admin' && userRole !== 'super_admin' && <RegisterPropertyModal close={() => setShowRegisterModal(false)} onSave={registerProperty} />}
             {editModal && <CrudModal title="Edit Property" fields={[
               { key: 'owner_id', label: 'Owner ID', type: 'number' },
               { key: 'address_id', label: 'Address ID', type: 'number' },
@@ -374,13 +388,19 @@ function App() {
                 userRole === 'assessor' ? <AssessorDashboard /> :
                   <StaffDashboard />
         } />
+        <Route path="/cashier/*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/tax-declarations" element={<Navigate to="/assessments?tab=declarations" replace />} />
+        <Route path="/tax-billing" element={<Navigate to="/assessments?tab=billing" replace />} />
+        <Route path="/tax-configuration" element={<Navigate to="/assessments?tab=tax-config" replace />} />
+        <Route path="/client/tax-declarations" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientTaxPortal /></RoleProtectedRoute>} />
+        <Route path="/client/tax-bills" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientTaxPortal /></RoleProtectedRoute>} />
         <Route path="/super-admin/dashboard" element={<RoleProtectedRoute allowedRoles={['super_admin']} userRole={userRole}><SuperAdminDashboard /></RoleProtectedRoute>} />
         <Route path="/lots" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><PropertyLotManagement /></RoleProtectedRoute>} />
         <Route path="/buildings" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><BuildingDirectory /></RoleProtectedRoute>} />
         <Route path="/building-properties" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><BuildingDirectory /></RoleProtectedRoute>} />
         <Route path="/owners" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><PropertyOwnershipTransfer /></RoleProtectedRoute>} />
-        <Route path="/assessments" element={<RoleProtectedRoute allowedRoles={['admin', 'assessor', 'super_admin']} userRole={userRole}><PropertyAssessments /></RoleProtectedRoute>} />
-        <Route path="/assessment-assignments" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin']} userRole={userRole}><AssessmentAssignments /></RoleProtectedRoute>} />
+        <Route path="/assessments" element={<RoleProtectedRoute allowedRoles={['admin', 'assessor', 'super_admin', 'staff']} userRole={userRole}><PropertyAssessments /></RoleProtectedRoute>} />
+        <Route path="/assessment-assignments" element={<Navigate to="/assessments?tab=assignments" replace />} />
         <Route path="/permission-requests" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin', 'assessor', 'staff']} userRole={userRole}><AssessmentPermissionRequests /></RoleProtectedRoute>} />
         <Route path="/assessment-requests" element={<RoleProtectedRoute allowedRoles={['admin', 'super_admin', 'assessor', 'staff']} userRole={userRole}><AssessmentPermissionRequests /></RoleProtectedRoute>} />
         <Route path="/scanner" element={<RoleProtectedRoute allowedRoles={['admin', 'staff', 'super_admin']} userRole={userRole}><BlueprintScanner /></RoleProtectedRoute>} />
@@ -389,10 +409,10 @@ function App() {
           userRole === 'super_admin' ? <Navigate to="/super-admin/dashboard" replace /> :
             <RoleProtectedRoute allowedRoles={['admin']} userRole={userRole}><OperationalIntelligenceReports /></RoleProtectedRoute>
         } />
-        <Route path="/documents" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} /></RoleProtectedRoute>} />
-        <Route path="/certificates/generate" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><CertificateGenerator /></RoleProtectedRoute>} />
-        <Route path="/certificates/records" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><CertificateRecords /></RoleProtectedRoute>} />
-        <Route path="/admin/certificate-requests" element={<RoleProtectedRoute allowedRoles={['super_admin', 'admin']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><AdminCertificateRequests /></RoleProtectedRoute>} />
+        <Route path="/documents" element={<RoleProtectedRoute allowedRoles={['super_admin', 'staff']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><Certifications query={query} onQueryChange={setQuery} rows={filteredProperties} onDelete={deleteProperty} /></RoleProtectedRoute>} />
+        <Route path="/certificates/generate" element={<RoleProtectedRoute allowedRoles={['super_admin', 'staff']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><CertificateGenerator /></RoleProtectedRoute>} />
+        <Route path="/certificates/records" element={<RoleProtectedRoute allowedRoles={['super_admin', 'staff']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><CertificateRecords /></RoleProtectedRoute>} />
+        <Route path="/admin/certificate-requests" element={<RoleProtectedRoute allowedRoles={['super_admin', 'staff']} requiredPermission="MANAGE_CERTIFICATES" userPermissions={userPermissions} userRole={userRole}><AdminCertificateRequests /></RoleProtectedRoute>} />
         <Route path="/client/my-properties" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientProperties /></RoleProtectedRoute>} />
         <Route path="/client/my-assessments" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientProperties /></RoleProtectedRoute>} />
         <Route path="/client/gis-map" element={<RoleProtectedRoute allowedRoles={['owner', 'client']} userRole={userRole}><ClientGISMap /></RoleProtectedRoute>} />

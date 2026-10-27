@@ -3,6 +3,7 @@ import { pool } from '../config/db.js'
 import { authenticate, allowRoles, requirePermission, loadPermissions } from '../middleware/auth.js'
 import { logActivity, logPropertyHistory } from '../utils/logger.js'
 import { notifyRole } from '../utils/notifications.js'
+import { generatePropertyId, generateLotId, generateBuildingId } from '../utils/idGenerator.js'
 const router = Router()
 // Read models keep relationship data useful to the UI while the individual
 // resources above remain available for normal table-level CRUD.
@@ -26,8 +27,8 @@ router.get('/owners/search', authenticate, allowRoles('admin', 'assessor', 'staf
   } catch(e) { next(e) }
 })
 
-router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 'staff'), async (_, res, next) => { try {
-  const [rows] = await pool.query(`SELECT p.property_id, p.property_status, l.lot_id, l.lot_number, l.title_number, 
+router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 'staff', 'super_admin'), async (_, res, next) => { try {
+  const [rows] = await pool.query(`SELECT p.property_id, p.property_code, p.property_status, l.lot_id, l.lot_number, l.title_number, 
     CONCAT_WS(', ', NULLIF(ad.street, ''), br.barangay_name, mu.municipality_name, pr.province_name) AS location, 
     ad.street AS purok, br.barangay_name AS barangay, mu.municipality_name AS municipality, pr.province_name AS province,
     l.lot_area, l.lot_status,
@@ -36,7 +37,7 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
     COALESCE(l.property_photo, p.property_photo, lah.property_photo) AS property_photo,
     COALESCE(lah.market_value, a.market_value, 0) AS market_value, COALESCE(lah.assessed_value, a.assessed_value, 0) AS assessed_value,
     COALESCE(lah.assessment_status, a.assessment_status) AS assessment_status,
-    (SELECT COUNT(*) > 0 FROM assessment_permission_requests WHERE property_type = 'lot' AND target_id_str = l.lot_id AND request_action = 'MANAGEMENT' AND request_status = 'pending') AS has_pending_changes,
+    (SELECT COUNT(*) > 0 FROM assessment_permission_requests WHERE property_type = 'lot' AND (target_id_int = l.lot_id OR target_id_str = l.lot_number OR target_id_str = CAST(l.lot_id AS CHAR)) AND request_action = 'MANAGEMENT' AND request_status = 'pending') AS has_pending_changes,
     aa.assignment_id AS active_assignment_id,
     aa.assigned_to_user_id AS assigned_assessor_id,
     CONCAT_WS(' ', au.first_name, au.last_name) AS assigned_assessor_name,
@@ -62,7 +63,7 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
     LEFT JOIN property_assessments a ON a.assessment_id = (SELECT pa.assessment_id FROM property_assessments pa WHERE pa.property_id = p.property_id ORDER BY pa.assessment_date DESC, pa.assessment_id DESC LIMIT 1)
     LEFT JOIN assessment_assignments aa ON aa.assignment_id = (
       SELECT a2.assignment_id FROM assessment_assignments a2 
-      WHERE a2.property_type = 'lot' AND (a2.target_id_int = l.lot_id OR a2.target_id_str = l.lot_number)
+      WHERE a2.property_type = 'lot' AND (a2.target_id_int = l.lot_id OR a2.target_id_str = l.lot_number OR a2.target_id_str = CAST(l.lot_id AS CHAR))
       AND a2.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted')
       ORDER BY a2.assignment_id DESC LIMIT 1
     )
@@ -73,9 +74,9 @@ router.get('/property-records', authenticate, allowRoles('admin', 'assessor', 's
 
 // Keep owner, address, and property creation atomic so incomplete records are
 // never left in the database when a registration fails.
-router.post('/properties/register', authenticate, allowRoles('admin', 'staff'), async (req, res, next) => {
-  if (req.user.role === 'super_admin') {
-    return res.status(403).json({ message: 'Super Admin is restricted from registering properties.' });
+router.post('/properties/register', authenticate, allowRoles('staff'), async (req, res, next) => {
+  if (req.user.role === 'super_admin' || req.user.role === 'admin') {
+    return res.status(403).json({ message: 'Admin is restricted from registering properties. Property additions must be initiated by Staff.' });
   }
   const connection = await pool.getConnection()
   try {
@@ -108,51 +109,38 @@ router.post('/properties/register', authenticate, allowRoles('admin', 'staff'), 
     const [classificationRows] = await connection.query('SELECT classification_id FROM property_classifications WHERE classification_name = ?', [classifications[type.trim()] || 'Residential Lot'])
     if (!typeRows[0] || !classificationRows[0]) throw Object.assign(new Error('The selected property type is not configured.'), { status: 400 })
     
-    let purokStr = 'PX';
-    if (street) {
-      const match = street.trim().match(/Purok\s*(\d+)/i);
-      if (match) purokStr = `P${match[1]}`;
-    }
-
-    const [pRows] = await connection.query(
-      "SELECT property_id FROM properties WHERE property_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(property_id, '-A', -1) AS UNSIGNED) DESC LIMIT 1",
-      [`LP-${purokStr}-A%`]
+    const propertyCode = await generatePropertyId(connection);
+    const [propResult] = await connection.query(
+      'INSERT INTO properties (property_code, owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, ?, ?, ?, ?)',
+      [propertyCode, ownerResult.insertId, addressResult.insertId, typeRows[0].property_type_id, classificationRows[0].classification_id, 'pending']
     );
-    let nextPropSeq = 1;
-    if (pRows.length > 0) {
-      const match = pRows[0].property_id.match(/-A(\d+)$/);
-      if (match) nextPropSeq = parseInt(match[1]) + 1;
-    }
-    const propertyIdStr = `LP-${purokStr}-A${nextPropSeq}`;
+    const propertyId = propResult.insertId;
 
-    await connection.query('INSERT INTO properties (property_id, owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, ?, ?, ?, ?)', [propertyIdStr, ownerResult.insertId, addressResult.insertId, typeRows[0].property_type_id, classificationRows[0].classification_id, 'pending'])
-    const [lRows] = await connection.query(
-      "SELECT lot_id FROM property_lots WHERE lot_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(lot_id, '-L', -1) AS UNSIGNED) DESC LIMIT 1",
-      [`LP-${purokStr}-L%`]
+    const lotNumberVal = lot_number?.trim() || await generateLotId(connection, barangay);
+    const area = Number(lot_area);
+    const [lotResult] = await connection.query(
+      'INSERT INTO property_lots (property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?)',
+      [
+        propertyId,
+        lotNumberVal,
+        title_number?.trim() || document?.trim() || null,
+        Number.isFinite(area) ? area : null,
+        'pending',
+      ]
     );
-    let nextLotSeq = 1;
-    if (lRows.length > 0) {
-      const match = lRows[0].lot_id.match(/-L(\d+)$/);
-      if (match) nextLotSeq = parseInt(match[1]) + 1;
+    const lotId = lotResult.insertId;
+
+    const value = Number(String(market_value || '').replace(/[^0-9.-]/g, ''));
+    if (Number.isFinite(value) && market_value !== '') {
+      await connection.query(
+        'INSERT INTO property_assessments (property_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date, remarks) VALUES (?, ?, ?, ?, ?, CURDATE(), ?)',
+        [propertyId, req.user.id, 20.00, value, value * 0.20, document || null]
+      );
     }
-    const lotId = `LP-${purokStr}-L${nextLotSeq}`;
-
-    const area = Number(lot_area)
-    await connection.query('INSERT INTO property_lots (lot_id, property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?, ?)', [
-      lotId,
-      propertyIdStr,
-      lot_number?.trim() || `LOT-${propertyIdStr}`,
-      title_number?.trim() || document?.trim() || null,
-      Number.isFinite(area) ? area : null,
-      'pending',
-    ])
-
-    const value = Number(String(market_value || '').replace(/[^0-9.-]/g, ''))
-    if (Number.isFinite(value) && market_value !== '') await connection.query('INSERT INTO property_assessments (property_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date, remarks) VALUES (?, ?, ?, ?, ?, CURDATE(), ?)', [propertyIdStr, req.user.id, 20.00, value, value * 0.20, document || null])
-    await logActivity(connection, req, 'CREATE', 'Properties', `Property ID ${propertyIdStr}`, `Registered property for ${owner}`)
-    await logPropertyHistory(connection, req, propertyIdStr, 'Property Created', null, { owner, type, address: street })
-    await connection.commit()
-    res.status(201).json({ id: propertyIdStr, owner, address: `${street.trim()}, ${barangay.trim()}`, type: type.trim(), lot_area: lot_area || null, message: 'Property registered.' })
+    await logActivity(connection, req, 'CREATE', 'Properties', `Property ID ${propertyCode}`, `Registered property for ${owner}`);
+    await logPropertyHistory(connection, req, propertyCode, 'Property Created', null, { owner, type, address: street });
+    await connection.commit();
+    res.status(201).json({ id: propertyId, property_id: propertyId, property_code: propertyCode, lot_id: lotId, lot_number: lotNumberVal, owner, address: `${street.trim()}, ${barangay.trim()}`, type: type.trim(), lot_area: lot_area || null, message: 'Property registered.' });
   } catch (e) {
     await connection.rollback()
     if (e.status === 400) return res.status(400).json({ message: e.message })
@@ -226,7 +214,7 @@ router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'),
     const currentUserId = req.user?.id || req.user?.user_id;
     const [rows] = await pool.query(`
       SELECT b.*, 
-        p.property_id, p.property_status,
+        p.property_id, p.property_code, p.property_status,
         a.street as purok,
         br.barangay_name as barangay,
         m.municipality_name as municipality,
@@ -238,10 +226,10 @@ router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'),
         bah.rejection_reason,
         COALESCE(b.property_photo, p.property_photo, bah.property_photo) AS property_photo,
         bah.building_assessment_history_id,
-        (SELECT COUNT(*) > 0 FROM assessment_permission_requests WHERE property_type = 'building' AND target_id_str = b.building_id AND request_action = 'MANAGEMENT' AND request_status = 'pending') AS has_pending_changes,
+        (SELECT COUNT(*) > 0 FROM assessment_permission_requests WHERE property_type = 'building' AND (target_id_int = b.building_id OR target_id_str = b.building_code OR target_id_str = b.building_name OR target_id_str = CAST(b.building_id AS CHAR)) AND request_action = 'MANAGEMENT' AND request_status = 'pending') AS has_pending_changes,
         (SELECT COUNT(*) > 0 FROM assessment_permission_requests apr 
          WHERE apr.property_type = 'building' 
-           AND (apr.target_id_int = b.building_id OR apr.target_id_str = b.building_name OR apr.target_id_str = CONCAT('BLDG-', b.building_id)) 
+           AND (apr.target_id_int = b.building_id OR apr.target_id_str = b.building_code OR apr.target_id_str = b.building_name OR apr.target_id_str = CAST(b.building_id AS CHAR)) 
            AND apr.requested_by_user_id = ? 
            AND apr.request_status = 'approved'
         ) AS is_permitted_for_user,
@@ -268,7 +256,7 @@ router.get('/buildings', authenticate, allowRoles('admin', 'assessor', 'staff'),
       )
       LEFT JOIN assessment_assignments aa ON aa.assignment_id = (
         SELECT a2.assignment_id FROM assessment_assignments a2 
-        WHERE a2.property_type = 'building' AND (a2.target_id_int = b.building_id OR a2.target_id_str = b.building_name)
+        WHERE a2.property_type = 'building' AND (a2.target_id_int = b.building_id OR a2.target_id_str = b.building_code OR a2.target_id_str = b.building_name OR a2.target_id_str = CAST(b.building_id AS CHAR))
         AND a2.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted')
         ORDER BY a2.assignment_id DESC LIMIT 1
       )
@@ -302,48 +290,41 @@ router.post('/buildings', authenticate, loadPermissions, async (req, res, next) 
       return res.status(400).json({ message: 'The linked Property ID does not exist.' })
     }
 
-    const propStreet = propCheck[0].street;
-    let purokStr = 'PX';
-    if (propStreet) {
-      const match = propStreet.match(/Purok\s*(\d+)/i);
-      if (match) purokStr = `P${match[1]}`;
-    }
-
-    const [bRows] = await connection.query(
-      "SELECT building_id FROM property_buildings WHERE building_id LIKE ? ORDER BY CAST(SUBSTRING_INDEX(building_id, '-A', -1) AS UNSIGNED) DESC LIMIT 1",
-      [`LBP-${purokStr}-A%`]
-    );
-    let nextBldgSeq = 1;
-    if (bRows.length > 0) {
-      const match = bRows[0].building_id.match(/-A(\d+)$/);
-      if (match) nextBldgSeq = parseInt(match[1]) + 1;
-    }
-    const buildingIdStr = `LBP-${purokStr}-A${nextBldgSeq}`;
+    const [brgyRow] = await connection.query(`
+      SELECT b.barangay_name FROM addresses a
+      JOIN barangays b ON a.barangay_id = b.barangay_id
+      JOIN properties p ON p.address_id = a.address_id
+      WHERE p.property_id = ?
+    `, [property_id]);
+    const brgyName = brgyRow[0]?.barangay_name || '';
+    const buildingCode = await generateBuildingId(connection, brgyName);
+    const finalBldgName = building_name?.trim() || buildingCode;
 
     const finalStatus = req.user.role === 'staff' ? 'pending' : (building_status || 'active');
-    await connection.query(
-      'INSERT INTO property_buildings (building_id, property_id, building_name, building_type, floor_area, floor_count, construction_type, year_constructed, building_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [buildingIdStr, property_id, building_name, building_type, floor_area || null, floor_count || null, construction_type || null, year_constructed || null, finalStatus]
-    )
+    const [bldgRes] = await connection.query(
+      'INSERT INTO property_buildings (property_id, building_code, building_name, building_type, floor_area, floor_count, construction_type, year_constructed, building_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [property_id, buildingCode, finalBldgName, building_type, floor_area || null, floor_count || null, construction_type || null, year_constructed || null, finalStatus]
+    );
+    const buildingId = bldgRes.insertId;
 
     if (req.user.role === 'staff') {
       await connection.query(`
         INSERT INTO assessment_permission_requests 
-        (property_type, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
-        VALUES (?, ?, ?, 'ADDITION', ?, 'pending')
-      `, ['building', buildingIdStr, req.user.id, JSON.stringify({ building_id: buildingIdStr, ...req.body })]);
-      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval for a new building.`, 'PERMISSION_REQUEST', buildingIdStr);
+        (property_type, target_id_int, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
+        VALUES (?, ?, ?, ?, 'ADDITION', ?, 'pending')
+      `, ['building', buildingId, buildingCode, req.user.id, JSON.stringify({ building_id: buildingId, building_code: buildingCode, ...req.body })]);
+      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval for a new building.`, 'PERMISSION_REQUEST', buildingCode);
     }
 
     if (Number(market_value) > 0 || Number(assessed_value) > 0) {
       await connection.query(
         'INSERT INTO building_assessment_history (building_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date, assessment_reason) VALUES (?, ?, ?, ?, ?, CURDATE(), ?)',
-        [buildingIdStr, req.user.id, 20.00, Number(market_value) || 0, Number(assessed_value) || 0, 'Initial assessment']
-      )
+        [buildingId, req.user.id, 20.00, Number(market_value) || 0, Number(assessed_value) || 0, 'Initial assessment']
+      );
     }
 
-    await connection.commit()
-    res.status(201).json({ id: buildingIdStr, message: 'Building created' })
+    await connection.commit();
+    res.status(201).json({ id: buildingId, building_id: buildingId, building_code: buildingCode, message: 'Building created' });
   } catch (e) {
     await connection.rollback()
     next(e)
@@ -427,24 +408,33 @@ router.post('/lots', authenticate, loadPermissions, async (req, res, next) => {
       return res.status(400).json({ message: 'The linked Property ID does not exist.' })
     }
 
+    const [brgyRow] = await connection.query(`
+      SELECT b.barangay_name FROM addresses a
+      JOIN barangays b ON a.barangay_id = b.barangay_id
+      JOIN properties p ON p.address_id = a.address_id
+      WHERE p.property_id = ?
+    `, [property_id]);
+    const brgyName = brgyRow[0]?.barangay_name || '';
+    const finalLotNum = lot_number?.trim() || await generateLotId(connection, brgyName);
+
     const finalLotStatus = req.user.role === 'staff' ? 'pending' : (lot_status || 'active');
     const [lotRes] = await connection.query(
       'INSERT INTO property_lots (property_id, lot_number, title_number, lot_area, lot_status) VALUES (?, ?, ?, ?, ?)',
-      [property_id, lot_number, title_number || null, lot_area || null, finalLotStatus]
-    )
+      [property_id, finalLotNum, title_number || null, lot_area || null, finalLotStatus]
+    );
     const lotId = lotRes.insertId;
 
     if (req.user.role === 'staff') {
       await connection.query(`
         INSERT INTO assessment_permission_requests 
-        (property_type, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
-        VALUES (?, ?, ?, 'ADDITION', ?, 'pending')
-      `, ['lot', String(lotId), req.user.id, JSON.stringify({ lot_id: lotId, ...req.body })]);
-      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval for a new lot.`, 'PERMISSION_REQUEST', String(lotId));
+        (property_type, target_id_int, target_id_str, requested_by_user_id, request_action, proposed_data, request_status)
+        VALUES (?, ?, ?, ?, 'ADDITION', ?, 'pending')
+      `, ['lot', lotId, finalLotNum, req.user.id, JSON.stringify({ lot_id: lotId, lot_number: finalLotNum, ...req.body })]);
+      await notifyRole('admin', 'New Approval Request', `Staff ${req.user.first_name} requested approval for a new lot.`, 'PERMISSION_REQUEST', finalLotNum);
     }
 
-    await connection.commit()
-    res.status(201).json({ id: lotId, lot_id: lotId, message: 'Lot created' })
+    await connection.commit();
+    res.status(201).json({ id: lotId, lot_id: lotId, lot_number: finalLotNum, message: 'Lot created' });
   } catch (e) {
     await connection.rollback()
     next(e)

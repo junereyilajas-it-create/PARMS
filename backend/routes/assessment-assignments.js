@@ -18,8 +18,9 @@ router.get('/assessments/available-properties', authenticate, allowRoles('admin'
       SELECT 
         'lot' AS property_type,
         l.lot_id AS target_id_int,
-        COALESCE(l.lot_number, CONCAT('LOT-', l.lot_id)) AS target_id_str,
+        COALESCE(l.lot_number, CONCAT('LOT_', l.lot_id)) AS target_id_str,
         l.property_id,
+        p.property_code,
         CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner_name,
         COALESCE(b.barangay_name, 'Unknown') AS barangay,
         COALESCE(
@@ -56,9 +57,10 @@ router.get('/assessments/available-properties', authenticate, allowRoles('admin'
       LEFT JOIN addresses a ON p.address_id = a.address_id
       LEFT JOIN barangays b ON a.barangay_id = b.barangay_id
       WHERE (? = '' OR 
-        l.lot_id = ? OR 
+        (? = 1 AND l.lot_id = ?) OR 
+        (? = 1 AND l.property_id = ?) OR
         l.lot_number LIKE ? OR 
-        l.property_id = ? OR 
+        p.property_code LIKE ? OR
         o.first_name LIKE ? OR 
         o.last_name LIKE ? OR 
         CONCAT_WS(' ', o.first_name, o.last_name) LIKE ? OR
@@ -66,15 +68,16 @@ router.get('/assessments/available-properties', authenticate, allowRoles('admin'
       )
       ORDER BY l.lot_id ASC
       LIMIT 60
-    `, [rawQ, numericQ, qWildcard, numericQ, qWildcard, qWildcard, qWildcard, qWildcard]);
+    `, [rawQ, numericQ !== null ? 1 : 0, numericQ || 0, numericQ !== null ? 1 : 0, numericQ || 0, qWildcard, qWildcard, qWildcard, qWildcard, qWildcard, qWildcard]);
 
     // 2. Query matching Buildings
     const [buildings] = await pool.query(`
       SELECT 
         'building' AS property_type,
         bg.building_id AS target_id_int,
-        COALESCE(bg.building_name, CONCAT('BLDG-', bg.building_id)) AS target_id_str,
+        COALESCE(bg.building_code, bg.building_name, CONCAT('BUILDING-', bg.building_id)) AS target_id_str,
         bg.property_id,
+        p.property_code,
         CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner_name,
         COALESCE(b.barangay_name, 'Unknown') AS barangay,
         COALESCE(
@@ -85,14 +88,14 @@ router.get('/assessments/available-properties', authenticate, allowRoles('admin'
         CASE 
           WHEN (SELECT COUNT(*) FROM building_assessment_history bah WHERE bah.building_id = bg.building_id AND bah.assessment_status = 'approved') > 0 THEN 'Approved'
           WHEN (SELECT COUNT(*) FROM building_assessment_history bah WHERE bah.building_id = bg.building_id AND bah.assessment_status = 'submitted') > 0 THEN 'Pending Review'
-          WHEN (SELECT COUNT(*) FROM assessment_assignments aa WHERE aa.property_type = 'building' AND (aa.target_id_int = bg.building_id OR aa.target_id_str = bg.building_name) AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted')) > 0 THEN 'Assigned'
+          WHEN (SELECT COUNT(*) FROM assessment_assignments aa WHERE aa.property_type = 'building' AND (aa.target_id_int = bg.building_id OR aa.target_id_str = bg.building_code OR aa.target_id_str = bg.building_name) AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted')) > 0 THEN 'Assigned'
           ELSE 'Unassessed'
         END AS assessment_status,
         (
           SELECT aa.assignment_id 
           FROM assessment_assignments aa 
           WHERE aa.property_type = 'building' 
-            AND (aa.target_id_int = bg.building_id OR aa.target_id_str = bg.building_name) 
+            AND (aa.target_id_int = bg.building_id OR aa.target_id_str = bg.building_code OR aa.target_id_str = bg.building_name) 
             AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted') 
           ORDER BY aa.assignment_id DESC LIMIT 1
         ) AS active_assignment_id,
@@ -101,7 +104,7 @@ router.get('/assessments/available-properties', authenticate, allowRoles('admin'
           FROM assessment_assignments aa 
           JOIN users u ON aa.assigned_to_user_id = u.user_id 
           WHERE aa.property_type = 'building' 
-            AND (aa.target_id_int = bg.building_id OR aa.target_id_str = bg.building_name) 
+            AND (aa.target_id_int = bg.building_id OR aa.target_id_str = bg.building_code OR aa.target_id_str = bg.building_name) 
             AND aa.assignment_status IN ('assigned', 'in_progress', 'pending', 'submitted') 
           ORDER BY aa.assignment_id DESC LIMIT 1
         ) AS active_assessor_name
@@ -111,9 +114,11 @@ router.get('/assessments/available-properties', authenticate, allowRoles('admin'
       LEFT JOIN addresses a ON p.address_id = a.address_id
       LEFT JOIN barangays b ON a.barangay_id = b.barangay_id
       WHERE (? = '' OR 
-        bg.building_id = ? OR 
+        (? = 1 AND bg.building_id = ?) OR 
+        (? = 1 AND bg.property_id = ?) OR
+        bg.building_code LIKE ? OR
         bg.building_name LIKE ? OR 
-        bg.property_id = ? OR 
+        p.property_code LIKE ? OR
         o.first_name LIKE ? OR 
         o.last_name LIKE ? OR 
         CONCAT_WS(' ', o.first_name, o.last_name) LIKE ? OR
@@ -121,7 +126,7 @@ router.get('/assessments/available-properties', authenticate, allowRoles('admin'
       )
       ORDER BY bg.building_id ASC
       LIMIT 60
-    `, [rawQ, numericQ, qWildcard, numericQ, qWildcard, qWildcard, qWildcard, qWildcard]);
+    `, [rawQ, numericQ !== null ? 1 : 0, numericQ || 0, numericQ !== null ? 1 : 0, numericQ || 0, qWildcard, qWildcard, qWildcard, qWildcard, qWildcard, qWildcard, qWildcard]);
 
     const results = [...lots, ...buildings].map(item => ({
       ...item,
@@ -164,7 +169,7 @@ router.get('/assessments/assessors', authenticate, allowRoles('admin', 'super_ad
       WHERE u.role = 'assessor' AND u.status = 'active'
         AND (
           ? = ''
-          OR u.user_id = ?
+          OR (? = 1 AND u.user_id = ?)
           OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?
           OR u.first_name LIKE ?
           OR u.last_name LIKE ?
@@ -172,7 +177,7 @@ router.get('/assessments/assessors', authenticate, allowRoles('admin', 'super_ad
           OR u.email LIKE ?
         )
       ORDER BY u.first_name ASC, u.last_name ASC
-    `, [rawQ, numericQ, q, q, q, q, q]);
+    `, [rawQ, numericQ !== null ? 1 : 0, numericQ || 0, q, q, q, q, q]);
     res.json(rows);
   } catch (err) {
     next(err);
@@ -186,6 +191,9 @@ router.get('/assessments/assignments', authenticate, allowRoles('admin', 'super_
       SELECT a.*, 
              u.first_name as assessor_first_name, u.last_name as assessor_last_name,
              u2.first_name as assigner_first_name, u2.last_name as assigner_last_name,
+             COALESCE(p.property_code, p_lot.property_code, p_bldg.property_code, CONCAT('PROP_', COALESCE(p.property_id, p_lot.property_id, b.property_id))) AS property_code,
+             l.lot_number,
+             b.building_code,
              COALESCE(
                NULLIF(TRIM(CONCAT_WS(' ', po_prop.first_name, po_prop.middle_name, po_prop.last_name)), ''),
                NULLIF(TRIM(CONCAT_WS(' ', po_lot.first_name, po_lot.middle_name, po_lot.last_name)), ''),
@@ -207,16 +215,16 @@ router.get('/assessments/assignments', authenticate, allowRoles('admin', 'super_
       FROM assessment_assignments a
       JOIN users u ON a.assigned_to_user_id = u.user_id
       JOIN users u2 ON a.assigned_by_user_id = u2.user_id
-      LEFT JOIN properties p ON (a.property_type = 'property' AND (p.property_id = a.target_id_str OR p.property_id = a.target_id_int))
+      LEFT JOIN properties p ON (a.property_type = 'property' AND (p.property_id = a.target_id_int OR p.property_code = a.target_id_str OR CAST(p.property_id AS CHAR) = a.target_id_str))
       LEFT JOIN property_owners po_prop ON p.owner_id = po_prop.owner_id
       LEFT JOIN addresses ad_prop ON p.address_id = ad_prop.address_id
       LEFT JOIN barangays br_prop ON ad_prop.barangay_id = br_prop.barangay_id
-      LEFT JOIN property_lots l ON (a.property_type = 'lot' AND (l.lot_id = a.target_id_int OR l.lot_number = a.target_id_str))
+      LEFT JOIN property_lots l ON (a.property_type = 'lot' AND (l.lot_id = a.target_id_int OR l.lot_number = a.target_id_str OR CAST(l.lot_id AS CHAR) = a.target_id_str))
       LEFT JOIN properties p_lot ON l.property_id = p_lot.property_id
       LEFT JOIN property_owners po_lot ON p_lot.owner_id = po_lot.owner_id
       LEFT JOIN addresses ad_lot ON p_lot.address_id = ad_lot.address_id
       LEFT JOIN barangays br_lot ON ad_lot.barangay_id = br_lot.barangay_id
-      LEFT JOIN property_buildings b ON (a.property_type = 'building' AND (b.building_id = a.target_id_int OR b.building_name = a.target_id_str))
+      LEFT JOIN property_buildings b ON (a.property_type = 'building' AND (b.building_id = a.target_id_int OR b.building_code = a.target_id_str OR b.building_name = a.target_id_str OR CAST(b.building_id AS CHAR) = a.target_id_str))
       LEFT JOIN properties p_bldg ON b.property_id = p_bldg.property_id
       LEFT JOIN property_owners po_bldg ON p_bldg.owner_id = po_bldg.owner_id
       LEFT JOIN addresses ad_bldg ON p_bldg.address_id = ad_bldg.address_id
@@ -234,9 +242,44 @@ router.get('/assessments/assignments/my', authenticate, allowRoles('assessor'), 
   try {
     const [rows] = await pool.query(`
       SELECT a.*, 
-             u2.first_name as assigner_first_name, u2.last_name as assigner_last_name
+             u2.first_name as assigner_first_name, u2.last_name as assigner_last_name,
+             COALESCE(p.property_code, p_lot.property_code, p_bldg.property_code, CONCAT('PROP_', COALESCE(p.property_id, p_lot.property_id, b.property_id))) AS property_code,
+             l.lot_number,
+             b.building_code,
+             COALESCE(
+               NULLIF(TRIM(CONCAT_WS(' ', po_prop.first_name, po_prop.middle_name, po_prop.last_name)), ''),
+               NULLIF(TRIM(CONCAT_WS(' ', po_lot.first_name, po_lot.middle_name, po_lot.last_name)), ''),
+               NULLIF(TRIM(CONCAT_WS(' ', po_bldg.first_name, po_bldg.middle_name, po_bldg.last_name)), ''),
+               'No owner record'
+             ) AS owner_name,
+             COALESCE(
+               br_lot.barangay_name,
+               br_bldg.barangay_name,
+               br_prop.barangay_name,
+               'Lagonglong'
+             ) AS barangay,
+             COALESCE(
+               NULLIF(CONCAT_WS(', ', NULLIF(TRIM(ad_prop.street), ''), br_prop.barangay_name), ''),
+               NULLIF(CONCAT_WS(', ', NULLIF(TRIM(ad_lot.street), ''), br_lot.barangay_name), ''),
+               NULLIF(CONCAT_WS(', ', NULLIF(TRIM(ad_bldg.street), ''), br_bldg.barangay_name), ''),
+               'Address not yet mapped'
+             ) AS property_address
       FROM assessment_assignments a
       JOIN users u2 ON a.assigned_by_user_id = u2.user_id
+      LEFT JOIN properties p ON (a.property_type = 'property' AND (p.property_id = a.target_id_int OR p.property_code = a.target_id_str OR CAST(p.property_id AS CHAR) = a.target_id_str))
+      LEFT JOIN property_owners po_prop ON p.owner_id = po_prop.owner_id
+      LEFT JOIN addresses ad_prop ON p.address_id = ad_prop.address_id
+      LEFT JOIN barangays br_prop ON ad_prop.barangay_id = br_prop.barangay_id
+      LEFT JOIN property_lots l ON (a.property_type = 'lot' AND (l.lot_id = a.target_id_int OR l.lot_number = a.target_id_str OR CAST(l.lot_id AS CHAR) = a.target_id_str))
+      LEFT JOIN properties p_lot ON l.property_id = p_lot.property_id
+      LEFT JOIN property_owners po_lot ON p_lot.owner_id = po_lot.owner_id
+      LEFT JOIN addresses ad_lot ON p_lot.address_id = ad_lot.address_id
+      LEFT JOIN barangays br_lot ON ad_lot.barangay_id = br_lot.barangay_id
+      LEFT JOIN property_buildings b ON (a.property_type = 'building' AND (b.building_id = a.target_id_int OR b.building_code = a.target_id_str OR b.building_name = a.target_id_str OR CAST(b.building_id AS CHAR) = a.target_id_str))
+      LEFT JOIN properties p_bldg ON b.property_id = p_bldg.property_id
+      LEFT JOIN property_owners po_bldg ON p_bldg.owner_id = po_bldg.owner_id
+      LEFT JOIN addresses ad_bldg ON p_bldg.address_id = ad_bldg.address_id
+      LEFT JOIN barangays br_bldg ON ad_bldg.barangay_id = br_bldg.barangay_id
       WHERE a.assigned_to_user_id = ?
       ORDER BY a.created_at DESC
     `, [req.user.id]);
@@ -246,8 +289,8 @@ router.get('/assessments/assignments/my', authenticate, allowRoles('assessor'), 
   }
 });
 
-// POST assign an assessment (supports new assignment & seamless reassignment)
-router.post('/assessments/assign', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+// POST assign an assessment (Admin Only - Super Admin is restricted)
+router.post('/assessments/assign', authenticate, allowRoles('admin'), async (req, res, next) => {
   const { property_type, target_id_int, target_id_str, assigned_to_user_id, due_date, instructions, reassign, reason } = req.body;
   const connection = await pool.getConnection();
   try {
@@ -260,14 +303,24 @@ router.post('/assessments/assign', authenticate, allowRoles('admin', 'super_admi
 
     // 1. Validate that the property exists in the database
     let propExists = false;
+    const isNum = Number.isInteger(Number(target_id_int)) && Number(target_id_int) > 0;
     if (property_type === 'lot') {
-      const [lRows] = await connection.query('SELECT lot_id FROM property_lots WHERE lot_id = ? OR lot_number = ?', [target_id_int, target_id_str]);
+      const [lRows] = await connection.query(
+        'SELECT lot_id FROM property_lots WHERE (? = 1 AND lot_id = ?) OR lot_number = ? OR CAST(lot_id AS CHAR) = ?',
+        [isNum ? 1 : 0, target_id_int || 0, target_id_str, target_id_str]
+      );
       propExists = lRows.length > 0;
     } else if (property_type === 'building') {
-      const [bRows] = await connection.query('SELECT building_id FROM property_buildings WHERE building_id = ? OR building_name = ?', [target_id_int, target_id_str]);
+      const [bRows] = await connection.query(
+        'SELECT building_id FROM property_buildings WHERE (? = 1 AND building_id = ?) OR building_code = ? OR building_name = ? OR CAST(building_id AS CHAR) = ?',
+        [isNum ? 1 : 0, target_id_int || 0, target_id_str, target_id_str, target_id_str]
+      );
       propExists = bRows.length > 0;
     } else if (property_type === 'property') {
-      const [pRows] = await connection.query('SELECT property_id FROM properties WHERE property_id = ?', [target_id_int]);
+      const [pRows] = await connection.query(
+        'SELECT property_id FROM properties WHERE (? = 1 AND property_id = ?) OR property_code = ? OR CAST(property_id AS CHAR) = ?',
+        [isNum ? 1 : 0, target_id_int || 0, target_id_str, target_id_str]
+      );
       propExists = pRows.length > 0;
     }
 
@@ -347,8 +400,8 @@ router.post('/assessments/assign', authenticate, allowRoles('admin', 'super_admi
   }
 });
 
-// PUT reassign an assessment by assignment_id
-router.put('/assessments/assignments/:id/reassign', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+// PUT reassign an assessment by assignment_id (Admin Only)
+router.put('/assessments/assignments/:id/reassign', authenticate, allowRoles('admin'), async (req, res, next) => {
   const { id } = req.params;
   const { new_assessor_id, reason, due_date } = req.body;
   const connection = await pool.getConnection();
@@ -442,8 +495,8 @@ router.put('/assessments/assignments/:id/reassign', authenticate, allowRoles('ad
   }
 });
 
-// POST cancel assignment
-router.post('/assessments/assignments/:id/cancel', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+// POST cancel assignment (Admin Only)
+router.post('/assessments/assignments/:id/cancel', authenticate, allowRoles('admin'), async (req, res, next) => {
   const { id } = req.params;
   const { reason } = req.body || {};
   const connection = await pool.getConnection();
@@ -581,20 +634,20 @@ router.get('/assessments/requests', authenticate, async (req, res, next) => {
       )
       LEFT JOIN users assessor_u ON aa.assigned_to_user_id = assessor_u.user_id
       -- Property link
-      LEFT JOIN properties p ON (r.property_type = 'property' AND (p.property_id = r.target_id_str OR p.property_id = r.target_id_int))
+      LEFT JOIN properties p ON (r.property_type = 'property' AND (p.property_id = r.target_id_int OR p.property_code = r.target_id_str OR CAST(p.property_id AS CHAR) = r.target_id_str))
       LEFT JOIN property_owners po_prop ON p.owner_id = po_prop.owner_id
       LEFT JOIN addresses ad_prop ON p.address_id = ad_prop.address_id
       LEFT JOIN barangays br_prop ON ad_prop.barangay_id = br_prop.barangay_id
       LEFT JOIN municipalities mu_prop ON br_prop.municipality_id = mu_prop.municipality_id
       -- Lot link
-      LEFT JOIN property_lots l ON (r.property_type = 'lot' AND (l.lot_id = r.target_id_str OR l.lot_id = r.target_id_int OR l.lot_number = r.target_id_str))
+      LEFT JOIN property_lots l ON (r.property_type = 'lot' AND (l.lot_id = r.target_id_int OR l.lot_number = r.target_id_str OR CAST(l.lot_id AS CHAR) = r.target_id_str))
       LEFT JOIN properties p_lot ON l.property_id = p_lot.property_id
       LEFT JOIN property_owners po_lot ON p_lot.owner_id = po_lot.owner_id
       LEFT JOIN addresses ad_lot ON p_lot.address_id = ad_lot.address_id
       LEFT JOIN barangays br_lot ON ad_lot.barangay_id = br_lot.barangay_id
       LEFT JOIN municipalities mu_lot ON br_lot.municipality_id = mu_lot.municipality_id
       -- Building link
-      LEFT JOIN property_buildings b ON (r.property_type = 'building' AND (b.building_id = r.target_id_str OR b.building_id = r.target_id_int OR b.building_name = r.target_id_str))
+      LEFT JOIN property_buildings b ON (r.property_type = 'building' AND (b.building_id = r.target_id_int OR b.building_code = r.target_id_str OR b.building_name = r.target_id_str OR CAST(b.building_id AS CHAR) = r.target_id_str))
       LEFT JOIN properties p_bldg ON b.property_id = p_bldg.property_id
       LEFT JOIN property_owners po_bldg ON p_bldg.owner_id = po_bldg.owner_id
       LEFT JOIN addresses ad_bldg ON p_bldg.address_id = ad_bldg.address_id
@@ -684,8 +737,8 @@ router.post('/assessments/requests', authenticate, allowRoles('assessor', 'staff
   }
 });
 
-// POST approve request
-router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+// POST approve request (Admin Only)
+router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin'), async (req, res, next) => {
   const { id } = req.params;
   const connection = await pool.getConnection();
   try {
@@ -724,33 +777,59 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
       await logActivity(connection, req, 'APPROVE', 'Assignments', `PR ${id}`, `Admin approved permission request PR-${id}. Assignment Created.`);
       await createNotification(request.requested_by_user_id, 'Permission Request Approved', `Your request to assess ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', id);
     } else if (request.request_action === 'ADDITION') {
+      let resolvedTargetInt = request.target_id_int;
       if (request.property_type === 'lot') {
-        await connection.query('UPDATE property_lots SET lot_status = "active" WHERE lot_id = ?', [request.target_id_str]);
-        await connection.query('UPDATE properties SET property_status = "active" WHERE property_id = (SELECT property_id FROM property_lots WHERE lot_id = ?)', [request.target_id_str]);
+        if (!resolvedTargetInt) {
+          const [lRows] = await connection.query('SELECT lot_id FROM property_lots WHERE lot_number = ? OR CAST(lot_id AS CHAR) = ? LIMIT 1', [request.target_id_str, request.target_id_str]);
+          if (lRows.length > 0) resolvedTargetInt = lRows[0].lot_id;
+        }
+        if (resolvedTargetInt) {
+          await connection.query('UPDATE property_lots SET lot_status = "active" WHERE lot_id = ?', [resolvedTargetInt]);
+          await connection.query('UPDATE properties SET property_status = "active" WHERE property_id = (SELECT property_id FROM property_lots WHERE lot_id = ?)', [resolvedTargetInt]);
+        }
       } else if (request.property_type === 'building') {
-        await connection.query('UPDATE property_buildings SET building_status = "active" WHERE building_id = ?', [request.target_id_str]);
-        await connection.query('UPDATE properties SET property_status = "active" WHERE property_id = (SELECT property_id FROM property_buildings WHERE building_id = ?)', [request.target_id_str]);
+        if (!resolvedTargetInt) {
+          const [bRows] = await connection.query('SELECT building_id FROM property_buildings WHERE building_code = ? OR building_name = ? OR CAST(building_id AS CHAR) = ? LIMIT 1', [request.target_id_str, request.target_id_str, request.target_id_str]);
+          if (bRows.length > 0) resolvedTargetInt = bRows[0].building_id;
+        }
+        if (resolvedTargetInt) {
+          await connection.query('UPDATE property_buildings SET building_status = "active" WHERE building_id = ?', [resolvedTargetInt]);
+          await connection.query('UPDATE properties SET property_status = "active" WHERE property_id = (SELECT property_id FROM property_buildings WHERE building_id = ?)', [resolvedTargetInt]);
+        }
       }
       await logActivity(connection, req, 'APPROVE', 'Properties', `PR ${id}`, `Admin approved addition of ${request.property_type} ${request.target_id_str}.`);
       await createNotification(request.requested_by_user_id, `${request.property_type === 'lot' ? 'Lot' : 'Building'} Approved`, `Your request to add ${request.property_type} ${request.target_id_str} was approved.`, 'PERMISSION_APPROVED', id);
     } else if (request.request_action === 'MANAGEMENT') {
       let data = request.proposed_data;
       if (typeof data === 'string') data = JSON.parse(data);
+      let resolvedTargetInt = request.target_id_int;
       if (request.property_type === 'lot') {
-        await connection.query(
-          'UPDATE property_lots SET property_id=?, lot_number=?, title_number=?, lot_area=?, lot_status=? WHERE lot_id=?',
-          [data.property_id, data.lot_number, data.title_number || null, data.lot_area || null, data.lot_status || 'active', request.target_id_str]
-        );
-      } else if (request.property_type === 'building') {
-        await connection.query(
-          'UPDATE property_buildings SET property_id=?, building_name=?, building_type=?, floor_area=?, floor_count=?, construction_type=?, year_constructed=?, building_status=? WHERE building_id=?',
-          [data.property_id, data.building_name, data.building_type, data.floor_area || null, data.floor_count || null, data.construction_type || null, data.year_constructed || null, data.building_status || 'active', request.target_id_str]
-        );
-        if (data.market_value !== undefined || data.assessed_value !== undefined) {
+        if (!resolvedTargetInt) {
+          const [lRows] = await connection.query('SELECT lot_id FROM property_lots WHERE lot_number = ? OR CAST(lot_id AS CHAR) = ? LIMIT 1', [request.target_id_str, request.target_id_str]);
+          if (lRows.length > 0) resolvedTargetInt = lRows[0].lot_id;
+        }
+        if (resolvedTargetInt) {
           await connection.query(
-            'INSERT INTO building_assessment_history (building_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date, assessment_reason) VALUES (?, ?, ?, ?, ?, CURDATE(), ?)',
-            [request.target_id_str, request.requested_by_user_id, 20.00, Number(data.market_value) || 0, Number(data.assessed_value) || 0, 'Approved staff update']
+            'UPDATE property_lots SET property_id=?, lot_number=?, title_number=?, lot_area=?, lot_status=? WHERE lot_id=?',
+            [data.property_id, data.lot_number, data.title_number || null, data.lot_area || null, data.lot_status || 'active', resolvedTargetInt]
           );
+        }
+      } else if (request.property_type === 'building') {
+        if (!resolvedTargetInt) {
+          const [bRows] = await connection.query('SELECT building_id FROM property_buildings WHERE building_code = ? OR building_name = ? OR CAST(building_id AS CHAR) = ? LIMIT 1', [request.target_id_str, request.target_id_str, request.target_id_str]);
+          if (bRows.length > 0) resolvedTargetInt = bRows[0].building_id;
+        }
+        if (resolvedTargetInt) {
+          await connection.query(
+            'UPDATE property_buildings SET property_id=?, building_name=?, building_type=?, floor_area=?, floor_count=?, construction_type=?, year_constructed=?, building_status=? WHERE building_id=?',
+            [data.property_id, data.building_name, data.building_type, data.floor_area || null, data.floor_count || null, data.construction_type || null, data.year_constructed || null, data.building_status || 'active', resolvedTargetInt]
+          );
+          if (data.market_value !== undefined || data.assessed_value !== undefined) {
+            await connection.query(
+              'INSERT INTO building_assessment_history (building_id, assessor_user_id, assessor_level, market_value, assessed_value, assessment_date, assessment_reason) VALUES (?, ?, ?, ?, ?, CURDATE(), ?)',
+              [resolvedTargetInt, request.requested_by_user_id, 20.00, Number(data.market_value) || 0, Number(data.assessed_value) || 0, 'Approved staff update']
+            );
+          }
         }
       }
       await logActivity(connection, req, 'APPROVE', 'Properties', `PR ${id}`, `Admin approved changes to ${request.property_type} ${request.target_id_str}.`);
@@ -761,8 +840,18 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
       
       const isLot = request.property_type === 'lot';
       const idField = isLot ? 'lot_id' : 'building_id';
+      let resolvedTargetInt = request.target_id_int;
+      if (!resolvedTargetInt) {
+        if (isLot) {
+          const [lRows] = await connection.query('SELECT lot_id FROM property_lots WHERE lot_number = ? OR CAST(lot_id AS CHAR) = ? LIMIT 1', [request.target_id_str, request.target_id_str]);
+          if (lRows.length > 0) resolvedTargetInt = lRows[0].lot_id;
+        } else {
+          const [bRows] = await connection.query('SELECT building_id FROM property_buildings WHERE building_code = ? OR building_name = ? OR CAST(building_id AS CHAR) = ? LIMIT 1', [request.target_id_str, request.target_id_str, request.target_id_str]);
+          if (bRows.length > 0) resolvedTargetInt = bRows[0].building_id;
+        }
+      }
       
-      const [existingRow] = await connection.query(`SELECT gis_id FROM gis_locations WHERE ${idField} = ?`, [request.target_id_str]);
+      const [existingRow] = await connection.query(`SELECT gis_id FROM gis_locations WHERE ${idField} = ?`, [resolvedTargetInt]);
       
       if (existingRow.length > 0) {
         await connection.query(`
@@ -772,7 +861,7 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
         await connection.query(`
           INSERT INTO gis_locations (property_id, ${idField}, geometry_type, coordinates, area_sqm, perimeter_m) 
           VALUES (?, ?, 'Polygon', ?, ?, ?)
-        `, [data.property_id, request.target_id_str, JSON.stringify(data.coordinates), data.area_sqm, data.perimeter_m]);
+        `, [data.property_id, resolvedTargetInt, JSON.stringify(data.coordinates), data.area_sqm, data.perimeter_m]);
       }
       
       if (data.scan_id) {
@@ -855,8 +944,8 @@ router.post('/assessments/requests/:id/approve', authenticate, allowRoles('admin
   }
 });
 
-// POST reject request
-router.post('/assessments/requests/:id/reject', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+// POST reject request (Admin Only)
+router.post('/assessments/requests/:id/reject', authenticate, allowRoles('admin'), async (req, res, next) => {
   const { id } = req.params;
   const { reason } = req.body;
   const connection = await pool.getConnection();
@@ -976,8 +1065,8 @@ router.post('/assessments/requests/:id/resubmit', authenticate, allowRoles('staf
   }
 });
 
-// PUT edit assessment permission request
-router.put('/assessments/requests/:id', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+// PUT edit assessment permission request (Admin Only)
+router.put('/assessments/requests/:id', authenticate, allowRoles('admin'), async (req, res, next) => {
   const { id } = req.params;
   const { property_type, target_id_str, target_id_int, requested_by_user_id, reason, request_action } = req.body;
   const connection = await pool.getConnection();
@@ -996,16 +1085,18 @@ router.put('/assessments/requests/:id', authenticate, allowRoles('admin', 'super
     const resolvedType = property_type || existing.property_type;
 
     if (resolvedType === 'lot') {
-      const [lots] = await connection.query('SELECT lot_id, lot_number FROM property_lots WHERE lot_id = ? OR lot_number = ?', [resolvedStrId, resolvedStrId]);
+      const isNum = Number.isInteger(Number(resolvedStrId)) && Number(resolvedStrId) > 0;
+      const [lots] = await connection.query('SELECT lot_id, lot_number FROM property_lots WHERE (? = 1 AND lot_id = ?) OR lot_number = ? OR CAST(lot_id AS CHAR) = ?', [isNum ? 1 : 0, resolvedStrId, resolvedStrId, resolvedStrId]);
       if (lots.length > 0) {
         resolvedIntId = lots[0].lot_id;
-        resolvedStrId = lots[0].lot_number || String(lots[0].lot_id);
+        resolvedStrId = lots[0].lot_number || `LOT_${lots[0].lot_id}`;
       }
     } else if (resolvedType === 'building') {
-      const [bldgs] = await connection.query('SELECT building_id, building_name FROM property_buildings WHERE building_id = ? OR building_name = ?', [resolvedStrId, resolvedStrId]);
+      const isNum = Number.isInteger(Number(resolvedStrId)) && Number(resolvedStrId) > 0;
+      const [bldgs] = await connection.query('SELECT building_id, building_code, building_name FROM property_buildings WHERE (? = 1 AND building_id = ?) OR building_code = ? OR building_name = ? OR CAST(building_id AS CHAR) = ?', [isNum ? 1 : 0, resolvedStrId, resolvedStrId, resolvedStrId, resolvedStrId]);
       if (bldgs.length > 0) {
         resolvedIntId = bldgs[0].building_id;
-        resolvedStrId = bldgs[0].building_name || String(bldgs[0].building_id);
+        resolvedStrId = bldgs[0].building_code || bldgs[0].building_name || `BUILDING_${bldgs[0].building_id}`;
       }
     }
 
@@ -1025,7 +1116,17 @@ router.put('/assessments/requests/:id', authenticate, allowRoles('admin', 'super
       // Check if official assessment completed
       const checkTable = existing.property_type === 'lot' ? 'lot_assessment_history' : existing.property_type === 'building' ? 'building_assessment_history' : 'property_assessments';
       const checkCol = existing.property_type === 'lot' ? 'lot_id' : existing.property_type === 'building' ? 'building_id' : 'property_id';
-      const [assessRows] = await connection.query(`SELECT assessment_status FROM ${checkTable} WHERE ${checkCol} = ? AND assessment_status = 'approved'`, [existing.target_id_int || existing.target_id_str]);
+      let checkIntId = existing.target_id_int;
+      if (!checkIntId) {
+        if (existing.property_type === 'lot') {
+          const [lr] = await connection.query('SELECT lot_id FROM property_lots WHERE lot_number = ? OR CAST(lot_id AS CHAR) = ? LIMIT 1', [existing.target_id_str, existing.target_id_str]);
+          if (lr[0]) checkIntId = lr[0].lot_id;
+        } else if (existing.property_type === 'building') {
+          const [br] = await connection.query('SELECT building_id FROM property_buildings WHERE building_code = ? OR building_name = ? OR CAST(building_id AS CHAR) = ? LIMIT 1', [existing.target_id_str, existing.target_id_str, existing.target_id_str]);
+          if (br[0]) checkIntId = br[0].building_id;
+        }
+      }
+      const [assessRows] = await connection.query(`SELECT assessment_status FROM ${checkTable} WHERE ${checkCol} = ? AND assessment_status = 'approved'`, [checkIntId || 0]);
       if (assessRows.length > 0) {
         await connection.rollback();
         return res.status(400).json({ message: 'Cannot edit this request: The property assessment has already been approved and finalized.' });
@@ -1070,8 +1171,8 @@ router.put('/assessments/requests/:id', authenticate, allowRoles('admin', 'super
   }
 });
 
-// POST revoke or cancel an approved request
-router.post('/assessments/requests/:id/revoke', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+// POST revoke or cancel an approved request (Admin Only)
+router.post('/assessments/requests/:id/revoke', authenticate, allowRoles('admin'), async (req, res, next) => {
   const { id } = req.params;
   const { reason, return_to } = req.body;
   if (!reason || !reason.trim()) {
@@ -1098,7 +1199,17 @@ router.post('/assessments/requests/:id/revoke', authenticate, allowRoles('admin'
     if (request.request_action === 'ASSESSMENT') {
       const checkTable = request.property_type === 'lot' ? 'lot_assessment_history' : request.property_type === 'building' ? 'building_assessment_history' : 'property_assessments';
       const checkCol = request.property_type === 'lot' ? 'lot_id' : request.property_type === 'building' ? 'building_id' : 'property_id';
-      const [assessRows] = await connection.query(`SELECT assessment_status FROM ${checkTable} WHERE ${checkCol} = ? AND assessment_status = 'approved'`, [request.target_id_int || request.target_id_str]);
+      let checkIntId = request.target_id_int;
+      if (!checkIntId) {
+        if (request.property_type === 'lot') {
+          const [lr] = await connection.query('SELECT lot_id FROM property_lots WHERE lot_number = ? OR CAST(lot_id AS CHAR) = ? LIMIT 1', [request.target_id_str, request.target_id_str]);
+          if (lr[0]) checkIntId = lr[0].lot_id;
+        } else if (request.property_type === 'building') {
+          const [br] = await connection.query('SELECT building_id FROM property_buildings WHERE building_code = ? OR building_name = ? OR CAST(building_id AS CHAR) = ? LIMIT 1', [request.target_id_str, request.target_id_str, request.target_id_str]);
+          if (br[0]) checkIntId = br[0].building_id;
+        }
+      }
+      const [assessRows] = await connection.query(`SELECT assessment_status FROM ${checkTable} WHERE ${checkCol} = ? AND assessment_status = 'approved'`, [checkIntId || 0]);
       if (assessRows.length > 0) {
         await connection.rollback();
         return res.status(400).json({ message: 'Cannot revoke approval: Property assessment has already been completed and approved by Head Assessor.' });

@@ -27,6 +27,7 @@ dist-ssr
 # Uploads and OCR model cache
 uploads/
 backend/uploads/
+backend/backups/
 *.traineddata
 test_*.js
 scratch_test_images/

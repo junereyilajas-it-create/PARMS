@@ -99,17 +99,52 @@ export function AppHeader({ active, onNavigate, theme: propTheme, onThemeToggle:
       const isAdminOrSuper = ['admin', 'super_admin'].includes(userRole);
       const relatedId = notif.related_id;
 
-      if (notif.type.includes('PERMISSION') || notif.type.includes('APPROVAL')) {
+      const notifType = (notif.type || '').toUpperCase();
+      const notifTitle = (notif.title || '').toLowerCase();
+
+      if (notifType.includes('PERMISSION') || notifType.includes('APPROVAL')) {
         if (isAdminOrSuper) {
-          navigate(relatedId ? `/permission-requests?requestId=${relatedId}` : '/permission-requests');
+          navigate(relatedId ? `/permission-requests?requestId=${encodeURIComponent(relatedId)}` : '/permission-requests');
         } else {
-          navigate(relatedId ? `/my-requests?requestId=${relatedId}` : '/my-requests');
+          navigate(relatedId ? `/my-requests?requestId=${encodeURIComponent(relatedId)}` : '/my-requests');
         }
-      } else if (notif.type === 'ASSESSMENT') {
-        navigate('/assessments');
-      } else if (notif.type.includes('CERTIFICATE')) {
+      } else if (notifType.includes('ASSESSMENT') || notifTitle.includes('assessment')) {
+        if (isAdminOrSuper) {
+          if (notifType === 'ASSESSMENT_SUBMITTED' || notifTitle.includes('submitted') || notifTitle.includes('resubmitted')) {
+            const highlightQuery = relatedId ? `&highlight=${encodeURIComponent(relatedId)}` : '';
+            navigate(`/assessments?tab=assessments${highlightQuery}&openReview=true`);
+          } else {
+            const highlightQuery = relatedId ? `&highlight=${encodeURIComponent(relatedId)}` : '';
+            navigate(`/assessments?tab=assessments${highlightQuery}`);
+          }
+        } else if (userRole === 'assessor') {
+          if (notifType === 'ASSESSMENT_RETURNED' || notifTitle.includes('returned')) {
+            const highlightQuery = relatedId ? `&highlight=${encodeURIComponent(relatedId)}` : '';
+            navigate(`/assessments?tab=assessments${highlightQuery}&openEdit=true`);
+          } else if (notifType === 'ASSESSMENT' || notifTitle.includes('assigned')) {
+            const highlightQuery = relatedId ? `&highlight=${encodeURIComponent(relatedId)}` : '';
+            navigate(`/assessments?tab=assignments${highlightQuery}`);
+          } else {
+            const highlightQuery = relatedId ? `&highlight=${encodeURIComponent(relatedId)}` : '';
+            navigate(`/assessments?tab=assessments${highlightQuery}`);
+          }
+        } else if (['client', 'owner'].includes(userRole)) {
+          navigate('/client/my-assessments');
+        } else {
+          const highlightQuery = relatedId ? `&highlight=${encodeURIComponent(relatedId)}` : '';
+          navigate(`/assessments?tab=assessments${highlightQuery}`);
+        }
+      } else if (notifType.includes('TAX_BILL') || notifTitle.includes('tax bill') || notifType.includes('TAX_COMPUTATION') || notifTitle.includes('tax computation')) {
+        if (['client', 'owner'].includes(userRole)) {
+          navigate('/client/tax-bills');
+        } else {
+          navigate('/assessments?tab=billing');
+        }
+      } else if (notifType.includes('CERTIFICATE')) {
         if (['client', 'owner'].includes(userRole)) {
           navigate('/client/certificate-requests');
+        } else if (userRole === 'admin') {
+          navigate('/dashboard');
         } else {
           navigate('/admin/certificate-requests');
         }

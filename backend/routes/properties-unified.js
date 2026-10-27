@@ -3,6 +3,7 @@ import { pool } from '../config/db.js'
 import { authenticate, allowRoles } from '../middleware/auth.js'
 import { logActivity, logPropertyHistory } from '../utils/logger.js'
 import { notifyRole, notifyRoles } from '../utils/notifications.js'
+import { generatePropertyId, generateLotId, generateBuildingId } from '../utils/idGenerator.js'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
@@ -79,13 +80,40 @@ router.post('/properties/upload-photos', authenticate, allowRoles('admin', 'staf
 // Fetch all photos for a specific property, lot, or building
 router.get('/properties/:propertyId/photos', authenticate, async (req, res, next) => {
   try {
-    const id = req.params.propertyId
+    const rawId = req.params.propertyId ? String(req.params.propertyId).trim() : ''
+    const isNum = /^\d+$/.test(rawId)
+    const numId = isNum ? parseInt(rawId, 10) : null
+    let resolvedPropId = numId
+    let resolvedLotId = numId
+    let resolvedBldgId = numId
+
+    if (!numId && rawId) {
+      const [props] = await pool.query('SELECT property_id FROM properties WHERE property_code = ? LIMIT 1', [rawId])
+      if (props[0]) resolvedPropId = props[0].property_id
+
+      const [lots] = await pool.query('SELECT lot_id FROM property_lots WHERE lot_number = ? LIMIT 1', [rawId])
+      if (lots[0]) resolvedLotId = lots[0].lot_id
+
+      const [bldgs] = await pool.query('SELECT building_id FROM property_buildings WHERE building_code = ? OR building_name = ? LIMIT 1', [rawId, rawId])
+      if (bldgs[0]) resolvedBldgId = bldgs[0].building_id
+    }
+
+    const conditions = []
+    const params = []
+    if (resolvedPropId) { conditions.push('property_id = ?'); params.push(resolvedPropId); }
+    if (resolvedLotId) { conditions.push('lot_id = ?'); params.push(resolvedLotId); }
+    if (resolvedBldgId) { conditions.push('building_id = ?'); params.push(resolvedBldgId); }
+
+    if (conditions.length === 0) {
+      return res.json([])
+    }
+
     const [rows] = await pool.query(
       `SELECT photo_id, property_id, lot_id, building_id, file_path, file_name, file_size, mime_type, is_primary, created_at
        FROM property_photos 
-       WHERE property_id = ? OR lot_id = ? OR building_id = ? 
+       WHERE ${conditions.join(' OR ')} 
        ORDER BY is_primary DESC, photo_id ASC`,
-      [id, id, id]
+      params
     )
     res.json(rows)
   } catch (err) {
@@ -117,9 +145,9 @@ async function getOrInsertBarangay(connection, municipalityId, barangayName) {
   return result.insertId
 }
 
-router.post('/properties/unified', authenticate, allowRoles('admin', 'staff'), async (req, res, next) => {
-  if (req.user?.role === 'super_admin') {
-    return res.status(403).json({ message: 'Super Admin is restricted from registering properties.' });
+router.post('/properties/unified', authenticate, allowRoles('staff'), async (req, res, next) => {
+  if (req.user?.role === 'super_admin' || req.user?.role === 'admin') {
+    return res.status(403).json({ message: 'Admin is restricted from registering properties. Property additions must be initiated by Staff and submitted for approval.' });
   }
   const connection = await pool.getConnection()
   try {
@@ -238,11 +266,14 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'staff'), a
     const firstItem = photosList[0];
     const photoPath = firstItem ? (typeof firstItem === 'string' ? firstItem : firstItem.url) : null;
 
+    // Generate standardized property code
+    const propertyCode = await generatePropertyId(connection);
+
     // Create Property
     const initialStatus = req.user.role === 'staff' ? 'pending' : 'active';
     const [propResult] = await connection.query(
-      'INSERT INTO properties (owner_id, address_id, property_type_id, classification_id, property_status, property_photo) VALUES (?, ?, ?, ?, ?, ?)',
-      [ownerId, propertyAddressId, propertyTypeId, classificationId, initialStatus, photoPath]
+      'INSERT INTO properties (property_code, owner_id, address_id, property_type_id, classification_id, property_status, property_photo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [propertyCode, ownerId, propertyAddressId, propertyTypeId, classificationId, initialStatus, photoPath]
     );
     const propertyId = propResult.insertId;
 
@@ -250,10 +281,12 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'staff'), a
     let lotId = null;
     let lotNumber = null;
     let buildingId = null;
+    let buildingCode = null;
     let bldgName = null;
 
     if (data.propertyType === 'LOT') {
-      lotNumber = data.lotNumber?.trim() || `LOT-T-${Date.now()}-${propertyId}`;
+      const brgy = data.propertyBarangay || data.barangay || '';
+      lotNumber = data.lotNumber?.trim() || await generateLotId(connection, brgy);
       const lotArea = Number(data.lotArea);
       const initialLotStatus = req.user.role === 'staff' ? 'pending' : (data.lotStatus || 'active').toLowerCase();
 
@@ -279,7 +312,9 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'staff'), a
         );
       }
     } else if (data.propertyType === 'BUILDING') {
-      bldgName = data.buildingName?.trim() || `BLDG-T-${Date.now()}-${propertyId}`;
+      const brgy = data.propertyBarangay || data.barangay || '';
+      buildingCode = await generateBuildingId(connection, brgy);
+      bldgName = data.buildingName?.trim() || buildingCode;
       const floorArea = Number(data.floorArea);
       const floorCount = Number(data.floorCount);
       const initialBldgStatus = req.user.role === 'staff' ? 'pending' : (data.buildingStatus || 'active').toLowerCase();
@@ -299,11 +334,12 @@ router.post('/properties/unified', authenticate, allowRoles('admin', 'staff'), a
 
       const [bldgResult] = await connection.query(
         `INSERT INTO property_buildings (
-          property_id, building_name, building_type, floor_area, floor_count, 
+          property_id, building_code, building_name, building_type, floor_area, floor_count, 
           construction_type, year_constructed, building_status, property_photo
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           propertyId,
+          buildingCode,
           bldgName,
           data.buildingType || 'Residential',
           Number.isFinite(floorArea) ? floorArea : null,
@@ -425,6 +461,7 @@ router.get('/properties/overview', authenticate, allowRoles('assessor', 'admin',
     const [rows] = await pool.query(`
       SELECT 
         p.property_id,
+        p.property_code,
         p.property_status,
         p.property_photo,
         CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name, NULLIF(o.suffix, '')) AS owner_name,
@@ -448,9 +485,11 @@ router.get('/properties/overview', authenticate, allowRoles('assessor', 'admin',
         -- Building info
         COUNT(DISTINCT b.building_id) AS building_count,
         GROUP_CONCAT(DISTINCT b.building_id) AS building_ids,
+        GROUP_CONCAT(DISTINCT b.building_code SEPARATOR ', ') AS building_codes,
         GROUP_CONCAT(DISTINCT b.building_name SEPARATOR ', ') AS building_names,
         COALESCE(MAX(b.floor_area), 0) AS floor_area,
         MAX(b.building_id) AS primary_building_id,
+        MAX(b.building_code) AS primary_building_code,
         MAX(b.building_name) AS primary_building_name,
         -- Calculated property category
         CASE
@@ -572,7 +611,7 @@ router.get('/properties/overview', authenticate, allowRoles('assessor', 'admin',
       LEFT JOIN property_lots l ON l.property_id = p.property_id
       LEFT JOIN property_buildings b ON b.property_id = p.property_id
       WHERE (l.lot_id IS NOT NULL OR b.building_id IS NOT NULL)
-      GROUP BY p.property_id, p.property_status, o.first_name, o.middle_name, o.last_name, o.suffix, ad.street, br.barangay_name, mu.municipality_name, pt.property_type_name, pc.classification_name
+      GROUP BY p.property_id, p.property_code, p.property_status, o.first_name, o.middle_name, o.last_name, o.suffix, ad.street, br.barangay_name, mu.municipality_name, pt.property_type_name, pc.classification_name
       ORDER BY p.property_id ASC
     `, [currentUserId, currentUserId]);
 
@@ -586,20 +625,20 @@ router.get('/properties/overview', authenticate, allowRoles('assessor', 'admin',
       // Determine primary target for assessment / permission request
       let targetType = 'property';
       let targetId = r.property_id;
-      let targetStr = `PROPERTY-${r.property_id}`;
+      let targetStr = r.property_code || `PROP_${r.property_id}`;
 
       if (r.calculated_property_type === 'Lot' && r.primary_lot_id) {
         targetType = 'lot';
         targetId = r.primary_lot_id;
-        targetStr = r.primary_lot_number || `LOT-${r.primary_lot_id}`;
+        targetStr = r.primary_lot_number || `LOT_${r.primary_lot_id}`;
       } else if (r.calculated_property_type === 'Building' && r.primary_building_id) {
         targetType = 'building';
         targetId = r.primary_building_id;
-        targetStr = r.primary_building_name || `BLDG-${r.primary_building_id}`;
+        targetStr = r.primary_building_code || r.primary_building_name || `BUILDING_${r.primary_building_id}`;
       } else if (r.primary_lot_id) {
         targetType = 'lot';
         targetId = r.primary_lot_id;
-        targetStr = r.primary_lot_number || `LOT-${r.primary_lot_id}`;
+        targetStr = r.primary_lot_number || `LOT_${r.primary_lot_id}`;
       }
 
       return {
@@ -621,7 +660,9 @@ router.get('/properties/overview', authenticate, allowRoles('assessor', 'admin',
       const q = search.trim().toLowerCase();
       records = records.filter(r => 
         String(r.property_id).toLowerCase().includes(q) ||
+        (r.property_code && r.property_code.toLowerCase().includes(q)) ||
         (r.lot_numbers && r.lot_numbers.toLowerCase().includes(q)) ||
+        (r.building_codes && r.building_codes.toLowerCase().includes(q)) ||
         (r.building_names && r.building_names.toLowerCase().includes(q)) ||
         (r.owner_name && r.owner_name.toLowerCase().includes(q)) ||
         (r.calculated_property_type && r.calculated_property_type.toLowerCase().includes(q)) ||

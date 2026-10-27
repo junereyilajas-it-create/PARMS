@@ -4,12 +4,12 @@ import { PropertyTable } from '../components/common/PropertyTable'
 import { SearchBox } from '../components/common/SearchBox'
 import type { Property } from '../types/property'
 
-export function DashboardView({ active, query, onQueryChange, rows, onNavigate, onRegister, onEdit, onDelete }: { active: string; query: string; onQueryChange: (value: string) => void; rows: Property[]; onNavigate: (page: string) => void; onRegister: () => void; onEdit?: (property: Property) => void; onDelete?: (property: Property) => void }) {
+export function DashboardView({ active, query, onQueryChange, rows, onNavigate, onRegister: _onRegister, onEdit, onDelete }: { active: string; query: string; onQueryChange: (value: string) => void; rows: Property[]; onNavigate: (page: string) => void; onRegister?: () => void; onEdit?: (property: Property) => void; onDelete?: (property: Property) => void }) {
   const isDashboard = active === 'Dashboard'
   const propertyCount = new Set(rows.map(row => row.id)).size
   const pendingCount = rows.filter(row => row.status.toLowerCase() === 'pending').length
   const assessedCount = rows.filter(row => Number(row.market.replace(/[^0-9.-]/g, '')) > 0).length
-  return <><div className="title-row"><div><p className="eyebrow">WELCOME, ADMIN</p><h1>{isDashboard ? 'Dashboard Overview' : active}</h1><p className="subhead">{isDashboard ? "Here's what's happening with your records today." : `Manage ${active.toLowerCase()} in one place.`}</p></div><button className="btn-save" onClick={onRegister}>Add Property</button></div>
+  return <><div className="title-row"><div><p className="eyebrow">WELCOME, ADMIN</p><h1>{isDashboard ? 'Dashboard Overview' : active}</h1><p className="subhead">{isDashboard ? "Here's what's happening with your records today." : `Manage ${active.toLowerCase()} in one place.`}</p></div></div>
   <div className="metrics">
     <Metric icon={<Building2/>} title="Total Properties" value={propertyCount.toLocaleString()} detail="Registered property records" color="green"/>
     <Metric icon={<MapPin/>} title="Total Lots" value={rows.length.toLocaleString()} detail="Lots linked to properties" color="blue"/>

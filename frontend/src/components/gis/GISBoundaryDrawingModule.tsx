@@ -16,6 +16,7 @@ import {
   validateMeasurements,
   type LotShapeType,
 } from '../../lib/gisGeometry';
+import { validateGISBoundary, adjustFourSidedDimensions } from '../../lib/gisValidationService';
 import {
   RotateCw,
   Move,
@@ -195,6 +196,11 @@ export function GISBoundaryDrawingModule({
   const [moveMode, setMoveMode] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+  const [adjustmentNotice, setAdjustmentNotice] = useState<string>('');
+
+  const officialAreaNum = useMemo(() => {
+    return Number(lotAreaEntered) || parseFloat(lotAreaInput) || 0;
+  }, [lotAreaEntered, lotAreaInput]);
 
   const mapRef = useRef<L.Map | null>(null);
 
@@ -261,8 +267,32 @@ export function GISBoundaryDrawingModule({
     }
   };
 
-  // Synchronize rectangle length/width
-  const handleRectangleChange = (l: string, w: string) => {
+  // Synchronize rectangle length/width with automatic adjustment
+  const handleRectangleChange = (l: string, w: string, editedSide?: 'length' | 'width') => {
+    const officialArea = officialAreaNum;
+
+    if (editedSide && officialArea > 0) {
+      try {
+        const val = editedSide === 'length' ? parseFloat(l) : parseFloat(w);
+        if (!isNaN(val) && val > 0) {
+          const sideIndex = editedSide === 'length' ? 0 : 1;
+          const adjusted = adjustFourSidedDimensions(sideIndex, val, officialArea);
+          setRectLength(String(adjusted.length));
+          setRectWidth(String(adjusted.width));
+          setSideInputs([
+            String(adjusted.length),
+            String(adjusted.width),
+            String(adjusted.length),
+            String(adjusted.width),
+          ]);
+          setAdjustmentNotice(adjusted.message);
+          return;
+        }
+      } catch (err: any) {
+        setAdjustmentNotice(err.message);
+      }
+    }
+
     setRectLength(l);
     setRectWidth(w);
     setSideInputs([l, w, l, w]);
@@ -512,8 +542,19 @@ export function GISBoundaryDrawingModule({
       return;
     }
 
+    if (officialAreaNum > 0 && liveStats.areaSqm > officialAreaNum + 0.05) {
+      setErrorMsg(`Cannot confirm boundary: Mapped survey area (${liveStats.areaSqm.toFixed(2)} m²) exceeds the recorded official property area (${officialAreaNum.toFixed(2)} m²). Mapped area must not exceed official area.`);
+      return;
+    }
+
     const turfCoords = [...vertices, vertices[0]].map(([lat, lng]) => [lng, lat]);
     const geoJsonFeature = turf.polygon([turfCoords]);
+
+    const validation = validateGISBoundary(geoJsonFeature, officialAreaNum > 0 ? officialAreaNum : undefined);
+    if (!validation.isValid) {
+      setErrorMsg(validation.error || 'Boundary validation failed.');
+      return;
+    }
 
     setIsConfirmed(true);
     onConfirmBoundary(geoJsonFeature, liveStats.areaSqm, liveStats.perimeterM, liveStats.sides);
@@ -764,7 +805,7 @@ export function GISBoundaryDrawingModule({
                           step="0.1"
                           min="1"
                           value={rectLength}
-                          onChange={e => handleRectangleChange(e.target.value, rectWidth)}
+                          onChange={e => handleRectangleChange(e.target.value, rectWidth, 'length')}
                           className="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg font-mono font-bold text-gray-900 dark:text-white"
                         />
                       </div>
@@ -777,7 +818,7 @@ export function GISBoundaryDrawingModule({
                           step="0.1"
                           min="1"
                           value={rectWidth}
-                          onChange={e => handleRectangleChange(rectLength, e.target.value)}
+                          onChange={e => handleRectangleChange(rectLength, e.target.value, 'width')}
                           className="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg font-mono font-bold text-gray-900 dark:text-white"
                         />
                       </div>
@@ -785,6 +826,12 @@ export function GISBoundaryDrawingModule({
                     <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
                       Area = {rectLength} m × {rectWidth} m = {(Number(rectLength) * Number(rectWidth)).toFixed(2)} m²
                     </p>
+                    {adjustmentNotice && (
+                      <div className="p-2 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg text-blue-800 dark:text-blue-300 text-[11px] flex items-start gap-1.5">
+                        <CheckCircle2 size={13} className="shrink-0 mt-0.5 text-blue-600" />
+                        <span>{adjustmentNotice}</span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1132,14 +1179,22 @@ export function GISBoundaryDrawingModule({
 
           {/* Bottom Action Footer */}
           <div className="mt-auto p-4 border-t border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-850/80 space-y-2">
+            {officialAreaNum > 0 && liveStats.areaSqm > officialAreaNum + 0.05 && (
+              <div className="p-2.5 bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 rounded-xl text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5 text-rose-600" />
+                <span>
+                  <strong>Area Limit Exceeded:</strong> Mapped survey area ({liveStats.areaSqm.toFixed(2)} m²) exceeds the recorded official property area ({officialAreaNum.toFixed(2)} m²) by {(liveStats.areaSqm - officialAreaNum).toFixed(2)} m². Boundary cannot be saved until adjusted to not exceed {officialAreaNum.toFixed(2)} m².
+                </span>
+              </div>
+            )}
             <button
               type="button"
               id="confirm-boundary-btn"
               onClick={handleConfirm}
-              disabled={vertices.length < 3 || liveStats.areaSqm <= 0 || liveStats.selfIntersection.hasIntersection}
+              disabled={vertices.length < 3 || liveStats.areaSqm <= 0 || liveStats.selfIntersection.hasIntersection || (officialAreaNum > 0 && liveStats.areaSqm > officialAreaNum + 0.05)}
               className={`w-full py-2.5 rounded-xl font-bold transition flex items-center justify-center gap-2 shadow-lg cursor-pointer ${
-                liveStats.selfIntersection.hasIntersection
-                  ? 'bg-gray-400 text-white cursor-not-allowed'
+                liveStats.selfIntersection.hasIntersection || (officialAreaNum > 0 && liveStats.areaSqm > officialAreaNum + 0.05)
+                  ? 'bg-gray-400 text-white cursor-not-allowed opacity-60'
                   : isConfirmed
                   ? 'bg-emerald-700 text-white'
                   : 'bg-emerald-600 hover:bg-emerald-700 text-white'
@@ -1148,6 +1203,8 @@ export function GISBoundaryDrawingModule({
               <CheckCircle2 size={16} />
               {liveStats.selfIntersection.hasIntersection
                 ? 'Cannot Confirm (Intersecting Lines)'
+                : (officialAreaNum > 0 && liveStats.areaSqm > officialAreaNum + 0.05)
+                ? 'Cannot Confirm (Exceeds Official Area)'
                 : isConfirmed
                 ? 'Boundary Confirmed ✓'
                 : 'Confirm Boundary & Save Coordinates'}
@@ -1163,9 +1220,23 @@ export function GISBoundaryDrawingModule({
           {/* Overlay Status HUD Badge */}
           <div className="absolute top-3 left-3 z-[400] flex flex-wrap items-center gap-2 pointer-events-none">
             <div className="bg-white/95 dark:bg-gray-850/95 backdrop-blur-md px-3.5 py-1.5 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 text-xs flex items-center gap-2 pointer-events-auto">
-              <span className={`w-2.5 h-2.5 rounded-full ${liveStats.selfIntersection.hasIntersection ? 'bg-rose-500 animate-ping' : 'bg-emerald-500 animate-pulse'}`} />
-              <span className="font-bold text-gray-800 dark:text-gray-200">
-                {liveStats.areaSqm > 0 ? `${liveStats.areaSqm.toFixed(2)} m²` : 'Draw Boundary'}
+              <span className={`w-2.5 h-2.5 rounded-full ${
+                liveStats.selfIntersection.hasIntersection || (officialAreaNum > 0 && liveStats.areaSqm > officialAreaNum + 0.05)
+                  ? 'bg-rose-500 animate-ping'
+                  : 'bg-emerald-500 animate-pulse'
+              }`} />
+              {officialAreaNum > 0 && (
+                <>
+                  <span className="text-gray-500 dark:text-gray-400">Official: <strong>{officialAreaNum.toFixed(2)} m²</strong></span>
+                  <span className="text-gray-300 dark:text-gray-600">|</span>
+                </>
+              )}
+              <span className={`font-bold ${
+                officialAreaNum > 0 && liveStats.areaSqm > officialAreaNum + 0.05
+                  ? 'text-rose-600 dark:text-rose-400 font-extrabold'
+                  : 'text-gray-800 dark:text-gray-200'
+              }`}>
+                Mapped: {liveStats.areaSqm > 0 ? `${liveStats.areaSqm.toFixed(2)} m²` : '0 m²'}
               </span>
               <span className="text-gray-400">•</span>
               <span className="text-gray-600 dark:text-gray-300 font-mono">
@@ -1173,13 +1244,19 @@ export function GISBoundaryDrawingModule({
               </span>
             </div>
 
+            {officialAreaNum > 0 && liveStats.areaSqm > officialAreaNum + 0.05 && (
+              <span className="bg-rose-600 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow-lg flex items-center gap-1.5 pointer-events-auto">
+                <AlertTriangle size={14} /> Exceeds Official Area (+{(liveStats.areaSqm - officialAreaNum).toFixed(2)} m²)
+              </span>
+            )}
+
             {liveStats.selfIntersection.hasIntersection && (
               <span className="bg-rose-600 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow-lg flex items-center gap-1.5 pointer-events-auto">
                 <AlertTriangle size={14} /> Intersecting Lines Detected
               </span>
             )}
 
-            {isConfirmed && !liveStats.selfIntersection.hasIntersection && (
+            {isConfirmed && !liveStats.selfIntersection.hasIntersection && !(officialAreaNum > 0 && liveStats.areaSqm > officialAreaNum + 0.05) && (
               <span className="bg-emerald-600 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow-lg flex items-center gap-1.5 pointer-events-auto">
                 <Check size={14} /> Confirmed
               </span>

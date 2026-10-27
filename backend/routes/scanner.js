@@ -5,6 +5,8 @@ import fs from 'fs';
 import { pool } from '../config/db.js';
 import { authenticate, allowRoles } from '../middleware/auth.js';
 import { logActivity } from '../utils/logger.js';
+import { validateGISBoundary } from '../utils/gisValidationService.js';
+import { previewNextPropertyId, generatePropertyId, generateLotId } from '../utils/idGenerator.js';
 import Tesseract from 'tesseract.js';
 import { Jimp } from 'jimp';
 
@@ -418,12 +420,51 @@ router.put('/scanner/:id/segments', authenticate, allowRoles('staff', 'admin', '
   }
 });
 
+// Preview next unique Property ID
+router.get('/scanner/next-property-id', authenticate, allowRoles('staff', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const nextPropId = await previewNextPropertyId(pool);
+    res.json({ nextPropertyId: nextPropId });
+  } catch (e) { next(e); }
+});
+
+// Properties lookup for Blueprint Scanner
+router.get('/scanner/properties-lookup', authenticate, allowRoles('staff', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { q } = req.query;
+    let sql = `
+      SELECT p.property_id, p.property_code, l.lot_id, l.lot_number, l.lot_area,
+             CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name, NULLIF(o.suffix, '')) AS owner,
+             br.barangay_name AS barangay,
+             c.classification_name,
+             g.gis_id, g.coordinates, g.area_sqm
+      FROM properties p
+      JOIN property_owners o ON p.owner_id = o.owner_id
+      LEFT JOIN property_lots l ON l.property_id = p.property_id
+      LEFT JOIN addresses ad ON p.address_id = ad.address_id
+      LEFT JOIN barangays br ON ad.barangay_id = br.barangay_id
+      LEFT JOIN property_classifications c ON p.classification_id = c.classification_id
+      LEFT JOIN gis_locations g ON (g.property_id = p.property_id AND (g.lot_id = l.lot_id OR (g.lot_id IS NULL AND g.building_id IS NULL)))
+      WHERE p.property_status != 'inactive'
+    `;
+    const params = [];
+    if (q && q.trim()) {
+      const term = `%${q.trim()}%`;
+      sql += ` AND (p.property_code LIKE ? OR l.lot_number LIKE ? OR o.first_name LIKE ? OR o.last_name LIKE ? OR br.barangay_name LIKE ?)`;
+      params.push(term, term, term, term, term);
+    }
+    sql += ' ORDER BY p.property_id DESC LIMIT 50';
+    const [rows] = await pool.query(sql, params);
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
 // Map scanned blueprint to an existing property/lot in GIS
 router.post('/scanner/:id/to-gis', authenticate, allowRoles('staff', 'admin', 'super_admin'), async (req, res, next) => {
   const scanId = req.params.id;
-  const { property_id, lot_id, center_lat, center_lng } = req.body;
+  const { property_id, lot_id, coordinates, center_lat, center_lng } = req.body;
   if (!property_id) {
-    return res.status(400).json({ message: 'property_id is required' });
+    return res.status(400).json({ message: 'property_id is required.' });
   }
 
   const conn = await pool.getConnection();
@@ -432,66 +473,120 @@ router.post('/scanner/:id/to-gis', authenticate, allowRoles('staff', 'admin', 's
     if (!scans.length) return res.status(404).json({ message: 'Scan not found' });
     const blueprint = scans[0];
 
-    let geom = blueprint.gis_geometry;
-    if (typeof geom === 'string') {
-      try { geom = JSON.parse(geom); } catch (e) {}
+    // Resolve property record (handles numeric ID or alphanumeric code like PROP_1)
+    const rawProp = String(property_id).trim();
+    const isNum = /^\d+$/.test(rawProp);
+    const [propRows] = await conn.query(
+      'SELECT property_id, property_code FROM properties WHERE ' + (isNum ? 'property_id = ? OR property_code = ?' : 'property_code = ? OR property_id = ?'),
+      isNum ? [parseInt(rawProp, 10), rawProp] : [rawProp, parseInt(rawProp, 10) || 0]
+    );
+
+    if (!propRows.length) {
+      return res.status(404).json({ message: `Property '${property_id}' not found in database.` });
+    }
+    const resolvedPropertyId = propRows[0].property_id;
+
+    // Resolve lot and authoritative lot_area
+    let lotRows = [];
+    if (lot_id) {
+      [lotRows] = await conn.query('SELECT lot_id, lot_number, lot_area FROM property_lots WHERE lot_id = ?', [lot_id]);
+    } else {
+      [lotRows] = await conn.query('SELECT lot_id, lot_number, lot_area FROM property_lots WHERE property_id = ? ORDER BY lot_id ASC LIMIT 1', [resolvedPropertyId]);
+    }
+    const resolvedLotId = lotRows.length ? lotRows[0].lot_id : null;
+    const officialLotArea = lotRows.length && Number(lotRows[0].lot_area) > 0 
+      ? Number(lotRows[0].lot_area) 
+      : (Number(blueprint.stated_area) || 0);
+
+    let geomCandidate = coordinates;
+
+    if (!geomCandidate) {
+      let geom = blueprint.gis_geometry;
+      if (typeof geom === 'string') {
+        try { geom = JSON.parse(geom); } catch (e) {}
+      }
+
+      if (!geom || !geom.coordinates || !geom.coordinates[0] || geom.coordinates[0].length < 3) {
+        return res.status(400).json({ message: 'Blueprint has no valid polygon geometry to map.' });
+      }
+
+      const cLat = Number(center_lat) || 8.834;
+      const cLng = Number(center_lng) || 124.786;
+      const metersPerDegLat = 111139;
+      const metersPerDegLng = 111139 * Math.cos((cLat * Math.PI) / 180);
+
+      const localRing = geom.coordinates[0];
+      const meanX = localRing.reduce((acc, p) => acc + p[0], 0) / localRing.length;
+      const meanY = localRing.reduce((acc, p) => acc + p[1], 0) / localRing.length;
+
+      const geoRing = localRing.map(([x, y]) => {
+        const dx = x - meanX;
+        const dy = y - meanY;
+        const lat = cLat + dy / metersPerDegLat;
+        const lng = cLng + dx / metersPerDegLng;
+        return [lng, lat];
+      });
+
+      geomCandidate = {
+        type: 'Polygon',
+        coordinates: [geoRing]
+      };
     }
 
-    if (!geom || !geom.coordinates || !geom.coordinates[0] || geom.coordinates[0].length < 3) {
-      return res.status(400).json({ message: 'Blueprint has no valid polygon geometry to map.' });
+    // Strict Area Validation
+    const validation = validateGISBoundary(geomCandidate, officialLotArea);
+    if (!validation.isValid) {
+      return res.status(400).json({
+        message: validation.error,
+        calculatedArea: validation.calculatedArea,
+        officialArea: validation.officialArea,
+        difference: validation.difference,
+        exceedsOfficialArea: validation.exceedsOfficialArea,
+        hasSelfIntersection: validation.hasSelfIntersection
+      });
     }
 
-    const cLat = Number(center_lat) || 8.834;
-    const cLng = Number(center_lng) || 124.786;
-    const metersPerDegLat = 111139;
-    const metersPerDegLng = 111139 * Math.cos((cLat * Math.PI) / 180);
-
-    const localRing = geom.coordinates[0];
-    const meanX = localRing.reduce((acc, p) => acc + p[0], 0) / localRing.length;
-    const meanY = localRing.reduce((acc, p) => acc + p[1], 0) / localRing.length;
-
-    const geoRing = localRing.map(([x, y]) => {
-      const dx = x - meanX;
-      const dy = y - meanY;
-      const lat = cLat + dy / metersPerDegLat;
-      const lng = cLng + dx / metersPerDegLng;
-      return [lng, lat];
-    });
-
-    const geoJsonPolygon = {
+    const finalAreaSqm = validation.calculatedArea;
+    const finalPerimeterM = validation.perimeter;
+    const finalPolygon = {
       type: 'Polygon',
-      coordinates: [geoRing]
+      coordinates: [validation.normalizedCoordinates]
     };
-
-    let perim = 0;
-    for (let i = 0; i < localRing.length - 1; i++) {
-      perim += Math.hypot(localRing[i + 1][0] - localRing[i][0], localRing[i + 1][1] - localRing[i][1]);
-    }
 
     await conn.beginTransaction();
 
     const [existing] = await conn.query(
       'SELECT gis_id FROM gis_locations WHERE (lot_id IS NOT NULL AND lot_id = ?) OR (property_id = ? AND lot_id IS NULL AND building_id IS NULL)',
-      [lot_id || 0, property_id]
+      [resolvedLotId || 0, resolvedPropertyId]
     );
 
     if (existing.length > 0) {
       await conn.query(
         `UPDATE gis_locations SET coordinates = ?, area_sqm = ?, perimeter_m = ?, mapping_status = 'verified', mapped_by_user_id = ?, mapped_at = NOW() WHERE gis_id = ?`,
-        [JSON.stringify(geoJsonPolygon), blueprint.calculated_area || 0, Math.round(perim * 100) / 100, req.user.id, existing[0].gis_id]
+        [JSON.stringify(finalPolygon), finalAreaSqm, finalPerimeterM, req.user.id, existing[0].gis_id]
       );
     } else {
       await conn.query(
         `INSERT INTO gis_locations (property_id, lot_id, geometry_type, coordinates, area_sqm, perimeter_m, mapping_status, mapped_by_user_id, mapped_at) VALUES (?, ?, 'Polygon', ?, ?, ?, 'verified', ?, NOW())`,
-        [property_id, lot_id || null, JSON.stringify(geoJsonPolygon), blueprint.calculated_area || 0, Math.round(perim * 100) / 100, req.user.id]
+        [resolvedPropertyId, resolvedLotId, JSON.stringify(finalPolygon), finalAreaSqm, finalPerimeterM, req.user.id]
       );
     }
+
+    // Also update blueprint record with calculated area and geometry
+    await conn.query(
+      `UPDATE scanned_blueprints SET calculated_area = ?, gis_geometry = ? WHERE scan_id = ?`,
+      [finalAreaSqm, JSON.stringify(finalPolygon), scanId]
+    );
 
     await conn.commit();
     res.json({
       message: 'Lot boundary successfully mapped and saved to GIS!',
-      area_sqm: blueprint.calculated_area,
-      geometry: geoJsonPolygon
+      area_sqm: finalAreaSqm,
+      official_area: officialLotArea,
+      difference: validation.difference,
+      geometry: finalPolygon,
+      property_id: resolvedPropertyId,
+      lot_id: resolvedLotId
     });
   } catch (err) {
     await conn.rollback();
@@ -500,13 +595,7 @@ router.post('/scanner/:id/to-gis', authenticate, allowRoles('staff', 'admin', 's
     conn.release();
   }
 });
-  } catch (err) {
-    await conn.rollback();
-    next(err);
-  } finally {
-    conn.release();
-  }
-});
+
 
 // Submit to admin approval workflow
 router.post('/scanner/:id/submit', authenticate, allowRoles('staff', 'admin', 'super_admin'), async (req, res, next) => {
@@ -565,15 +654,16 @@ router.post('/scanner/:id/submit', authenticate, allowRoles('staff', 'admin', 's
         ['Purok 1', brgyId, '9005']);
       const addressId = addressResult.insertId;
 
-      // 3. Create property
+      // 3. Create property with valid unique Property Code (e.g. PROP_50)
+      const nextPropCode = await generatePropertyId(conn);
       const [propResult] = await conn.query(
-        'INSERT INTO properties (owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, 1, 1, "active")', 
-        [ownerId, addressId]
+        'INSERT INTO properties (property_code, owner_id, address_id, property_type_id, classification_id, property_status) VALUES (?, ?, ?, 1, 1, "active")', 
+        [nextPropCode, ownerId, addressId]
       );
       const propertyId = propResult.insertId;
 
-      // 4. Create lot
-      const finalLotNum = lotNum || `LOT-SCAN-${Date.now()}-${propertyId}`;
+      // 4. Create lot with valid lot number (e.g. LOT_P-318)
+      const finalLotNum = lotNum || (await generateLotId(conn, brgy));
       const [lotResult] = await conn.query(
         'INSERT INTO property_lots (property_id, lot_number, lot_area, lot_status) VALUES (?, ?, ?, "active")', 
         [propertyId, finalLotNum, Number(area) || 0]

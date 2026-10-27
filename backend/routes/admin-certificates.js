@@ -5,11 +5,14 @@ import { logActivity } from '../utils/logger.js'
 
 const router = Router()
 
-// Admin and Super Admin have full certificate access. Assessor and Staff require MANAGE_CERTIFICATES permission.
+// Certificate Management moved to Staff. Admin is not permitted. Super Admin and Staff have access.
 router.use('/admin/certificate-requests', authenticate, loadPermissions, (req, res, next) => {
-  if (['admin', 'super_admin'].includes(req.user.role)) return next();
+  if (req.user.role === 'admin') {
+    return res.status(403).json({ message: 'Admin is not permitted to access certificate management. Certificate management is moved to Staff.' });
+  }
+  if (['super_admin', 'staff'].includes(req.user.role)) return next();
   if (req.user.permissions?.includes('MANAGE_CERTIFICATES')) return next();
-  return res.status(403).json({ message: 'Insufficient permissions. You require the MANAGE_CERTIFICATES permission.' });
+  return res.status(403).json({ message: 'Insufficient permissions. You require certificate management authorization.' });
 });
 
 // 1. List all certificate requests with full owner, property, and reviewer details
@@ -89,10 +92,8 @@ router.put('/admin/certificate-requests/:id', async (req, res, next) => {
 
     // Role-based validation
     const userRole = (req.user?.role || '').toLowerCase()
-    if (userRole === 'staff') {
-      if (['APPROVED', 'COMPLETED'].includes(status) && !['admin', 'super_admin'].includes(userRole)) {
-        return res.status(403).json({ message: 'Staff members cannot finalize certificate approvals. Please submit for Admin Review.' })
-      }
+    if (userRole === 'admin') {
+      return res.status(403).json({ message: 'Admin is not permitted to manage certificates.' })
     }
 
     const updates = []

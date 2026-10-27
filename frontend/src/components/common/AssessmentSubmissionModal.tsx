@@ -40,6 +40,21 @@ export const AssessmentSubmissionModal: React.FC<AssessmentSubmissionModalProps>
   const [existingPhoto, setExistingPhoto] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string>('');
+  const [assessmentLevelPct, setAssessmentLevelPct] = useState<number>(20);
+  const [assessmentRuleName, setAssessmentRuleName] = useState<string>('Statutory Assessment Level');
+
+  useEffect(() => {
+    if (isOpen) {
+      api.get('/tax-configurations/assessment-level')
+        .then(res => {
+          if (res.data?.percentage) {
+            setAssessmentLevelPct(res.data.percentage);
+            if (res.data.rule_name) setAssessmentRuleName(res.data.rule_name);
+          }
+        })
+        .catch(console.warn);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (target && isOpen) {
@@ -53,12 +68,12 @@ export const AssessmentSubmissionModal: React.FC<AssessmentSubmissionModalProps>
     }
   }, [target, isOpen]);
 
-  // Automatically calculate 20% assessment level if user enters market value and assessed is empty
+  // Automatically calculate assessment level using saved database configuration
   const handleMarketValueChange = (val: string) => {
     setMarketValue(val);
     const num = parseFloat(val);
     if (!isNaN(num) && num > 0 && (!assessedValue || assessedValue === '0')) {
-      setAssessedValue(String(Math.round(num * 0.2)));
+      setAssessedValue(String(Math.round(num * (assessmentLevelPct / 100))));
     }
   };
 
@@ -115,7 +130,7 @@ export const AssessmentSubmissionModal: React.FC<AssessmentSubmissionModalProps>
       formData.append('target_id', String(target.target_id));
       formData.append('market_value', String(numMarket));
       formData.append('assessed_value', String(numAssessed));
-      formData.append('assessor_level', '20');
+      formData.append('assessor_level', String(assessmentLevelPct));
       if (remarks.trim()) {
         formData.append('remarks', remarks.trim());
       }
@@ -228,9 +243,14 @@ export const AssessmentSubmissionModal: React.FC<AssessmentSubmissionModalProps>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                Assessed Value (₱) <span className="text-red-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Assessed Value (₱) <span className="text-red-500">*</span>
+                </label>
+                <span className="text-[10px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                  {assessmentLevelPct}% ({assessmentRuleName})
+                </span>
+              </div>
               <input
                 id="assessed-value-input"
                 data-testid="assessed-value-input"

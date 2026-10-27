@@ -20,6 +20,7 @@ interface DataTableProps {
   showActions?: boolean;
   customActions?: (row: any) => React.ReactNode;
   userRole?: string;
+  highlightValue?: string | number | null;
 }
 
 export const DataTable: React.FC<DataTableProps> = ({
@@ -35,6 +36,7 @@ export const DataTable: React.FC<DataTableProps> = ({
   showActions = true,
   customActions,
   userRole,
+  highlightValue,
 }) => {
   const [selectedRowIndex, setSelectedRowIndex] = React.useState<number | null>(null);
   const isAssessor = userRole === 'assessor';
@@ -60,8 +62,23 @@ export const DataTable: React.FC<DataTableProps> = ({
           <tbody>
             {data.map((row, rowIdx) => {
               const isSelected = selectedRowIndex === rowIdx;
+              const hVal = highlightValue ? String(highlightValue).toLowerCase().trim() : '';
+              const isHighlighted = Boolean(
+                hVal && (
+                  String(row.target_id || '').toLowerCase() === hVal ||
+                  String(row.property_id || '').toLowerCase() === hVal ||
+                  String(row.property_code || '').toLowerCase() === hVal ||
+                  String(row.lot_number || '').toLowerCase() === hVal ||
+                  String(row.building_code || '').toLowerCase() === hVal ||
+                  String(row.assessment_id || '').toLowerCase() === hVal ||
+                  (row.target_id && hVal.includes(String(row.target_id).toLowerCase()))
+                )
+              );
+
               let rowClasses = "border-t border-gray-200 dark:border-gray-700 transition ";
-              if (onRowClick) {
+              if (isHighlighted) {
+                rowClasses += " bg-emerald-100/90 dark:bg-emerald-950/70 ring-2 ring-emerald-500 font-semibold shadow-xs animate-pulse-once ";
+              } else if (onRowClick) {
                 rowClasses += " cursor-pointer hover:bg-green-50/70 dark:hover:bg-green-900/20 active:bg-green-100/60";
               } else if (isAssessor) {
                 rowClasses += " " + (isSelected ? "bg-green-50/50 dark:bg-green-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50");
@@ -69,9 +86,13 @@ export const DataTable: React.FC<DataTableProps> = ({
                 rowClasses += " hover:bg-gray-50 dark:hover:bg-gray-700";
               }
 
+              const rowId = `assessment-row-${row.target_id || row.lot_number || row.assessment_id || rowIdx}`;
+
               return (
                 <React.Fragment key={rowIdx}>
                   <tr
+                    id={rowId}
+                    data-testid={rowId}
                     className={rowClasses}
                     onClick={() => {
                       if (onRowClick) {

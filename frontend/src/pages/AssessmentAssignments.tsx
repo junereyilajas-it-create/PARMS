@@ -107,6 +107,9 @@ export const AssessmentAssignments: React.FC = () => {
 
   const { showSuccess, showError, showConfirm } = useModal();
 
+  const userRole = (localStorage.getItem('accessor_role') || '').toLowerCase();
+  const canAssign = userRole === 'admin';
+
   const propDropdownRef = useRef<HTMLDivElement>(null);
   const assessorDropdownRef = useRef<HTMLDivElement>(null);
   const reassignAssessorDropdownRef = useRef<HTMLDivElement>(null);
@@ -366,12 +369,14 @@ export const AssessmentAssignments: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight text-green-700 dark:text-green-500">Assessment Assignments</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">Manage, assign, reassign, and track municipal property assessments.</p>
         </div>
-        <button 
-          onClick={handleOpenAssignModal}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-xl shadow-sm transition-colors focus:ring-2 focus:ring-green-500 focus:outline-none"
-        >
-          <Plus size={18} /> Assign Assessment
-        </button>
+        {canAssign && (
+          <button 
+            onClick={handleOpenAssignModal}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-xl shadow-sm transition-colors focus:ring-2 focus:ring-green-500 focus:outline-none"
+          >
+            <Plus size={18} /> Assign Assessment
+          </button>
+        )}
       </div>
 
       {/* Tabs and Search Controls */}
@@ -501,7 +506,7 @@ export const AssessmentAssignments: React.FC = () => {
                         {row.due_date ? new Date(row.due_date).toLocaleDateString() : <span className="text-gray-400">—</span>}
                       </td>
                       <td className="px-4 py-3.5 text-right">
-                        {isActive ? (
+                        {isActive && canAssign ? (
                           <div className="inline-flex items-center gap-2 justify-end">
                             <button
                               onClick={() => handleOpenReassignModal(row)}
@@ -519,7 +524,7 @@ export const AssessmentAssignments: React.FC = () => {
                             </button>
                           </div>
                         ) : (
-                          <span className="text-xs text-gray-400 italic">Archived in history</span>
+                          <span className="text-xs text-gray-400 italic">{isActive ? 'Active' : 'Archived in history'}</span>
                         )}
                       </td>
                     </tr>

@@ -230,7 +230,7 @@ export const BuildingDirectory: React.FC = () => {
               : 'Manage structural assets and linked properties.'}
           </p>
         </div>
-        {['admin', 'staff'].includes(userRole) && (
+        {userRole === 'staff' && (
           <button id="add-property-btn" onClick={() => setShowAddProperty(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium shadow-sm cursor-pointer">
             <Plus size={18} /> Add Property
           </button>
@@ -416,7 +416,7 @@ export const BuildingDirectory: React.FC = () => {
       )}
 
       {modal && <CrudModal title="Building Record" fields={fields} record={modal.record} readOnly={modal.mode === 'view'} onClose={() => setModal(null)} onSave={save} />}
-      {showAddProperty && userRole !== 'super_admin' && (
+      {showAddProperty && userRole === 'staff' && (
         <AddPropertyWorkflow
           close={() => setShowAddProperty(false)}
           onSave={createProperty}

@@ -3,6 +3,9 @@ export type GISFeature = {
   lot_id?: number | null;
   building_id?: number | null;
   property_id: string | number;
+  property_code?: string | null;
+  lot_number?: string | null;
+  building_code?: string | null;
   title: string;
   title_number?: string | null;
   area: string | number;

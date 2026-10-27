@@ -19,6 +19,10 @@ import supportTicketsRoutes from './routes/supportTickets.js'
 import notificationsRoutes from './routes/notifications.js'
 import rolesRoutes from './routes/roles.js'
 import scannerRoutes from './routes/scanner.js'
+import taxDeclarationsRoutes from './routes/tax-declarations.js'
+import taxConfigurationsRoutes from './routes/tax-configurations.js'
+import taxBillingRoutes from './routes/tax-billing.js'
+import taxComputationsRoutes from './routes/tax-computations.js'
 dotenv.config({ path: new URL('./.env', import.meta.url) })
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -47,6 +51,10 @@ app.use('/api', supportTicketsRoutes)
 app.use('/api', notificationsRoutes)
 app.use('/api', rolesRoutes)
 app.use('/api', scannerRoutes)
+app.use('/api', taxDeclarationsRoutes)
+app.use('/api', taxConfigurationsRoutes)
+app.use('/api', taxBillingRoutes)
+app.use('/api', taxComputationsRoutes)
 app.use((err, _, res, __) => {
   console.error(err)
   if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'A record with that unique ID or reference already exists.' })

@@ -28,6 +28,9 @@ router.post('/users', authenticate, allowRoles('super_admin'), async (req, res, 
   const connection = await pool.getConnection()
   try {
     const { first_name, last_name, username, email, password, role, status } = req.body
+    if (role === 'cashier') {
+      return res.status(400).json({ message: 'The Cashier role has been decommissioned and cannot be assigned to user accounts.' })
+    }
     if (!password || password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' })
     const password_hash = await bcrypt.hash(password, 10)
     await connection.beginTransaction()
@@ -51,6 +54,9 @@ router.put('/users/:id', authenticate, allowRoles('super_admin'), async (req, re
   const connection = await pool.getConnection()
   try {
     const { first_name, last_name, username, email, role, password, status } = req.body
+    if (role === 'cashier') {
+      return res.status(400).json({ message: 'The Cashier role has been decommissioned and cannot be assigned to user accounts.' })
+    }
     await connection.beginTransaction()
 
     // Check if role or status is being changed

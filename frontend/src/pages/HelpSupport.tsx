@@ -203,7 +203,7 @@ export function HelpSupport() {
       category: 'certificates',
       title: 'How to Request and Issue Official Tax Declarations & Certificates',
       summary: 'Guide for property owners requesting certificates and Staff processing official assessor documents.',
-      roles: ['client', 'staff', 'admin', 'super_admin'],
+      roles: ['client', 'staff', 'super_admin'],
       steps: [
         { title: 'Submit Certificate Request', description: 'Go to "Certificates" > "Request Certificate". Select property and certificate type (e.g., Certificate of No Improvement, Certified Tax Declaration copy).' },
         { title: 'Staff Review & Verification', description: 'Authorized municipal staff inspect the property status and verify that real property taxes are current.' },

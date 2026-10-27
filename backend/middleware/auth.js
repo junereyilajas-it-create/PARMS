@@ -42,6 +42,11 @@ export const allowRoles = (...roles) => async (req, res, next) => {
     if (allowedRoles.length === 1 && allowedRoles[0] === 'client') {
       return res.status(403).json({ message: 'Super Admin cannot access client-only endpoints' });
     }
+    if (!allowedRoles.includes('super_admin')) {
+      return res.status(403).json({ 
+        message: 'Super Admin is restricted from performing this operation. Assessment assignments are reserved for Admins, and Tax Management is reserved for Assessors.' 
+      });
+    }
     return next();
   }
   
@@ -74,9 +79,18 @@ export const requireOwnership = async (req, res, next) => {
   if (!propertyId) return res.status(400).json({ message: 'Property ID is required for ownership check' })
   
   try {
-    const [rows] = await pool.query('SELECT owner_id FROM properties WHERE property_id = ?', [propertyId])
+    const rawId = String(propertyId).trim()
+    const isNum = /^\d+$/.test(rawId)
+    const numId = isNum ? parseInt(rawId, 10) : null
+    const [rows] = await pool.query(
+      'SELECT property_id, owner_id FROM properties WHERE (? = 1 AND property_id = ?) OR property_code = ? OR CAST(property_id AS CHAR) = ?',
+      [numId !== null ? 1 : 0, numId || 0, rawId, rawId]
+    )
     if (rows.length === 0) return res.status(404).json({ message: 'Property not found' })
     if (rows[0].owner_id !== req.user.owner_id) return res.status(403).json({ message: 'You are not authorized to view this property.' })
+    if (req.params.id) {
+      req.params.id = rows[0].property_id // Normalize to integer ID for downstream queries
+    }
     next()
   } catch (err) {
     next(err)

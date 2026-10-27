@@ -95,7 +95,7 @@ async function migrate() {
         }
 
         // Let's grant some basic roles based on current system so things don't completely break
-        const adminPerms = ['MANAGE_LOT', 'MANAGE_BUILDING', 'MANAGE_OWNER', 'MANAGE_ASSESSMENT', 'MANAGE_PERMISSION_REQUEST', 'MANAGE_STAFF', 'VIEW_REPORTS', 'MANAGE_CERTIFICATES', 'APPROVE_LOT', 'APPROVE_BUILDING', 'APPROVE_ASSESSMENT', 'APPROVE_PERMISSION_REQUEST', 'REJECT_PERMISSION_REQUEST', 'VIEW_LOT', 'VIEW_BUILDING', 'VIEW_ASSESSMENT', 'VIEW_OWNER', 'VIEW_PERMISSION_REQUEST'];
+        const adminPerms = ['MANAGE_LOT', 'MANAGE_BUILDING', 'MANAGE_OWNER', 'MANAGE_ASSESSMENT', 'MANAGE_PERMISSION_REQUEST', 'MANAGE_STAFF', 'VIEW_REPORTS', 'APPROVE_LOT', 'APPROVE_BUILDING', 'APPROVE_ASSESSMENT', 'APPROVE_PERMISSION_REQUEST', 'REJECT_PERMISSION_REQUEST', 'VIEW_LOT', 'VIEW_BUILDING', 'VIEW_ASSESSMENT', 'VIEW_OWNER', 'VIEW_PERMISSION_REQUEST'];
         for (const name of adminPerms) {
             await connection.query('INSERT IGNORE INTO role_permissions (role, permission_name) VALUES (?, ?)', ['admin', name]);
         }
@@ -105,7 +105,7 @@ async function migrate() {
             await connection.query('INSERT IGNORE INTO role_permissions (role, permission_name) VALUES (?, ?)', ['assessor', name]);
         }
 
-        const staffPerms = ['VIEW_LOT', 'VIEW_BUILDING', 'VIEW_OWNER', 'CREATE_LOT', 'CREATE_BUILDING'];
+        const staffPerms = ['VIEW_LOT', 'VIEW_BUILDING', 'VIEW_OWNER', 'CREATE_LOT', 'CREATE_BUILDING', 'MANAGE_CERTIFICATES'];
         for (const name of staffPerms) {
             await connection.query('INSERT IGNORE INTO role_permissions (role, permission_name) VALUES (?, ?)', ['staff', name]);
         }

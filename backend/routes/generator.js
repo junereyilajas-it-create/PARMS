@@ -4,9 +4,12 @@ import { authenticate, allowRoles, loadPermissions } from '../middleware/auth.js
 
 const router = Router()
 router.use('/generator', authenticate, loadPermissions, (req, res, next) => {
-  if (['admin', 'super_admin'].includes(req.user.role)) return next();
+  if (req.user.role === 'admin') {
+    return res.status(403).json({ message: 'Admin is not permitted to access certificate management. Certificate management is moved to Staff.' });
+  }
+  if (['super_admin', 'staff'].includes(req.user.role)) return next();
   if (req.user.permissions?.includes('MANAGE_CERTIFICATES')) return next();
-  return res.status(403).json({ message: 'Insufficient permissions. You require the MANAGE_CERTIFICATES permission.' });
+  return res.status(403).json({ message: 'Insufficient permissions. You require certificate management authorization.' });
 })
 
 // Get owner's properties with detailed information needed for certificates

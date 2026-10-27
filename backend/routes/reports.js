@@ -887,4 +887,183 @@ router.get('/reports/history', authenticate, allowRoles('admin', 'super_admin'),
   }
 });
 
+// 10. Comprehensive Real Property Tax & Collections Summary Report
+router.get('/reports/tax-summary', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { year = new Date().getFullYear(), barangay } = req.query;
+
+    let billCondition = 'WHERE tb.tax_year = ? AND tb.bill_status NOT IN (\'cancelled\')';
+    const billParams = [year];
+
+    if (barangay && barangay !== 'ALL') {
+      billCondition += ' AND LOWER(brgy.barangay_name) = LOWER(?)';
+      billParams.push(barangay);
+    }
+
+    // High level metrics
+    const [summaryRows] = await pool.query(`
+      SELECT 
+        COUNT(tb.bill_id) AS total_bills,
+        COALESCE(SUM(tb.assessed_value), 0) AS total_assessed_value_billed,
+        COALESCE(SUM(tb.basic_tax), 0) AS total_basic_tax_billed,
+        COALESCE(SUM(tb.sef_tax), 0) AS total_sef_tax_billed,
+        COALESCE(SUM(tb.discount_amount), 0) AS total_discounts_granted,
+        COALESCE(SUM(tb.penalty_amount), 0) AS total_penalties_levied,
+        COALESCE(SUM(tb.total_amount_due), 0) AS total_receivables,
+        COALESCE(SUM(tb.amount_paid), 0) AS total_collected,
+        COALESCE(SUM(tb.remaining_balance), 0) AS total_outstanding,
+        SUM(CASE WHEN tb.bill_status = 'paid' THEN 1 ELSE 0 END) AS fully_paid_count,
+        SUM(CASE WHEN tb.bill_status = 'partially_paid' THEN 1 ELSE 0 END) AS partially_paid_count,
+        SUM(CASE WHEN tb.due_date < CURRENT_DATE AND tb.remaining_balance > 0 THEN 1 ELSE 0 END) AS overdue_count
+      FROM tax_bills tb
+      JOIN properties p ON tb.property_id = p.property_id
+      LEFT JOIN addresses addr ON p.address_id = addr.address_id
+      LEFT JOIN barangays brgy ON addr.barangay_id = brgy.barangay_id
+      ${billCondition}
+    `, billParams);
+
+    // Collections breakdown by payment method for this year's bills
+    const [methodBreakdown] = await pool.query(`
+      SELECT 
+        pt.payment_method,
+        COUNT(pt.transaction_id) AS transaction_count,
+        COALESCE(SUM(pt.amount_paid), 0) AS total_amount
+      FROM payment_transactions pt
+      JOIN tax_bills tb ON pt.bill_id = tb.bill_id
+      WHERE tb.tax_year = ? AND pt.status = 'completed'
+      GROUP BY pt.payment_method
+    `, [year]);
+
+    // Breakdown by Barangay
+    const [barangayBreakdown] = await pool.query(`
+      SELECT 
+        COALESCE(brgy.barangay_name, 'Lagonglong') AS barangay_name,
+        COUNT(tb.bill_id) AS bill_count,
+        COALESCE(SUM(tb.total_amount_due), 0) AS total_assessed_receivable,
+        COALESCE(SUM(tb.amount_paid), 0) AS total_collected,
+        COALESCE(SUM(tb.remaining_balance), 0) AS total_outstanding,
+        CASE 
+          WHEN SUM(tb.total_amount_due) > 0 
+          THEN ROUND((SUM(tb.amount_paid) / SUM(tb.total_amount_due)) * 100, 2)
+          ELSE 0 
+        END AS collection_rate_pct
+      FROM tax_bills tb
+      JOIN properties p ON tb.property_id = p.property_id
+      LEFT JOIN addresses addr ON p.address_id = addr.address_id
+      LEFT JOIN barangays brgy ON addr.barangay_id = brgy.barangay_id
+      WHERE tb.tax_year = ? AND tb.bill_status NOT IN ('cancelled')
+      GROUP BY brgy.barangay_name
+      ORDER BY total_collected DESC
+    `, [year]);
+
+    // Breakdown by Property Classification
+    const [classificationBreakdown] = await pool.query(`
+      SELECT 
+        td.classification,
+        COUNT(tb.bill_id) AS bill_count,
+        COALESCE(SUM(tb.total_amount_due), 0) AS total_billed,
+        COALESCE(SUM(tb.amount_paid), 0) AS total_collected,
+        COALESCE(SUM(tb.remaining_balance), 0) AS total_outstanding
+      FROM tax_bills tb
+      JOIN tax_declarations td ON tb.tax_declaration_id = td.tax_declaration_id
+      WHERE tb.tax_year = ? AND tb.bill_status NOT IN ('cancelled')
+      GROUP BY td.classification
+      ORDER BY total_billed DESC
+    `, [year]);
+
+    const summary = summaryRows[0] || {};
+    const totalReceivables = Number(summary.total_receivables || 0);
+    const totalCollected = Number(summary.total_collected || 0);
+    const collectionEfficiency = totalReceivables > 0 
+      ? Number(((totalCollected / totalReceivables) * 100).toFixed(2)) 
+      : 0;
+
+    res.json({
+      reporting_year: year,
+      summary: {
+        ...summary,
+        collection_efficiency_pct: collectionEfficiency
+      },
+      method_breakdown: methodBreakdown,
+      barangay_breakdown: barangayBreakdown,
+      classification_breakdown: classificationBreakdown
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 11. Tax Declarations Issued / Approved Report
+router.get('/reports/tax-declarations', authenticate, allowRoles('admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { start_date, end_date, barangay, status, property_type } = req.query;
+    let query = `
+      SELECT 
+        td.declaration_number,
+        td.property_type,
+        td.target_id_str,
+        td.classification,
+        td.actual_use,
+        td.land_area,
+        td.building_area,
+        td.market_value,
+        td.assessment_level,
+        td.assessed_value,
+        td.effective_year,
+        td.status,
+        td.created_at,
+        td.approved_at,
+        CONCAT_WS(' ', o.first_name, NULLIF(o.middle_name, ''), o.last_name) AS owner_name,
+        COALESCE(brgy.barangay_name, 'Lagonglong') AS barangay,
+        u_prep.first_name AS preparer_first_name, u_prep.last_name AS preparer_last_name,
+        u_app.first_name AS approver_first_name, u_app.last_name AS approver_last_name
+      FROM tax_declarations td
+      JOIN properties p ON td.property_id = p.property_id
+      JOIN property_owners o ON td.owner_id = o.owner_id
+      LEFT JOIN addresses addr ON p.address_id = addr.address_id
+      LEFT JOIN barangays brgy ON addr.barangay_id = brgy.barangay_id
+      LEFT JOIN users u_prep ON td.prepared_by_user_id = u_prep.user_id
+      LEFT JOIN users u_app ON td.approved_by_user_id = u_app.user_id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (start_date) {
+      query += ' AND DATE(td.created_at) >= ?';
+      params.push(start_date);
+    }
+    if (end_date) {
+      query += ' AND DATE(td.created_at) <= ?';
+      params.push(end_date);
+    }
+    if (status && status !== 'ALL') {
+      query += ' AND td.status = ?';
+      params.push(status);
+    }
+    if (property_type && property_type !== 'ALL') {
+      query += ' AND td.property_type = ?';
+      params.push(property_type);
+    }
+    if (barangay && barangay !== 'ALL') {
+      query += ' AND LOWER(brgy.barangay_name) = LOWER(?)';
+      params.push(barangay);
+    }
+
+    query += ' ORDER BY td.tax_declaration_id DESC';
+    const [rows] = await pool.query(query, params);
+
+    const totalAssessed = rows.reduce((acc, r) => acc + Number(r.assessed_value || 0), 0);
+    const totalMarket = rows.reduce((acc, r) => acc + Number(r.market_value || 0), 0);
+
+    res.json({
+      count: rows.length,
+      total_assessed_value: totalAssessed,
+      total_market_value: totalMarket,
+      records: rows
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
